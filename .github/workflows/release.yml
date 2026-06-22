@@ -1,0 +1,119 @@
+name: release
+
+# Push to main/master → build + sign the package feed → deploy to Cloudflare Pages.
+# The package is PKGARCH:=all, so one build per branch covers every architecture.
+#
+# Required repository secrets:
+#   KEY_BUILD             usign private key (opkg index signing)
+#   PRIVATE_KEY           RSA private key  (apk index signing)
+#   CLOUDFLARE_ACCOUNT_ID
+#   CLOUDFLARE_API_TOKEN  token with "Cloudflare Pages: Edit"
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build ${{ matrix.branch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: [openwrt-24.10, openwrt-25.12]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build + sign feed
+        uses: openwrt/gh-action-sdk@main
+        env:
+          ARCH: x86_64-${{ matrix.branch }}
+          FEEDNAME: netbird
+          PACKAGES: luci-app-netbird
+          INDEX: "1"
+          KEY_BUILD: ${{ secrets.KEY_BUILD }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          NO_REFRESH_CHECK: "1"
+
+      - name: Lay out feed (arch-independent → all)
+        run: |
+          mkdir -p "public/${{ matrix.branch }}/all"
+          mv bin/packages/x86_64/netbird "public/${{ matrix.branch }}/all/netbird"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: feed-${{ matrix.branch }}
+          path: public
+
+  deploy:
+    name: deploy to Cloudflare Pages
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: feed-*
+          merge-multiple: true
+          path: public
+
+      - name: Add install scripts + public keys
+        run: |
+          cp feed/feed.sh feed/install.sh feed/uninstall.sh \
+             feed/key-build.pub feed/public-key.pem public/
+
+      - name: Add landing pages + screenshots
+        run: |
+          cp -R site/. public/
+          mkdir -p public/screenshots
+          cp -R docs/screenshots/. public/screenshots/
+
+      - name: Generate manifest.json + feed autoindex
+        run: |
+          set -eu
+          gen_branch() {
+            branch="$1"; fmt="$2"
+            base="/${branch}/all/netbird"
+            dir="public/${branch}/all/netbird"
+            if [ -d "$dir" ]; then
+              ( cd "$dir" && find . -maxdepth 1 -type f ! -name index.html -printf '%f\t%s\n' | sort ) \
+                | jq -R -s --arg base "$base" --arg fmt "$fmt" '
+                    split("\n") | map(select(length>0)) | map(split("\t"))
+                    | map({name: .[0], size: (.[1]|tonumber), url: ($base + "/" + .[0])})
+                    | map(select(.name | test("\\.(ipk|apk)$")))
+                    | {format: $fmt, base: $base, count: length, files: .}'
+            else
+              jq -n --arg base "$base" --arg fmt "$fmt" '{format:$fmt, base:$base, count:0, files:[]}'
+            fi
+          }
+          VER=$(ls public/openwrt-24.10/all/netbird/luci-app-netbird_*.ipk 2>/dev/null | head -1 \
+                | sed -E 's#.*/luci-app-netbird_(.+)_all\.ipk#\1#')
+          [ -n "${VER:-}" ] || VER="0.1.0"
+          UPDATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          jq -n --arg v "$VER" --arg u "$UPDATED" \
+            --argjson b1 "$(gen_branch openwrt-24.10 ipk)" \
+            --argjson b2 "$(gen_branch openwrt-25.12 apk)" \
+            '{version:$v, updated:$u, branches:{"openwrt-24.10":$b1,"openwrt-25.12":$b2}}' \
+            > public/manifest.json
+          # per-directory autoindex (Cloudflare Pages does not auto-list dirs) so "Browse all files →" works
+          for d in public/openwrt-24.10/all/netbird public/openwrt-25.12/all/netbird; do
+            [ -d "$d" ] || continue
+            { echo "<!DOCTYPE html><meta charset=\"utf-8\"><title>${d#public/}</title><h1>${d#public/}</h1><ul>"
+              ( cd "$d" && find . -maxdepth 1 -type f ! -name index.html -printf '%f\n' | sort \
+                  | while IFS= read -r f; do echo "<li><a href=\"$f\">$f</a></li>"; done )
+              echo "</ul>"
+            } > "$d/index.html"
+          done
+          echo "=== manifest.json ===" ; cat public/manifest.json
+
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          command: pages deploy public --project-name=luci-app-netbird

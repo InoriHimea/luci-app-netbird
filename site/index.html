@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>luci-app-netbird — NetBird Client Manager for OpenWrt / ImmortalWrt</title>
+  <meta name="description" content="A LuCI app to install, configure and manage the NetBird mesh-VPN client on OpenWrt. Self-hosted server, WireGuard setup, firewall automation. One-click install.">
+  <meta name="robots" content="index, follow">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="canonical" href="https://luci-app-netbird.okk.sh/">
+  <link rel="alternate" hreflang="zh" href="https://luci-app-netbird.okk.sh/zh-cn">
+
+  <meta property="og:title" content="luci-app-netbird — NetBird Client Manager for OpenWrt / ImmortalWrt">
+  <meta property="og:description" content="A LuCI app to install, configure and manage the NetBird mesh-VPN client on OpenWrt. Self-hosted server, WireGuard setup, firewall automation. One-click install.">
+  <meta property="og:url" content="https://luci-app-netbird.okk.sh/">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://luci-app-netbird.okk.sh/og-card.png">
+  <meta property="og:site_name" content="luci-app-netbird">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="luci-app-netbird — NetBird Client Manager for OpenWrt / ImmortalWrt">
+  <meta name="twitter:description" content="A LuCI app to install, configure and manage the NetBird mesh-VPN client on OpenWrt. Self-hosted server, WireGuard setup, firewall automation. One-click install.">
+  <meta name="twitter:image" content="https://luci-app-netbird.okk.sh/og-card.png">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "luci-app-netbird",
+    "applicationCategory": "NetworkingApplication",
+    "operatingSystem": "OpenWrt, ImmortalWrt",
+    "description": "A LuCI app to install, configure and manage the NetBird mesh-VPN client on OpenWrt. Supports self-hosted server, WireGuard setup, firewall automation.",
+    "offers": { "@type": "Offer", "price": "0" },
+    "url": "https://github.com/dont-touchme/luci-app-netbird",
+    "license": "https://spdx.org/licenses/Apache-2.0.html"
+  }
+  </script>
+
+  <!-- privacy-friendly analytics (pageview.app) -->
+  <script defer data-domain="luci-app-netbird.okk.sh" src="https://app.pageview.app/js/script.js"></script>
+
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#f5f8fb;--surface:#ffffff;--ink:#0d2236;--text:#243b4a;--text-muted:#5e7787;
+      --border:#dce8ef;--accent:#01abdf;--accent-hover:#0492bd;--brand-soft:#e7f6fc;--accent2:#f4791f;
+      --code-bg:#0c2235;--code-text:#d6e7f0;--radius:10px
+    }
+    body{
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+      background:var(--bg);color:var(--text);line-height:1.7
+    }
+    a{color:var(--accent);text-decoration:none}
+    a:hover{text-decoration:underline}
+    .container{max-width:960px;margin:0 auto;padding:0 24px}
+
+    .site-header{
+      background:var(--surface);border-bottom:1px solid var(--border);
+      padding:12px 0;position:sticky;top:0;z-index:100
+    }
+    .site-header .container{display:flex;align-items:center;justify-content:space-between}
+    .site-header .logo{font-weight:700;font-size:1.1rem;color:var(--text);display:inline-flex;align-items:center;gap:8px}
+    .site-header .logo-img{width:26px;height:26px;border-radius:6px}
+    .site-header nav{display:flex;gap:16px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+    .site-header nav a{font-size:.9rem;color:var(--text-muted)}
+    .site-header nav a:hover{color:var(--text);text-decoration:none}
+    .site-header .lang-tag{font-size:.8rem;border:1px solid var(--border);border-radius:4px;padding:2px 8px}
+
+    .hero{
+      background:var(--surface);border-bottom:1px solid var(--border);
+      padding:64px 0 48px;text-align:center
+    }
+    .hero h1{font-size:2.4rem;font-weight:800;letter-spacing:-0.02em;margin-bottom:12px}
+    .hero .tagline{font-size:1.15rem;color:var(--text-muted);max-width:640px;margin:0 auto 32px}
+
+    .install-block{max-width:640px;margin:0 auto 24px}
+    .install-block .cmd-wrap{
+      background:var(--code-bg);color:var(--code-text);border-radius:var(--radius);
+      padding:16px 20px;display:flex;align-items:center;gap:12px;
+      font-family:"SF Mono","Fira Code","Fira Mono",Menlo,Consolas,monospace;
+      font-size:.9rem
+    }
+    .install-block .cmd-wrap code{flex:1;min-width:0;white-space:nowrap;overflow-x:auto}
+    .install-block .copy-btn{
+      background:var(--accent);color:#fff;border:none;border-radius:4px;
+      padding:6px 14px;font-size:.8rem;cursor:pointer;white-space:nowrap;flex-shrink:0
+    }
+    .install-block .copy-btn:hover{background:var(--accent-hover)}
+    .install-block .cmd-label{font-size:.8rem;color:var(--text-muted);text-align:left;margin:0 0 6px}
+    .install-block .cmd-label.second{margin-top:16px}
+
+    .hero-actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+    .btn{
+      display:inline-block;padding:10px 24px;border-radius:var(--radius);
+      font-weight:600;font-size:.95rem;text-decoration:none;transition:background .15s
+    }
+    .btn-primary{background:var(--accent);color:#fff}
+    .btn-primary:hover{background:var(--accent-hover);text-decoration:none}
+    .btn-outline{border:2px solid var(--border);color:var(--text)}
+    .btn-outline:hover{border-color:var(--accent);color:var(--accent);text-decoration:none}
+
+    section{padding:56px 0}
+    section:nth-child(even){background:var(--surface)}
+    section h2{font-size:1.6rem;font-weight:700;margin-bottom:8px;text-align:center}
+    section .section-desc{
+      text-align:center;color:var(--text-muted);margin-bottom:36px;
+      max-width:600px;margin-left:auto;margin-right:auto
+    }
+
+    .features-grid{
+      display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px
+    }
+    .feature-card{
+      background:var(--surface);border:1px solid var(--border);
+      border-radius:var(--radius);padding:24px
+    }
+    .feature-card h3{font-size:1.05rem;font-weight:700;margin-bottom:6px}
+    .feature-card p{font-size:.9rem;color:var(--text-muted)}
+    .feature-card .icon{font-size:1.5rem;margin-bottom:8px}
+    .feature-card .card-code{background:var(--code-bg);color:var(--code-text);border-radius:6px;padding:10px 12px;margin:10px 0;font-size:.78rem;line-height:1.55;overflow-x:auto;white-space:pre;font-family:"SF Mono","Fira Code","Fira Mono",Menlo,Consolas,monospace}
+
+    .steps{display:flex;flex-direction:column;gap:20px;max-width:720px;margin:0 auto}
+    .step{
+      background:var(--surface);border:1px solid var(--border);
+      border-radius:var(--radius);padding:24px 28px;display:flex;gap:16px;align-items:flex-start
+    }
+    .step-num{
+      background:var(--accent);color:#fff;width:32px;height:32px;border-radius:50%;
+      display:flex;align-items:center;justify-content:center;
+      font-weight:700;font-size:.9rem;flex-shrink:0
+    }
+    .step-body h3{font-size:1.05rem;font-weight:700;margin-bottom:4px}
+    .step-body p{font-size:.9rem;color:var(--text-muted)}
+    .step-body code{background:#f1f5f9;padding:1px 6px;border-radius:3px;font-size:.85rem}
+
+    .screenshot-group{margin-bottom:32px}
+    .screenshot-group h3{
+      font-size:1.05rem;font-weight:700;margin-bottom:12px;
+      padding-bottom:6px;border-bottom:1px solid var(--border)
+    }
+    .screenshot-grid{
+      display:grid;grid-template-columns:repeat(2,1fr);gap:16px
+    }
+    .screenshot-grid img{
+      width:100%;height:auto;display:block;
+      border:1px solid var(--border);border-radius:var(--radius);
+      cursor:zoom-in;transition:border-color .15s
+    }
+    .screenshot-grid img:hover{border-color:var(--accent)}
+    .lightbox{
+      position:fixed;inset:0;background:rgba(15,23,42,.9);z-index:1000;
+      display:none;align-items:center;justify-content:center;padding:24px;cursor:zoom-out
+    }
+    .lightbox.open{display:flex}
+    .lightbox img{max-width:96%;max-height:96%;border-radius:var(--radius);box-shadow:0 12px 48px rgba(0,0,0,.5)}
+
+    .downloads-wrap{max-width:720px;margin:0 auto}
+    .downloads-meta{text-align:center;color:var(--text-muted);font-size:.9rem;margin-bottom:20px}
+    .signed-badge{text-align:center;color:#0a7d3c;font-size:.85rem;margin:-4px 0 18px}
+    .signed-badge code{background:#e8f5ec;color:#0a7d3c;padding:1px 6px;border-radius:4px;font-size:.9em}
+    .download-branch{margin-bottom:24px}
+    .download-branch h3{font-size:1.05rem;font-weight:700;margin-bottom:8px}
+    .download-branch ul{list-style:none;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+    .download-branch li{
+      display:flex;justify-content:space-between;align-items:center;
+      padding:10px 16px;border-bottom:1px solid var(--border);font-size:.9rem
+    }
+    .download-branch li:last-child{border-bottom:none}
+    .download-branch li .size{color:var(--text-muted);font-size:.8rem;margin-left:8px}
+    .download-branch .browse-link{display:inline-block;margin-top:6px;font-size:.85rem}
+
+    .site-footer{
+      background:var(--surface);border-top:1px solid var(--border);
+      padding:32px 0;text-align:center;font-size:.85rem;color:var(--text-muted)
+    }
+    .site-footer a{color:var(--text)}
+    .site-footer .footer-links{
+      display:flex;gap:16px;justify-content:center;margin-bottom:12px;flex-wrap:wrap
+    }
+
+    noscript .nojs-warn{
+      text-align:center;padding:16px;background:#fef3c7;border:1px solid #f59e0b;
+      border-radius:var(--radius);margin-bottom:24px;font-size:.9rem
+    }
+
+    @media(max-width:640px){
+      .hero h1{font-size:1.7rem}
+      .hero .tagline{font-size:1rem}
+      .install-block .cmd-wrap{font-size:.78rem;padding:12px 14px}
+      section{padding:36px 0}
+      .step{flex-direction:column;gap:8px}
+      .screenshot-grid{grid-template-columns:1fr}
+    }
+
+    /* design refresh — palette grounded in the logo (sky #01ABDF / navy ink / orange held back) + tactile polish */
+    h1,h2,h3{color:var(--ink);letter-spacing:-.01em}
+    .site-header nav a:hover{color:var(--accent)}
+    section h2{margin-bottom:18px}
+    section h2::after{content:"";display:block;width:38px;height:3px;border-radius:2px;background:var(--accent);margin:14px auto 0}
+    .hero{background:radial-gradient(120% 75% at 50% -10%, var(--brand-soft), var(--surface) 62%)}
+    .feature-card{box-shadow:0 1px 2px rgba(13,34,54,.04);transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease}
+    .feature-card:hover{transform:translateY(-3px);box-shadow:0 10px 28px rgba(1,171,223,.12);border-color:#c8e4f0}
+    .step{transition:border-color .16s ease,box-shadow .16s ease}
+    .step:hover{border-color:#c8e4f0;box-shadow:0 6px 20px rgba(1,171,223,.08)}
+    @media (prefers-reduced-motion: reduce){*{transition:none !important} .feature-card:hover,.step:hover{transform:none}}
+  </style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a href="/" class="logo"><img src="/apple-touch-icon.png" alt="" class="logo-img">luci-app-netbird</a>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#setup">Setup</a>
+      <a href="#screenshots">Screenshots</a>
+      <a href="#selfhosted">Self-Hosted</a>
+      <a href="#install-methods">Install</a>
+      <a href="#faq">FAQ</a>
+      <a href="#downloads">Downloads</a>
+      <a href="https://github.com/dont-touchme/luci-app-netbird" target="_blank" rel="noopener">GitHub</a>
+      <a href="/zh-cn" class="lang-tag" hreflang="zh">中文</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="container">
+      <h1>luci-app-netbird</h1>
+      <p class="tagline">
+        A <strong>LuCI app</strong> for the NetBird mesh-VPN client on
+        <strong>OpenWrt</strong> / <strong>ImmortalWrt</strong> —
+        manage <strong>NetBird on OpenWrt</strong> from the LuCI dashboard,
+        no command line needed.
+      </p>
+
+      <div class="install-block">
+        <p class="cmd-label">With curl:</p>
+        <div class="cmd-wrap">
+          <code id="cmd-curl">sh -c "$(curl -fsSL https://luci-app-netbird.okk.sh/install.sh)"</code>
+          <button class="copy-btn" onclick="copyCmd('cmd-curl', this)" aria-label="Copy curl install command">Copy</button>
+        </div>
+        <p class="cmd-label second">Routers without curl (wget):</p>
+        <div class="cmd-wrap">
+          <code id="cmd-wget">wget -O - https://luci-app-netbird.okk.sh/install.sh | sh</code>
+          <button class="copy-btn" onclick="copyCmd('cmd-wget', this)" aria-label="Copy wget install command">Copy</button>
+        </div>
+      </div>
+
+      <div class="hero-actions">
+        <a href="#setup" class="btn btn-primary">Setup Guide</a>
+        <a href="https://github.com/dont-touchme/luci-app-netbird" class="btn btn-outline" target="_blank" rel="noopener">View on GitHub</a>
+      </div>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="container">
+      <h2>Features</h2>
+      <p class="section-desc">
+        Everything you need to run <strong>NetBird on OpenWrt</strong>,
+        managed through a clean LuCI interface.
+      </p>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="icon">🔗</div>
+          <h3>Connect &amp; Manage</h3>
+          <p>
+            Connect, reconnect, disconnect, or deregister your
+            <strong>NetBird client</strong> — works with both the
+            NetBird cloud and <strong>self-hosted</strong> servers.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">📦</div>
+          <h3>Version Control</h3>
+          <p>
+            Pick your NetBird binary source: official GitHub releases,
+            the system <strong>package</strong> feed, or a custom download URL.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">🔥</div>
+          <h3>Firewall Automation</h3>
+          <p>
+            One-click NetBird <strong>firewall</strong> zone creation.
+            Toggle <code>LAN → NetBird</code> and
+            <code>NetBird → LAN</code> forwarding as needed.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">⚙️</div>
+          <h3>Full <code>netbird up</code> Settings</h3>
+          <p>
+            WireGuard, routes, DNS, SSH, IPv6, Rosenpass, and log level —
+            all <strong>NetBird client</strong> options exposed in the UI.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">🖥️</div>
+          <h3>Peer Status</h3>
+          <p>
+            See every connected peer, their IPs, and connection state at a glance.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">📋</div>
+          <h3>Live Logs</h3>
+          <p>
+            Tail the NetBird daemon logs right from the LuCI interface —
+            no SSH needed.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+    <section id="setup">
+    <div class="container">
+      <h2>Setup / Quick Start</h2>
+      <p class="section-desc">
+        Get <strong>NetBird running on OpenWrt</strong> in three steps.
+        For self-hosted users, fill in the Management URL first.
+      </p>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <h3>Create a Setup Key</h3>
+            <p>
+              In the
+              <a href="https://app.netbird.io" target="_blank" rel="noopener">NetBird dashboard</a>
+              (or your <strong>self-hosted</strong> panel), create a
+              <strong>setup key</strong>. This key registers your router
+              as a new NetBird client.
+            </p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <h3>Authenticate in LuCI</h3>
+            <p>
+              Open <strong>Services → NetBird → Authentication</strong>.
+              For self-hosted, set the <strong>Management URL</strong> first.
+              Turn on the master switch, paste your setup key, and click
+              <strong>Connect</strong>.
+            </p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <h3>Configure the Firewall <em>(optional)</em></h3>
+            <p>
+              Go to the <strong>Network</strong> tab. Click
+              <strong>Create Firewall Zone</strong>, then enable
+              <code>LAN → NetBird</code> and/or
+              <code>NetBird → LAN</code> forwarding so devices on your
+              local network can reach the mesh and vice versa.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="screenshots">
+    <div class="container">
+      <h2>Screenshots</h2>
+      <p class="section-desc">
+        Every part of the <strong>NetBird management UI</strong> on OpenWrt.
+      </p>
+
+      <div class="screenshot-group" aria-label="Authentication screenshots">
+        <h3>Authentication</h3>
+        <div class="screenshot-grid">
+          <img class="shot" src="/screenshots/luci-app-netbird-menu-1-1.jpg" alt="NetBird LuCI authentication — connected state" loading="lazy">
+          <img class="shot" src="/screenshots/luci-app-netbird-menu-1-2.jpg" alt="NetBird LuCI authentication — login dialog with setup key" loading="lazy">
+        </div>
+      </div>
+
+      <div class="screenshot-group" aria-label="Version management screenshots">
+        <h3>Version Management</h3>
+        <div class="screenshot-grid">
+          <img class="shot" src="/screenshots/luci-app-netbird-menu-2.jpg" alt="NetBird LuCI version management — select binary source" loading="lazy">
+        </div>
+      </div>
+
+      <div class="screenshot-group" aria-label="Settings screenshots">
+        <h3>Settings</h3>
+        <div class="screenshot-grid">
+          <img class="shot" src="/screenshots/luci-app-netbird-menu-3-1.jpg" alt="NetBird LuCI settings — WireGuard options" loading="lazy">
+          <img class="shot" src="/screenshots/luci-app-netbird-menu-3-2.jpg" alt="NetBird LuCI settings — routing and DNS configuration" loading="lazy">
+          <img class="shot" src="/screenshots/luci-app-netbird-menu-3-3.jpg" alt="NetBird LuCI settings — SSH extensions" loading="lazy">
+          <img class="shot" src="/screenshots/luci-app-netbird-menu-3-4.jpg" alt="NetBird LuCI settings — IPv6 and Rosenpass" loading="lazy">
+          <img class="shot" src="/screenshots/luci-app-netbird-menu-3-5.jpg" alt="NetBird LuCI settings — log level and advanced" loading="lazy">
+        </div>
+      </div>
+
+      <div class="screenshot-group" aria-label="Status screenshots">
+        <h3>Status</h3>
+        <div class="screenshot-grid">
+          <img class="shot" src="/screenshots/luci-app-netbird-menu-4.jpg" alt="NetBird LuCI peer status — connected peers and IPs" loading="lazy">
+        </div>
+      </div>
+
+      <div class="screenshot-group" aria-label="Network screenshots">
+        <h3>Network</h3>
+        <div class="screenshot-grid">
+          <img class="shot" src="/screenshots/luci-app-netbird-menu-5.jpg" alt="NetBird LuCI network — firewall zone and forwarding rules" loading="lazy">
+        </div>
+      </div>
+
+      <div class="screenshot-group" aria-label="Logs screenshots">
+        <h3>Logs</h3>
+        <div class="screenshot-grid">
+          <img class="shot" src="/screenshots/luci-app-netbird-menu-6.jpg" alt="NetBird LuCI live logs — daemon output" loading="lazy">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="selfhosted">
+    <div class="container" style="max-width:720px;margin:0 auto">
+      <h2>Self-Hosted NetBird Server</h2>
+      <p class="section-desc">
+        luci-app-netbird works with both the NetBird cloud and your own
+        <strong>self-hosted NetBird server</strong> — the setup is nearly identical.
+      </p>
+      <p>
+        If you run a <strong>NetBird server on OpenWrt</strong> or any other host,
+        open <strong>Services → NetBird → Authentication</strong>, fill in the
+        <strong>Management URL</strong> pointing to your server, then paste the setup
+        key and click <strong>Connect</strong>. The LuCI app treats self-hosted and
+        cloud deployments the same way — all features (WireGuard config, firewall
+        zones, peer status, logs) work without any extra <strong>NetBird OpenWrt
+        config</strong> changes.
+      </p>
+    </div>
+  </section>
+
+  <section id="install-methods">
+    <div class="container">
+      <h2>Install Methods</h2>
+      <p class="section-desc">
+        Three ways to <strong>install NetBird on OpenWrt</strong> — pick the one
+        that fits your setup.
+      </p>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="icon">⚡</div>
+          <h3>One-Click Script</h3>
+          <p>
+            Adds the signed <strong>package</strong> feed and installs everything in
+            one command. Best for new users — just copy the curl or wget command from
+            the top of this page.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">📋</div>
+          <h3>Feed Only</h3>
+          <p>Add the signed feed, then install by name — best if you already have <strong>netbird</strong> installed:</p>
+          <pre class="card-code">wget -O - https://luci-app-netbird.okk.sh/feed.sh | sh
+opkg install luci-app-netbird luci-i18n-netbird-zh-cn</pre>
+          <p style="font-size:.82rem;color:var(--text-muted)">OpenWrt 25+: use <code>apk add</code> instead of <code>opkg install</code>.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">📦</div>
+          <h3>Manual .ipk / .apk</h3>
+          <p>
+            Download the <strong>NetBird OpenWrt package</strong> files from the
+            <a href="#downloads">Downloads</a> section,
+            then install offline with <code>opkg install *.ipk</code> or
+            <code>apk add --allow-untrusted *.apk</code>. Ideal for routers without
+            internet access during setup.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="container" style="max-width:720px;margin:0 auto">
+      <h2>Frequently Asked Questions</h2>
+
+      <div class="faq-item" style="margin-bottom:28px">
+        <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:6px">How do I install NetBird on OpenWrt without curl?</h3>
+        <p style="font-size:.9rem;color:var(--text-muted)">
+          Use the wget command shown at the top of this page:
+          <code>wget -O - https://luci-app-netbird.okk.sh/install.sh | sh</code>.
+          Most OpenWrt builds include wget by default. If your router has neither
+          curl nor wget, download the <strong>.ipk package</strong> from the
+          <a href="#downloads">Downloads</a> section
+          on another machine and transfer it to the router for manual installation.
+        </p>
+      </div>
+
+      <div class="faq-item" style="margin-bottom:28px">
+        <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:6px">Does luci-app-netbird support self-hosted NetBird servers?</h3>
+        <p style="font-size:.9rem;color:var(--text-muted)">
+          Yes. In <strong>Services → NetBird → Authentication</strong>, fill in the
+          <strong>Management URL</strong> with your self-hosted server's address
+          before connecting. The LuCI app treats self-hosted and cloud setups
+          identically — all features including peer status, firewall zones, and
+          WireGuard configuration work the same way.
+        </p>
+      </div>
+
+      <div class="faq-item" style="margin-bottom:28px">
+        <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:6px">How do I set up the NetBird firewall on OpenWrt?</h3>
+        <p style="font-size:.9rem;color:var(--text-muted)">
+          Go to the <strong>Network</strong> tab in the LuCI app, click
+          <strong>Create Firewall Zone</strong>, then enable
+          <code>LAN → NetBird</code> to let your local devices reach the mesh,
+          or <code>NetBird → LAN</code> to let mesh peers reach your local network.
+          You can toggle either direction independently. The optional
+          <code>conntrack</code> package improves connection tracking for forwarded traffic.
+        </p>
+      </div>
+
+      <div class="faq-item" style="margin-bottom:28px">
+        <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:6px">Can I use NetBird with WireGuard on OpenWrt?</h3>
+        <p style="font-size:.9rem;color:var(--text-muted)">
+          Yes — NetBird uses <strong>WireGuard</strong> as its underlying tunnel
+          protocol, and it <strong>coexists with your existing WireGuard tunnels</strong>.
+          Because the interface (device) name and listen port are configurable under
+          <strong>Services → NetBird → Settings</strong> — along with MTU and persistent
+          keepalive — NetBird won't conflict with other WireGuard instances on the same
+          router. You can also configure routes, DNS, IPv6, and Rosenpass
+          (post-quantum resistant WireGuard) from the same tab.
+        </p>
+      </div>
+
+      <div class="faq-item" style="margin-bottom:28px">
+        <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:6px">Which architectures does the NetBird OpenWrt package support?</h3>
+        <p style="font-size:.9rem;color:var(--text-muted)">
+          The LuCI package itself is architecture-independent (<code>PKGARCH:=all</code>)
+          and works on x86_64, arm64, 386 (32-bit x86), and armv6. The underlying
+          <strong>netbird</strong> binary from the feed is architecture-specific and
+          available for all major OpenWrt targets. x86_64 is the most tested platform;
+          other architectures are supported but receive less testing.
+        </p>
+      </div>
+
+      <div class="faq-item" style="margin-bottom:28px">
+        <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:6px">How do I update the NetBird client on OpenWrt?</h3>
+        <p style="font-size:.9rem;color:var(--text-muted)">
+          Use the <strong>Versions</strong> tab in the LuCI app
+          (<strong>Services → NetBird → Versions</strong>). You can switch between
+          the official release channel, the system <strong>package feed</strong>, or
+          pin a specific version via custom URL, then download and switch with one click.
+        </p>
+      </div>
+
+      <div class="faq-item">
+        <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:6px">Will my settings survive an OpenWrt upgrade?</h3>
+        <p style="font-size:.9rem;color:var(--text-muted)">
+          Yes. <code>/etc/config/netbird</code> is marked as a conffile, so your
+          authentication keys, Management URL, firewall settings, and all other
+          configuration are preserved across package upgrades. If you uninstall and
+          reinstall the package, however, you may need to reconfigure.
+        </p>
+      </div>
+    </div>
+  </section>
+
+.  <section id="downloads">
+    <div class="container">
+      <h2>Downloads</h2>
+      <p class="section-desc">
+        Latest <strong>NetBird packages for OpenWrt</strong> —
+        architecture-independent, available as <code>.ipk</code> (24.10) and <code>.apk</code> (25+).
+      </p>
+      <div class="downloads-wrap">
+        <p class="signed-badge">🔒 Signed feed — opkg: <code>usign</code> · apk: <code>EC (prime256v1)</code></p>
+        <noscript>
+          <p class="nojs-warn">
+            ⚠️ The download list requires JavaScript. Use the one-click install command at the top, or browse the feed:
+            <a href="/openwrt-24.10/all/netbird/">24.10</a> · <a href="/openwrt-25.12/all/netbird/">25.12</a>.
+          </p>
+        </noscript>
+        <div id="downloads-app">
+          <p class="downloads-meta">Loading file list…</p>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-links">
+      <a href="https://github.com/dont-touchme/luci-app-netbird" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/dont-touchme/luci-app-netbird/blob/main/LICENSE" target="_blank" rel="noopener">Apache-2.0 License</a>
+      <a href="https://github.com/dont-touchme/luci-app-netbird/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a>
+      <a href="/zh-cn" hreflang="zh">中文</a>
+    </div>
+    <p>
+      Built with ideas from
+      <a href="https://github.com/Tokisaki-Galaxy/luci-app-tailscale-community" target="_blank" rel="noopener">luci-app-tailscale-community</a>
+      and OPNsense
+      <a href="https://github.com/opnsense/plugins/tree/master/net/os-netbird" target="_blank" rel="noopener">os-netbird</a>.
+    </p>
+  </div>
+</footer>
+
+<div class="lightbox" id="lightbox"><img src="" alt=""></div>
+
+<script>
+(function(){
+  window.copyCmd = function(id, btn){
+    var el = document.getElementById(id);
+    if(!el) return;
+    navigator.clipboard.writeText(el.textContent).then(function(){
+      var orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(function(){ btn.textContent = orig; }, 2000);
+    });
+  };
+
+  // Download list from manifest.json (CI-generated)
+  var dl = document.getElementById('downloads-app');
+  if(dl){
+    fetch('/manifest.json')
+      .then(function(r){ if(!r.ok) throw new Error('manifest not found'); return r.json(); })
+      .then(function(m){
+        var html = '<p class="downloads-meta">Version <strong>' + m.version + '</strong> — updated ' + m.updated + '</p>';
+        var branches = m.branches;
+        Object.keys(branches).forEach(function(branch){
+          var b = branches[branch];
+          html += '<div class="download-branch"><h3>' + branch + ' (' + b.format + ')</h3><ul>';
+          if(b.files && b.files.length){
+            b.files.forEach(function(f){
+              var sizeStr = f.size ? ' (' + formatSize(f.size) + ')' : '';
+              html += '<li><a href="' + f.url + '">' + f.name + '</a><span class="size">' + sizeStr + '</span></li>';
+            });
+          }
+          html += '</ul>';
+          if(b.base){
+            html += '<a class="browse-link" href="' + b.base + '/">Browse all files →</a>';
+          }
+          html += '</div>';
+        });
+        dl.innerHTML = html;
+      })
+      .catch(function(){
+        dl.innerHTML = '<p class="downloads-meta">Download list not available right now. Browse the feed: <a href="/openwrt-24.10/all/netbird/">24.10</a> · <a href="/openwrt-25.12/all/netbird/">25.12</a>.</p>';
+      });
+  }
+
+  // lightbox: click a screenshot to zoom in-page; click again / Esc to close
+  var lb = document.getElementById('lightbox');
+  if(lb){
+    var lbImg = lb.querySelector('img');
+    var closeLb = function(){ lb.classList.remove('open'); lbImg.removeAttribute('src'); };
+    document.querySelectorAll('.screenshot-grid img.shot').forEach(function(img){
+      img.addEventListener('click', function(){
+        lbImg.src = img.currentSrc || img.src;
+        lbImg.alt = img.alt;
+        lb.classList.add('open');
+      });
+    });
+    lb.addEventListener('click', closeLb);
+    document.addEventListener('keydown', function(e){ if(e.key === 'Escape') closeLb(); });
+  }
+
+  function formatSize(bytes){
+    if(bytes < 1024) return bytes + ' B';
+    if(bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1048576).toFixed(1) + ' MB';
+  }
+})();
+</script>
+
+</body>
+</html>

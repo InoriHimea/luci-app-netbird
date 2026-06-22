@@ -1,0 +1,113 @@
+{
+  "peers": {
+    "total": 2,
+    "connected": 2,
+    "details": [
+      {
+        "fqdn": "peer-x.netbird.example",
+        "netbirdIp": "203.0.113.10",
+        "publicKey": "REDACTED_KEY=",
+        "status": "Connected",
+        "lastStatusUpdate": "2026-06-16T02:44:37.172497978+08:00",
+        "connectionType": "P2P",
+        "iceCandidateType": {
+          "local": "host",
+          "remote": "srflx"
+        },
+        "iceCandidateEndpoint": {
+          "local": "203.0.113.10:51820",
+          "remote": "203.0.113.10:61120"
+        },
+        "relayAddress": "rels://mgmt.example.net:443",
+        "lastWireguardHandshake": "2026-06-16T02:44:36.189973619+08:00",
+        "transferReceived": 180,
+        "transferSent": 156,
+        "latency": 27537537,
+        "quantumResistance": false,
+        "networks": [
+          "203.0.113.10/24",
+          "203.0.113.10/24"
+        ]
+      },
+      {
+        "fqdn": "peer-x.netbird.example",
+        "netbirdIp": "203.0.113.10",
+        "publicKey": "REDACTED_KEY=",
+        "status": "Connected",
+        "lastStatusUpdate": "2026-06-16T02:44:36.850026212+08:00",
+        "connectionType": "P2P",
+        "iceCandidateType": {
+          "local": "srflx",
+          "remote": "host"
+        },
+        "iceCandidateEndpoint": {
+          "local": "203.0.113.10:53408",
+          "remote": "203.0.113.10:61120"
+        },
+        "relayAddress": "rels://mgmt.example.net:443",
+        "lastWireguardHandshake": "2026-06-16T02:44:36.173444665+08:00",
+        "transferReceived": 156,
+        "transferSent": 180,
+        "latency": 106204917,
+        "quantumResistance": false,
+        "networks": null
+      }
+    ]
+  },
+  "cliVersion": "0.72.4",
+  "daemonVersion": "0.72.4",
+  "daemonStatus": "Connected",
+  "management": {
+    "url": "https://mgmt.example.net:443",
+    "connected": true,
+    "error": ""
+  },
+  "signal": {
+    "url": "https://mgmt.example.net:443",
+    "connected": true,
+    "error": ""
+  },
+  "relays": {
+    "total": 2,
+    "available": 2,
+    "details": [
+      {
+        "uri": "stun:mgmt.example.net:3478",
+        "available": true,
+        "error": ""
+      },
+      {
+        "uri": "rels://mgmt.example.net:443",
+        "available": true,
+        "error": ""
+      }
+    ]
+  },
+  "netbirdIp": "203.0.113.10/16",
+  "publicKey": "REDACTED_KEY=",
+  "usesKernelInterface": true,
+  "wireguardPort": 51820,
+  "fqdn": "peer-x.netbird.example",
+  "quantumResistance": false,
+  "quantumResistancePermissive": false,
+  "networks": null,
+  "forwardingRules": 0,
+  "dnsServers": [],
+  "events": [
+    {
+      "id": "a1ebc4f6-d42b-44ac-a44d-8f83f39d1848",
+      "severity": "INFO",
+      "category": "SYSTEM",
+      "message": "Network map updated",
+      "userMessage": "",
+      "timestamp": "2026-06-15T18:44:36.051048769Z",
+      "metadata": null
+    }
+  ],
+  "lazyConnectionEnabled": false,
+  "profileName": "default",
+  "sshServer": {
+    "enabled": false,
+    "sessions": []
+  }
+}

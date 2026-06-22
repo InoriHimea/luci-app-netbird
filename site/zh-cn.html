@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>luci-app-netbird — OpenWrt / ImmortalWrt 上的 NetBird 客户端管理界面</title>
+  <meta name="description" content="在 OpenWrt 上安装、配置和管理 NetBird mesh-VPN 客户端的 LuCI 应用。支持自托管服务器、WireGuard 设置、防火墙自动化。一键安装。">
+  <meta name="robots" content="index, follow">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="canonical" href="https://luci-app-netbird.okk.sh/zh-cn">
+  <link rel="alternate" hreflang="en" href="https://luci-app-netbird.okk.sh/">
+
+  <meta property="og:title" content="luci-app-netbird — OpenWrt / ImmortalWrt 上的 NetBird 客户端管理界面">
+  <meta property="og:description" content="在 OpenWrt 上安装、配置和管理 NetBird mesh-VPN 客户端的 LuCI 应用。支持自托管服务器、WireGuard 设置、防火墙自动化。一键安装。">
+  <meta property="og:url" content="https://luci-app-netbird.okk.sh/zh-cn">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://luci-app-netbird.okk.sh/og-card.png">
+  <meta property="og:site_name" content="luci-app-netbird">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="luci-app-netbird — OpenWrt / ImmortalWrt 上的 NetBird 客户端管理界面">
+  <meta name="twitter:description" content="在 OpenWrt 上安装、配置和管理 NetBird mesh-VPN 客户端的 LuCI 应用。支持自托管服务器、WireGuard 设置、防火墙自动化。一键安装。">
+  <meta name="twitter:image" content="https://luci-app-netbird.okk.sh/og-card.png">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "luci-app-netbird",
+    "applicationCategory": "NetworkingApplication",
+    "operatingSystem": "OpenWrt, ImmortalWrt",
+    "description": "在 OpenWrt 上管理 NetBird mesh-VPN 客户端的 LuCI 应用。支持自托管服务器、WireGuard 设置、防火墙自动化。",
+    "offers": { "@type": "Offer", "price": "0" },
+    "url": "https://github.com/dont-touchme/luci-app-netbird",
+    "license": "https://spdx.org/licenses/Apache-2.0.html"
+  }
+  </script>
+
+  <!-- privacy-friendly analytics (pageview.app) -->
+  <script defer data-domain="luci-app-netbird.okk.sh" src="https://app.pageview.app/js/script.js"></script>
+
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#f5f8fb;--surface:#ffffff;--ink:#0d2236;--text:#243b4a;--text-muted:#5e7787;
+      --border:#dce8ef;--accent:#01abdf;--accent-hover:#0492bd;--brand-soft:#e7f6fc;--accent2:#f4791f;
+      --code-bg:#0c2235;--code-text:#d6e7f0;--radius:10px
+    }
+    body{
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Helvetica Neue",Arial,sans-serif;
+      background:var(--bg);color:var(--text);line-height:1.7
+    }
+    a{color:var(--accent);text-decoration:none}
+    a:hover{text-decoration:underline}
+    .container{max-width:960px;margin:0 auto;padding:0 24px}
+
+    .site-header{
+      background:var(--surface);border-bottom:1px solid var(--border);
+      padding:12px 0;position:sticky;top:0;z-index:100
+    }
+    .site-header .container{display:flex;align-items:center;justify-content:space-between}
+    .site-header .logo{font-weight:700;font-size:1.1rem;color:var(--text);display:inline-flex;align-items:center;gap:8px}
+    .site-header .logo-img{width:26px;height:26px;border-radius:6px}
+    .site-header nav{display:flex;gap:16px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+    .site-header nav a{font-size:.9rem;color:var(--text-muted)}
+    .site-header nav a:hover{color:var(--text);text-decoration:none}
+    .site-header .lang-tag{font-size:.8rem;border:1px solid var(--border);border-radius:4px;padding:2px 8px}
+
+    .hero{
+      background:var(--surface);border-bottom:1px solid var(--border);
+      padding:64px 0 48px;text-align:center
+    }
+    .hero h1{font-size:2.4rem;font-weight:800;letter-spacing:-0.02em;margin-bottom:12px}
+    .hero .tagline{font-size:1.15rem;color:var(--text-muted);max-width:640px;margin:0 auto 32px}
+
+    .install-block{max-width:640px;margin:0 auto 24px}
+    .install-block .cmd-wrap{
+      background:var(--code-bg);color:var(--code-text);border-radius:var(--radius);
+      padding:16px 20px;display:flex;align-items:center;gap:12px;
+      font-family:"SF Mono","Fira Code","Fira Mono",Menlo,Consolas,monospace;
+      font-size:.9rem
+    }
+    .install-block .cmd-wrap code{flex:1;min-width:0;white-space:nowrap;overflow-x:auto}
+    .install-block .copy-btn{
+      background:var(--accent);color:#fff;border:none;border-radius:4px;
+      padding:6px 14px;font-size:.8rem;cursor:pointer;white-space:nowrap;flex-shrink:0
+    }
+    .install-block .copy-btn:hover{background:var(--accent-hover)}
+    .install-block .cmd-label{font-size:.8rem;color:var(--text-muted);text-align:left;margin:0 0 6px}
+    .install-block .cmd-label.second{margin-top:16px}
+
+    .hero-actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+    .btn{
+      display:inline-block;padding:10px 24px;border-radius:var(--radius);
+      font-weight:600;font-size:.95rem;text-decoration:none;transition:background .15s
+    }
+    .btn-primary{background:var(--accent);color:#fff}
+    .btn-primary:hover{background:var(--accent-hover);text-decoration:none}
+    .btn-outline{border:2px solid var(--border);color:var(--text)}
+    .btn-outline:hover{border-color:var(--accent);color:var(--accent);text-decoration:none}
+
+    section{padding:56px 0}
+    section:nth-child(even){background:var(--surface)}
+    section h2{font-size:1.6rem;font-weight:700;margin-bottom:8px;text-align:center}
+    section .section-desc{
+      text-align:center;color:var(--text-muted);margin-bottom:36px;
+      max-width:600px;margin-left:auto;margin-right:auto
+    }
+
+    .features-grid{
+      display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px
+    }
+    .feature-card{
+      background:var(--surface);border:1px solid var(--border);
+      border-radius:var(--radius);padding:24px
+    }
+    .feature-card h3{font-size:1.05rem;font-weight:700;margin-bottom:6px}
+    .feature-card p{font-size:.9rem;color:var(--text-muted)}
+    .feature-card .icon{font-size:1.5rem;margin-bottom:8px}
+    .feature-card .card-code{background:var(--code-bg);color:var(--code-text);border-radius:6px;padding:10px 12px;margin:10px 0;font-size:.78rem;line-height:1.55;overflow-x:auto;white-space:pre;font-family:"SF Mono","Fira Code","Fira Mono",Menlo,Consolas,monospace}
+
+    .steps{display:flex;flex-direction:column;gap:20px;max-width:720px;margin:0 auto}
+    .step{
+      background:var(--surface);border:1px solid var(--border);
+      border-radius:var(--radius);padding:24px 28px;display:flex;gap:16px;align-items:flex-start
+    }
+    .step-num{
+      background:var(--accent);color:#fff;width:32px;height:32px;border-radius:50%;
+      display:flex;align-items:center;justify-content:center;
+      font-weight:700;font-size:.9rem;flex-shrink:0
+    }
+    .step-body h3{font-size:1.05rem;font-weight:700;margin-bottom:4px}
+    .step-body p{font-size:.9rem;color:var(--text-muted)}
+    .step-body code{background:#f1f5f9;padding:1px 6px;border-radius:3px;font-size:.85rem}
+
+    .screenshot-group{margin-bottom:32px}
+    .screenshot-group h3{
+      font-size:1.05rem;font-weight:700;margin-bottom:12px;
+      padding-bottom:6px;border-bottom:1px solid var(--border)
+    }
+    .screenshot-grid{
+      display:grid;grid-template-columns:repeat(2,1fr);gap:16px
+    }
+    .screenshot-grid img{
+      width:100%;height:auto;display:block;
+      border:1px solid var(--border);border-radius:var(--radius);
+      cursor:zoom-in;transition:border-color .15s
+    }
+    .screenshot-grid img:hover{border-color:var(--accent)}
+    .lightbox{
+      position:fixed;inset:0;background:rgba(15,23,42,.9);z-index:1000;
+      display:none;align-items:center;justify-content:center;padding:24px;cursor:zoom-out
+    }
+    .lightbox.open{display:flex}
+    .lightbox img{max-width:96%;max-height:96%;border-radius:var(--radius);box-shadow:0 12px 48px rgba(0,0,0,.5)}
+
+    .downloads-wrap{max-width:720px;margin:0 auto}
+    .downloads-meta{text-align:center;color:var(--text-muted);font-size:.9rem;margin-bottom:20px}
+    .signed-badge{text-align:center;color:#0a7d3c;font-size:.85rem;margin:-4px 0 18px}
+    .signed-badge code{background:#e8f5ec;color:#0a7d3c;padding:1px 6px;border-radius:4px;font-size:.9em}
+    .download-branch{margin-bottom:24px}
+    .download-branch h3{font-size:1.05rem;font-weight:700;margin-bottom:8px}
+    .download-branch ul{list-style:none;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+    .download-branch li{
+      display:flex;justify-content:space-between;align-items:center;
+      padding:10px 16px;border-bottom:1px solid var(--border);font-size:.9rem
+    }
+    .download-branch li:last-child{border-bottom:none}
+    .download-branch li .size{color:var(--text-muted);font-size:.8rem;margin-left:8px}
+    .download-branch .browse-link{display:inline-block;margin-top:6px;font-size:.85rem}
+
+    .site-footer{
+      background:var(--surface);border-top:1px solid var(--border);
+      padding:32px 0;text-align:center;font-size:.85rem;color:var(--text-muted)
+    }
+    .site-footer a{color:var(--text)}
+    .site-footer .footer-links{
+      display:flex;gap:16px;justify-content:center;margin-bottom:12px;flex-wrap:wrap
+    }
+
+    noscript .nojs-warn{
+      text-align:center;padding:16px;background:#fef3c7;border:1px solid #f59e0b;
+      border-radius:var(--radius);margin-bottom:24px;font-size:.9rem
+    }
+
+    @media(max-width:640px){
+      .hero h1{font-size:1.7rem}
+      .hero .tagline{font-size:1rem}
+      .install-block .cmd-wrap{font-size:.78rem;padding:12px 14px}
+      section{padding:36px 0}
+      .step{flex-direction:column;gap:8px}
+      .screenshot-grid{grid-template-columns:1fr}
+    }
+
+    /* design refresh — palette grounded in the logo (sky #01ABDF / navy ink / orange held back) + tactile polish */
+    h1,h2,h3{color:var(--ink);letter-spacing:-.01em}
+    .site-header nav a:hover{color:var(--accent)}
+    section h2{margin-bottom:18px}
+    section h2::after{content:"";display:block;width:38px;height:3px;border-radius:2px;background:var(--accent);margin:14px auto 0}
+    .hero{background:radial-gradient(120% 75% at 50% -10%, var(--brand-soft), var(--surface) 62%)}
+    .feature-card{box-shadow:0 1px 2px rgba(13,34,54,.04);transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease}
+    .feature-card:hover{transform:translateY(-3px);box-shadow:0 10px 28px rgba(1,171,223,.12);border-color:#c8e4f0}
+    .step{transition:border-color .16s ease,box-shadow .16s ease}
+    .step:hover{border-color:#c8e4f0;box-shadow:0 6px 20px rgba(1,171,223,.08)}
+    @media (prefers-reduced-motion: reduce){*{transition:none !important} .feature-card:hover,.step:hover{transform:none}}
+  </style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a href="/zh-cn" class="logo"><img src="/apple-touch-icon.png" alt="" class="logo-img">luci-app-netbird</a>
+    <nav>
+      <a href="#features">功能</a>
+      <a href="#setup">上手</a>
+      <a href="#screenshots">截图</a>
+      <a href="#selfhosted">自托管</a>
+      <a href="#install-methods">安装</a>
+      <a href="#faq">FAQ</a>
+      <a href="#downloads">下载</a>
+      <a href="https://github.com/dont-touchme/luci-app-netbird" target="_blank" rel="noopener">GitHub</a>
+      <a href="/" class="lang-tag" hreflang="en">English</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="container">
+      <h1>luci-app-netbird</h1>
+      <p class="tagline">
+        在 <strong>OpenWrt</strong> / <strong>ImmortalWrt</strong> 上管理
+        <strong>NetBird</strong> mesh-VPN 客户端的 <strong>LuCI 应用</strong>——
+        在路由器后台使用 NetBird，无需命令行。
+      </p>
+
+      <div class="install-block">
+        <p class="cmd-label">使用 curl：</p>
+        <div class="cmd-wrap">
+          <code id="cmd-curl">sh -c "$(curl -fsSL https://luci-app-netbird.okk.sh/install.sh)"</code>
+          <button class="copy-btn" onclick="copyCmd('cmd-curl', this)" aria-label="复制 curl 安装命令">复制</button>
+        </div>
+        <p class="cmd-label second">没有 curl 的路由器（wget）：</p>
+        <div class="cmd-wrap">
+          <code id="cmd-wget">wget -O - https://luci-app-netbird.okk.sh/install.sh | sh</code>
+          <button class="copy-btn" onclick="copyCmd('cmd-wget', this)" aria-label="复制 wget 安装命令">复制</button>
+        </div>
+      </div>
+
+      <div class="hero-actions">
+        <a href="#setup" class="btn btn-primary">快速上手</a>
+        <a href="https://github.com/dont-touchme/luci-app-netbird" class="btn btn-outline" target="_blank" rel="noopener">GitHub 仓库</a>
+      </div>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="container">
+      <h2>功能</h2>
+      <p class="section-desc">
+        在 OpenWrt 路由器上使用 <strong>NetBird 客户端</strong>所需的一切，
+        全部集成在 LuCI 管理界面中。
+      </p>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="icon">🔗</div>
+          <h3>连接管理</h3>
+          <p>
+            连接、重连、断开、注销 <strong>NetBird 客户端</strong>——
+            同时支持官方 NetBird 云端和<strong>自托管</strong>管理服务器。
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">📦</div>
+          <h3>版本管理</h3>
+          <p>
+            自由选择 NetBird 二进制来源：官方 GitHub release、系统<strong>软件包</strong>源，或自定义下载 URL。
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">🔥</div>
+          <h3>防火墙自动化</h3>
+          <p>
+            一键创建 NetBird <strong>防火墙</strong>区域，按需启用
+            <code>LAN → NetBird</code> 和 <code>NetBird → LAN</code> 转发。
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">⚙️</div>
+          <h3>完整 <code>netbird up</code> 设置</h3>
+          <p>
+            WireGuard、路由、DNS、SSH、IPv6、Rosenpass、日志层级——
+            所有 <strong>NetBird 客户端</strong>选项都在界面中可配。
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">🖥️</div>
+          <h3>对端状态</h3>
+          <p>
+            一目了然地查看所有已连接对端、IP 地址和连接状态。
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">📋</div>
+          <h3>实时日志</h3>
+          <p>
+            直接在 LuCI 界面中查看 NetBird 守护进程日志——无需 SSH。
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+    <section id="setup">
+    <div class="container">
+      <h2>快速上手</h2>
+      <p class="section-desc">
+        三步完成 <strong>NetBird 在 OpenWrt 上的配置</strong>。
+        自托管用户请先填写管理 URL。
+      </p>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <h3>创建安装密钥</h3>
+            <p>
+              在
+              <a href="https://app.netbird.io" target="_blank" rel="noopener">NetBird 控制台</a>
+              （或你的<strong>自托管面板</strong>）中创建一个
+              <strong>安装密钥（setup key）</strong>。该密钥将路由器注册为新的 NetBird 客户端。
+            </p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <h3>在 LuCI 中认证</h3>
+            <p>
+              打开 <strong>服务 → NetBird → 认证</strong>。
+              自托管用户先填写<strong>管理 URL</strong>。
+              打开主开关，粘贴安装密钥，点击<strong>连接</strong>。
+            </p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <h3>配置防火墙<em>（可选）</em></h3>
+            <p>
+              进入<strong>网络</strong>标签页。先点击<strong>创建防火墙区域</strong>，
+              再按需启用 <code>LAN → NetBird</code> 或
+              <code>NetBird → LAN</code> 转发，让局域网设备与 mesh 网络互通。
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="screenshots">
+    <div class="container">
+      <h2>截图</h2>
+      <p class="section-desc">
+        OpenWrt 上 <strong>NetBird 管理界面</strong>的各项功能。
+      </p>
+
+      <div class="screenshot-group" aria-label="认证截图">
+        <h3>认证</h3>
+        <div class="screenshot-grid">
+          <img class="shot" src="/screenshots/zh-cn/luci-app-netbird-menu-1-1.jpg" alt="NetBird LuCI 认证 — 已连接状态" loading="lazy">
+          <img class="shot" src="/screenshots/zh-cn/luci-app-netbird-menu-1-2.jpg" alt="NetBird LuCI 认证 — 登录填安装密钥" loading="lazy">
+        </div>
+      </div>
+
+      <div class="screenshot-group" aria-label="版本管理截图">
+        <h3>版本管理</h3>
+        <div class="screenshot-grid">
+          <img class="shot" src="/screenshots/zh-cn/luci-app-netbird-menu-2.jpg" alt="NetBird LuCI 版本管理 — 选择二进制来源" loading="lazy">
+        </div>
+      </div>
+
+      <div class="screenshot-group" aria-label="设置截图">
+        <h3>设置</h3>
+        <div class="screenshot-grid">
+          <img class="shot" src="/screenshots/zh-cn/luci-app-netbird-menu-3-1.jpg" alt="NetBird LuCI 设置 — WireGuard 选项" loading="lazy">
+          <img class="shot" src="/screenshots/zh-cn/luci-app-netbird-menu-3-2.jpg" alt="NetBird LuCI 设置 — 路由和 DNS 配置" loading="lazy">
+          <img class="shot" src="/screenshots/zh-cn/luci-app-netbird-menu-3-3.jpg" alt="NetBird LuCI 设置 — SSH 扩展" loading="lazy">
+          <img class="shot" src="/screenshots/zh-cn/luci-app-netbird-menu-3-4.jpg" alt="NetBird LuCI 设置 — IPv6 和 Rosenpass" loading="lazy">
+          <img class="shot" src="/screenshots/zh-cn/luci-app-netbird-menu-3-5.jpg" alt="NetBird LuCI 设置 — 日志层级和高级选项" loading="lazy">
+        </div>
+      </div>
+
+      <div class="screenshot-group" aria-label="状态截图">
+        <h3>状态</h3>
+        <div class="screenshot-grid">
+          <img class="shot" src="/screenshots/zh-cn/luci-app-netbird-menu-4.jpg" alt="NetBird LuCI 对端状态 — 已连接对端和 IP" loading="lazy">
+        </div>
+      </div>
+
+      <div class="screenshot-group" aria-label="网络截图">
+        <h3>网络</h3>
+        <div class="screenshot-grid">
+          <img class="shot" src="/screenshots/zh-cn/luci-app-netbird-menu-5.jpg" alt="NetBird LuCI 网络 — 防火墙区域和转发规则" loading="lazy">
+        </div>
+      </div>
+
+      <div class="screenshot-group" aria-label="日志截图">
+        <h3>日志</h3>
+        <div class="screenshot-grid">
+          <img class="shot" src="/screenshots/zh-cn/luci-app-netbird-menu-6.jpg" alt="NetBird LuCI 实时日志 — 守护进程输出" loading="lazy">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="selfhosted">
+    <div class="container" style="max-width:720px;margin:0 auto">
+      <h2>自托管 NetBird 服务器</h2>
+      <p class="section-desc">
+        luci-app-netbird 同时支持 NetBird 官方云和<strong>自托管 NetBird 服务器</strong>——
+        两种方式的配置流程几乎一致。
+      </p>
+      <p>
+        如果你在 OpenWrt 或其他主机上运行了<strong>自托管 NetBird 服务端</strong>,
+        打开 <strong>服务 → NetBird → 认证</strong>,在<strong>管理 URL</strong>
+        中填入你的服务器地址,然后照常粘贴安装密钥并点击<strong>连接</strong>即可。
+        LuCI 界面对自托管和云端部署一视同仁——所有功能(WireGuard 配置、防火墙区域、
+        对端状态、日志)都无需额外调整 <strong>NetBird OpenWrt 配置</strong>。
+      </p>
+    </div>
+  </section>
+
+  <section id="install-methods">
+    <div class="container">
+      <h2>安装方式</h2>
+      <p class="section-desc">
+        三种<strong>在 OpenWrt 上安装 NetBird</strong>的方式——选择适合你的。
+      </p>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="icon">⚡</div>
+          <h3>一键脚本</h3>
+          <p>
+            添加签名<strong>软件包</strong>源并一次性安装全部组件。
+            适合新用户——直接复制页面顶部的 curl 或 wget 命令即可。
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">📋</div>
+          <h3>仅添加软件源</h3>
+          <p>添加签名源后按包名安装 —— 适合已装 <strong>netbird</strong> 的用户:</p>
+          <pre class="card-code">wget -O - https://luci-app-netbird.okk.sh/feed.sh | sh
+opkg install luci-app-netbird luci-i18n-netbird-zh-cn</pre>
+          <p style="font-size:.82rem;color:var(--text-muted)">OpenWrt 25+ 用 <code>apk add</code> 代替 <code>opkg install</code>。</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">📦</div>
+          <h3>手动 .ipk / .apk</h3>
+          <p>
+            从<a href="#downloads">下载区</a>
+            下载 <strong>NetBird OpenWrt 软件包</strong>文件,
+            然后离线安装:<code>opkg install *.ipk</code> 或
+            <code>apk add --allow-untrusted *.apk</code>。
+            适合安装时路由器无网络连接的场景。
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="container" style="max-width:720px;margin:0 auto">
+      <h2>常见问题</h2>
+
+      <div class="faq-item" style="margin-bottom:28px">
+        <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:6px">没有 curl 怎么在 OpenWrt 上安装 NetBird?</h3>
+        <p style="font-size:.9rem;color:var(--text-muted)">
+          使用页面顶部的 wget 命令即可:
+          <code>wget -O - https://luci-app-netbird.okk.sh/install.sh | sh</code>。
+          大多数 OpenWrt 固件默认包含 wget。如果路由器既没有 curl 也没有 wget,
+          可以从<a href="#downloads">下载区</a>
+          下载 <strong>.ipk 软件包</strong>,传输到路由器后手动安装。
+        </p>
+      </div>
+
+      <div class="faq-item" style="margin-bottom:28px">
+        <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:6px">luci-app-netbird 支持自托管 NetBird 服务器吗?</h3>
+        <p style="font-size:.9rem;color:var(--text-muted)">
+          支持。在 <strong>服务 → NetBird → 认证</strong> 中,
+          先在<strong>管理 URL</strong> 填入你的自托管服务器地址,再连接即可。
+          LuCI 界面对自托管和云端部署功能完全一致——对端状态、防火墙区域、
+          WireGuard 配置等全部正常工作。
+        </p>
+      </div>
+
+      <div class="faq-item" style="margin-bottom:28px">
+        <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:6px">如何在 OpenWrt 上配置 NetBird 防火墙?</h3>
+        <p style="font-size:.9rem;color:var(--text-muted)">
+          进入 LuCI 应用的<strong>网络</strong>标签页,点击<strong>创建防火墙区域</strong>,
+          然后按需启用 <code>LAN → NetBird</code>(局域网访问 mesh 网络)或
+          <code>NetBird → LAN</code>(mesh 对端访问局域网)。两个方向可独立开关。
+          安装可选的 <code>conntrack</code> 包可以改善转发流量的连接追踪。
+        </p>
+      </div>
+
+      <div class="faq-item" style="margin-bottom:28px">
+        <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:6px">NetBird 能在 OpenWrt 上和 WireGuard 一起用吗?</h3>
+        <p style="font-size:.9rem;color:var(--text-muted)">
+          NetBird 底层使用的就是 <strong>WireGuard</strong> 隧道协议,而且
+          <strong>能与你已有的 WireGuard 隧道共存</strong>。在
+          <strong>服务 → NetBird → 设置</strong> 中,接口名(设备名)和监听端口都可自定义
+          (还有 MTU、持久 keepalive),因此 NetBird 不会和同一台路由器上的其他
+          WireGuard 实例冲突。同一页面还支持配置路由、DNS、IPv6 和
+          Rosenpass(抗量子 WireGuard)。
+        </p>
+      </div>
+
+      <div class="faq-item" style="margin-bottom:28px">
+        <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:6px">NetBird OpenWrt 软件包支持哪些架构?</h3>
+        <p style="font-size:.9rem;color:var(--text-muted)">
+          LuCI 插件本身与架构无关(<code>PKGARCH:=all</code>),支持 x86_64、arm64、
+          386(32 位 x86)和 armv6。底层 <strong>netbird</strong> 二进制文件按架构编译,
+          覆盖所有主要 OpenWrt 目标平台。x86_64 经过最充分测试,其他架构支持但测试覆盖较少。
+        </p>
+      </div>
+
+      <div class="faq-item" style="margin-bottom:28px">
+        <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:6px">如何在 OpenWrt 上更新 NetBird 客户端?</h3>
+        <p style="font-size:.9rem;color:var(--text-muted)">
+          使用 LuCI 应用中的<strong>版本</strong>标签页
+          (<strong>服务 → NetBird → 版本</strong>)。可以在官方 release 频道、
+          系统<strong>软件包源</strong>和自定义 URL 之间切换,
+          然后一键下载并切换到所选来源。
+        </p>
+      </div>
+
+      <div class="faq-item">
+        <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:6px">升级 OpenWrt 后配置会丢失吗?</h3>
+        <p style="font-size:.9rem;color:var(--text-muted)">
+          不会。<code>/etc/config/netbird</code> 被标记为 conffile,
+          认证密钥、管理 URL、防火墙设置和所有其他配置在软件包升级后都会保留。
+          但如果卸载后重新安装,可能需要重新配置。
+        </p>
+      </div>
+    </div>
+  </section>
+
+.  <section id="downloads">
+    <div class="container">
+      <h2>下载</h2>
+      <p class="section-desc">
+        最新 <strong>NetBird OpenWrt 软件包</strong>——
+        与架构无关，提供 <code>.ipk</code>（24.10）和 <code>.apk</code>（25+）两种格式。
+      </p>
+      <div class="downloads-wrap">
+        <p class="signed-badge">🔒 已签名软件源 — opkg: <code>usign</code> · apk: <code>EC (prime256v1)</code></p>
+        <noscript>
+          <p class="nojs-warn">
+            ⚠️ 下载列表需要 JavaScript。可用页面顶部的一键安装命令,或直接浏览软件源:
+            <a href="/openwrt-24.10/all/netbird/">24.10</a> · <a href="/openwrt-25.12/all/netbird/">25.12</a>。
+          </p>
+        </noscript>
+        <div id="downloads-app">
+          <p class="downloads-meta">正在加载文件列表……</p>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-links">
+      <a href="https://github.com/dont-touchme/luci-app-netbird" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/dont-touchme/luci-app-netbird/blob/main/LICENSE" target="_blank" rel="noopener">Apache-2.0 许可</a>
+      <a href="https://github.com/dont-touchme/luci-app-netbird/blob/main/CHANGELOG.md" target="_blank" rel="noopener">更新日志</a>
+      <a href="/" hreflang="en">English</a>
+    </div>
+    <p>
+      架构参考
+      <a href="https://github.com/Tokisaki-Galaxy/luci-app-tailscale-community" target="_blank" rel="noopener">luci-app-tailscale-community</a>，
+      UI 思路借鉴 OPNsense
+      <a href="https://github.com/opnsense/plugins/tree/master/net/os-netbird" target="_blank" rel="noopener">os-netbird</a>。
+    </p>
+  </div>
+</footer>
+
+<div class="lightbox" id="lightbox"><img src="" alt=""></div>
+
+<script>
+(function(){
+  window.copyCmd = function(id, btn){
+    var el = document.getElementById(id);
+    if(!el) return;
+    navigator.clipboard.writeText(el.textContent).then(function(){
+      var orig = btn.textContent;
+      btn.textContent = '已复制！';
+      setTimeout(function(){ btn.textContent = orig; }, 2000);
+    });
+  };
+
+  var dl = document.getElementById('downloads-app');
+  if(dl){
+    fetch('/manifest.json')
+      .then(function(r){ if(!r.ok) throw new Error('manifest not found'); return r.json(); })
+      .then(function(m){
+        var html = '<p class="downloads-meta">版本 <strong>' + m.version + '</strong> — 更新于 ' + m.updated + '</p>';
+        var branches = m.branches;
+        Object.keys(branches).forEach(function(branch){
+          var b = branches[branch];
+          html += '<div class="download-branch"><h3>' + branch + ' (' + b.format + ')</h3><ul>';
+          if(b.files && b.files.length){
+            b.files.forEach(function(f){
+              var sizeStr = f.size ? ' (' + formatSize(f.size) + ')' : '';
+              html += '<li><a href="' + f.url + '">' + f.name + '</a><span class="size">' + sizeStr + '</span></li>';
+            });
+          }
+          html += '</ul>';
+          if(b.base){
+            html += '<a class="browse-link" href="' + b.base + '/">浏览全部文件 →</a>';
+          }
+          html += '</div>';
+        });
+        dl.innerHTML = html;
+      })
+      .catch(function(){
+        dl.innerHTML = '<p class="downloads-meta">下载列表暂不可用。可浏览软件源: <a href="/openwrt-24.10/all/netbird/">24.10</a> · <a href="/openwrt-25.12/all/netbird/">25.12</a>。</p>';
+      });
+  }
+
+  // lightbox: click a screenshot to zoom in-page; click again / Esc to close
+  var lb = document.getElementById('lightbox');
+  if(lb){
+    var lbImg = lb.querySelector('img');
+    var closeLb = function(){ lb.classList.remove('open'); lbImg.removeAttribute('src'); };
+    document.querySelectorAll('.screenshot-grid img.shot').forEach(function(img){
+      img.addEventListener('click', function(){
+        lbImg.src = img.currentSrc || img.src;
+        lbImg.alt = img.alt;
+        lb.classList.add('open');
+      });
+    });
+    lb.addEventListener('click', closeLb);
+    document.addEventListener('keydown', function(e){ if(e.key === 'Escape') closeLb(); });
+  }
+
+  function formatSize(bytes){
+    if(bytes < 1024) return bytes + ' B';
+    if(bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1048576).toFixed(1) + ' MB';
+  }
+})();
+</script>
+
+</body>
+</html>

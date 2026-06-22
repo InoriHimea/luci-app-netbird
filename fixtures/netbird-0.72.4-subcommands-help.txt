@@ -1,0 +1,326 @@
+=== netbird up --help ===
+Connect to the NetBird network using the provided setup key or SSO auth. This command will bring up the WireGuard interface, connect to the management server, and establish peer-to-peer connections with other peers in the network if required.
+
+Usage:
+  netbird up [flags]
+
+Flags:
+      --allow-server-ssh                    Allow SSH server on peer
+      --block-inbound                       Block inbound connections. If enabled, the client will not allow any inbound connections to the local machine nor routed networks.
+                                            This overrides any policies received from the management service.
+      --block-lan-access                    Block access to local networks (LAN) when using this peer as a router or exit node
+  -c, --config string                       (DEPRECATED) NetBird config file location. 
+      --disable-auto-connect                Disables auto-connect feature. If enabled, then the client won't connect automatically when the service starts.
+      --disable-client-routes               Disable client routes. If enabled, the client won't process client routes received from the management service.
+      --disable-dns                         Disable DNS. If enabled, the client won't configure DNS settings.
+      --disable-firewall                    Disable firewall configuration. If enabled, the client won't modify firewall rules.
+      --disable-ipv6                        Disable IPv6 overlay. If enabled, the client won't request or use an IPv6 overlay address.
+      --disable-server-routes               Disable server routes. If enabled, the client won't act as a router for server routes received from the management service.
+      --disable-ssh-auth                    Disable SSH authentication
+      --dns-resolver-address string         Sets a custom address for NetBird's local DNS resolver. If set, the agent won't attempt to discover the best ip and port to listen on. An empty string "" clears the previous configuration. E.g. --dns-resolver-address 127.0.0.1:5053 or --dns-resolver-address ""
+      --dns-router-interval duration        DNS route update interval (default 1m0s)
+      --enable-lazy-connection              [Experimental] Enable the lazy connection feature. If enabled, the client will establish connections on-demand. Note: this setting may be overridden by management configuration.
+      --enable-rosenpass                    [Experimental] Enable Rosenpass feature. If enabled, the connection will be post-quantum secured via Rosenpass.
+      --enable-ssh-local-port-forwarding    Enable local port forwarding for SSH server
+      --enable-ssh-remote-port-forwarding   Enable remote port forwarding for SSH server
+      --enable-ssh-root                     Enable root login for SSH server
+      --enable-ssh-sftp                     Enable SFTP subsystem for SSH server
+      --external-ip-map strings             Sets external IPs maps between local addresses and interfaces.You can specify a comma-separated list with a single IP and IP/IP or IP/Interface Name. An empty string "" clears the previous configuration. E.g. --external-ip-map 12.34.56.78/10.0.0.1 or --external-ip-map 12.34.56.200,12.34.56.78/10.0.0.1,12.34.56.80/eth1 or --external-ip-map ""
+      --extra-dns-labels strings            Sets DNS labelsYou can specify a comma-separated list of up to 32 labels. An empty string "" clears the previous configuration. E.g. --extra-dns-labels vpc1 or --extra-dns-labels vpc1,mgmt1 or --extra-dns-labels ""
+      --extra-iface-blacklist strings       Extra list of default interfaces to ignore for listening
+  -F, --foreground-mode                     start service in foreground
+  -h, --help                                help for up
+      --interface-name string               WireGuard interface name (default "wt0")
+      --mtu uint16                          Set MTU (Maximum Transmission Unit) for the WireGuard interface (default 1280)
+  -N, --network-monitor                     Manage network monitoring. Defaults to true on Windows and macOS, false on Linux and FreeBSD. E.g. --network-monitor=false to disable or --network-monitor=true to enable.
+      --no-browser                          do not open the browser for SSO login
+      --profile string                      profile name to use for the login. If not specified, the last used profile will be used.
+      --qr                                  show QR code for the SSO login URL (useful for headless machines without browser access)
+      --rosenpass-permissive                [Experimental] Enable Rosenpass in permissive mode to allow this peer to accept WireGuard connections without requiring Rosenpass functionality from peers that do not have Rosenpass enabled.
+      --ssh-jwt-cache-ttl int               SSH JWT token cache TTL in seconds (0=disabled)
+      --wireguard-port uint16               WireGuard interface listening port (default 51820)
+
+Global Flags:
+      --admin-url string        Admin Panel URL [http|https]://[host]:[port] (default "https://app.netbird.io:443")
+  -A, --anonymize               anonymize IP addresses and non-netbird.io domains in logs and status output
+      --daemon-addr string      Daemon service address to serve CLI requests [unix|tcp]://[path|host:port] (default "unix:///var/run/netbird.sock")
+  -n, --hostname string         Sets a custom hostname for the device
+      --log-file console        sets NetBird log paths written to simultaneously. If console is specified the log will be output to stdout. If `syslog` is specified the log will be sent to syslog daemon. You can pass the flag multiple times or separate entries by `,` character (default [/var/log/netbird/client.log])
+  -l, --log-level string        sets NetBird log level (default "info")
+  -m, --management-url string   Management Service URL [http|https]://[host]:[port] (default "https://api.netbird.io:443")
+      --preshared-key string    Sets WireGuard PreSharedKey property. If set, then only peers that have the same key can communicate.
+  -s, --service string          Netbird system service name (default "netbird")
+  -k, --setup-key string        Setup key obtained from the Management Service Dashboard (used to register peer)
+      --setup-key-file string   The path to a setup key obtained from the Management Service Dashboard (used to register peer) This is ignored if the setup-key flag is provided.
+
+=== netbird login --help ===
+Log in to the NetBird network using a setup key or SSO
+
+Usage:
+  netbird login [flags]
+
+Flags:
+  -c, --config string    (DEPRECATED) Netbird config file location
+  -h, --help             help for login
+      --no-browser       do not open the browser for SSO login
+      --profile string   profile name to use for the login. If not specified, the last used profile will be used.
+      --qr               show QR code for the SSO login URL (useful for headless machines without browser access)
+
+Global Flags:
+      --admin-url string        Admin Panel URL [http|https]://[host]:[port] (default "https://app.netbird.io:443")
+  -A, --anonymize               anonymize IP addresses and non-netbird.io domains in logs and status output
+      --daemon-addr string      Daemon service address to serve CLI requests [unix|tcp]://[path|host:port] (default "unix:///var/run/netbird.sock")
+  -n, --hostname string         Sets a custom hostname for the device
+      --log-file console        sets NetBird log paths written to simultaneously. If console is specified the log will be output to stdout. If `syslog` is specified the log will be sent to syslog daemon. You can pass the flag multiple times or separate entries by `,` character (default [/var/log/netbird/client.log])
+  -l, --log-level string        sets NetBird log level (default "info")
+  -m, --management-url string   Management Service URL [http|https]://[host]:[port] (default "https://api.netbird.io:443")
+      --preshared-key string    Sets WireGuard PreSharedKey property. If set, then only peers that have the same key can communicate.
+  -s, --service string          Netbird system service name (default "netbird")
+  -k, --setup-key string        Setup key obtained from the Management Service Dashboard (used to register peer)
+      --setup-key-file string   The path to a setup key obtained from the Management Service Dashboard (used to register peer) This is ignored if the setup-key flag is provided.
+
+=== netbird down --help ===
+Disconnect the NetBird client from the network and management service. This will terminate all active connections with the remote peers.
+
+Usage:
+  netbird down [flags]
+
+Flags:
+  -h, --help   help for down
+
+Global Flags:
+      --admin-url string        Admin Panel URL [http|https]://[host]:[port] (default "https://app.netbird.io:443")
+  -A, --anonymize               anonymize IP addresses and non-netbird.io domains in logs and status output
+  -c, --config string           Overrides the default profile file location (default "/var/lib/netbird/default.json")
+      --daemon-addr string      Daemon service address to serve CLI requests [unix|tcp]://[path|host:port] (default "unix:///var/run/netbird.sock")
+  -n, --hostname string         Sets a custom hostname for the device
+      --log-file console        sets NetBird log paths written to simultaneously. If console is specified the log will be output to stdout. If `syslog` is specified the log will be sent to syslog daemon. You can pass the flag multiple times or separate entries by `,` character (default [/var/log/netbird/client.log])
+  -l, --log-level string        sets NetBird log level (default "info")
+  -m, --management-url string   Management Service URL [http|https]://[host]:[port] (default "https://api.netbird.io:443")
+      --preshared-key string    Sets WireGuard PreSharedKey property. If set, then only peers that have the same key can communicate.
+  -s, --service string          Netbird system service name (default "netbird")
+  -k, --setup-key string        Setup key obtained from the Management Service Dashboard (used to register peer)
+      --setup-key-file string   The path to a setup key obtained from the Management Service Dashboard (used to register peer) This is ignored if the setup-key flag is provided.
+
+=== netbird deregister --help ===
+This command will deregister the current peer from the NetBird management service and all associated configuration. Use with caution as this will remove the peer from the network.
+
+Usage:
+  netbird deregister [flags]
+
+Aliases:
+  deregister, logout
+
+Flags:
+  -h, --help             help for deregister
+      --profile string   profile name to use for the login. If not specified, the last used profile will be used.
+
+Global Flags:
+      --admin-url string        Admin Panel URL [http|https]://[host]:[port] (default "https://app.netbird.io:443")
+  -A, --anonymize               anonymize IP addresses and non-netbird.io domains in logs and status output
+  -c, --config string           Overrides the default profile file location (default "/var/lib/netbird/default.json")
+      --daemon-addr string      Daemon service address to serve CLI requests [unix|tcp]://[path|host:port] (default "unix:///var/run/netbird.sock")
+  -n, --hostname string         Sets a custom hostname for the device
+      --log-file console        sets NetBird log paths written to simultaneously. If console is specified the log will be output to stdout. If `syslog` is specified the log will be sent to syslog daemon. You can pass the flag multiple times or separate entries by `,` character (default [/var/log/netbird/client.log])
+  -l, --log-level string        sets NetBird log level (default "info")
+  -m, --management-url string   Management Service URL [http|https]://[host]:[port] (default "https://api.netbird.io:443")
+      --preshared-key string    Sets WireGuard PreSharedKey property. If set, then only peers that have the same key can communicate.
+  -s, --service string          Netbird system service name (default "netbird")
+  -k, --setup-key string        Setup key obtained from the Management Service Dashboard (used to register peer)
+      --setup-key-file string   The path to a setup key obtained from the Management Service Dashboard (used to register peer) This is ignored if the setup-key flag is provided.
+
+=== netbird status --help ===
+Display the current status of the NetBird client, including connection status, peer information, and network details.
+
+Usage:
+  netbird status [flags]
+
+Flags:
+  -C, --check string                       run a health check and exit with code 0 on success, 1 on failure (live|ready|startup)
+  -d, --detail                             display detailed status information in human-readable format
+  -T, --filter-by-connection-type string   filters the detailed output by connection type (P2P|Relayed), e.g., --filter-by-connection-type P2P
+  -I, --filter-by-ips strings              filters the detailed output by a list of one or more IPs (v4 or v6), e.g., --filter-by-ips 100.64.0.100,fd00::1
+  -N, --filter-by-names strings            filters the detailed output by a list of one or more peer FQDN or hostnames, e.g., --filter-by-names peer-a,peer-b.netbird.cloud
+  -S, --filter-by-status string            filters the detailed output by connection status(idle|connecting|connected), e.g., --filter-by-status connected
+  -h, --help                               help for status
+  -4, --ipv4                               display only NetBird IPv4 of this peer, e.g., --ipv4 will output 100.64.0.33
+  -6, --ipv6                               display only NetBird IPv6 of this peer
+  -j, --json                               display detailed status information in json format
+  -y, --yaml                               display detailed status information in yaml format
+
+Global Flags:
+      --admin-url string        Admin Panel URL [http|https]://[host]:[port] (default "https://app.netbird.io:443")
+  -A, --anonymize               anonymize IP addresses and non-netbird.io domains in logs and status output
+  -c, --config string           Overrides the default profile file location (default "/var/lib/netbird/default.json")
+      --daemon-addr string      Daemon service address to serve CLI requests [unix|tcp]://[path|host:port] (default "unix:///var/run/netbird.sock")
+  -n, --hostname string         Sets a custom hostname for the device
+      --log-file console        sets NetBird log paths written to simultaneously. If console is specified the log will be output to stdout. If `syslog` is specified the log will be sent to syslog daemon. You can pass the flag multiple times or separate entries by `,` character (default [/var/log/netbird/client.log])
+  -l, --log-level string        sets NetBird log level (default "info")
+  -m, --management-url string   Management Service URL [http|https]://[host]:[port] (default "https://api.netbird.io:443")
+      --preshared-key string    Sets WireGuard PreSharedKey property. If set, then only peers that have the same key can communicate.
+  -s, --service string          Netbird system service name (default "netbird")
+  -k, --setup-key string        Setup key obtained from the Management Service Dashboard (used to register peer)
+      --setup-key-file string   The path to a setup key obtained from the Management Service Dashboard (used to register peer) This is ignored if the setup-key flag is provided.
+
+=== netbird service --help ===
+Manage the NetBird daemon service
+
+Usage:
+  netbird service [command]
+
+Available Commands:
+  install      Install NetBird service
+  reconfigure  reconfigures NetBird service with new settings
+  reset-params Remove saved service install parameters
+  restart      restarts NetBird service
+  run          runs NetBird as service
+  start        starts NetBird service
+  status       shows NetBird service status
+  stop         stops NetBird service
+  uninstall    uninstalls NetBird service from system
+
+Flags:
+      --disable-networks          Disables network selection. If enabled, the client will not allow listing, selecting, or deselecting networks. To persist, use: netbird service install --disable-networks
+      --disable-profiles          Disables profiles feature. If enabled, the client will not be able to change or edit any profile. To persist this setting, use: netbird service install --disable-profiles
+      --disable-update-settings   Disables update settings feature. If enabled, the client will not be able to change or edit any settings. To persist this setting, use: netbird service install --disable-update-settings
+      --enable-capture            Enables packet capture via 'netbird debug capture'. To persist, use: netbird service install --enable-capture
+  -h, --help                      help for service
+
+Global Flags:
+      --admin-url string        Admin Panel URL [http|https]://[host]:[port] (default "https://app.netbird.io:443")
+  -A, --anonymize               anonymize IP addresses and non-netbird.io domains in logs and status output
+  -c, --config string           Overrides the default profile file location (default "/var/lib/netbird/default.json")
+      --daemon-addr string      Daemon service address to serve CLI requests [unix|tcp]://[path|host:port] (default "unix:///var/run/netbird.sock")
+  -n, --hostname string         Sets a custom hostname for the device
+      --log-file console        sets NetBird log paths written to simultaneously. If console is specified the log will be output to stdout. If `syslog` is specified the log will be sent to syslog daemon. You can pass the flag multiple times or separate entries by `,` character (default [/var/log/netbird/client.log])
+  -l, --log-level string        sets NetBird log level (default "info")
+  -m, --management-url string   Management Service URL [http|https]://[host]:[port] (default "https://api.netbird.io:443")
+      --preshared-key string    Sets WireGuard PreSharedKey property. If set, then only peers that have the same key can communicate.
+  -s, --service string          Netbird system service name (default "netbird")
+  -k, --setup-key string        Setup key obtained from the Management Service Dashboard (used to register peer)
+      --setup-key-file string   The path to a setup key obtained from the Management Service Dashboard (used to register peer) This is ignored if the setup-key flag is provided.
+
+Use "netbird service [command] --help" for more information about a command.
+
+=== netbird networks --help ===
+Commands to list, select, or deselect networks. Replaces the "routes" command.
+
+Usage:
+  netbird networks [command]
+
+Aliases:
+  networks, routes
+
+Available Commands:
+  deselect    Deselect networks
+  list        List networks
+  select      Select network
+
+Flags:
+  -h, --help   help for networks
+
+Global Flags:
+      --admin-url string        Admin Panel URL [http|https]://[host]:[port] (default "https://app.netbird.io:443")
+  -A, --anonymize               anonymize IP addresses and non-netbird.io domains in logs and status output
+  -c, --config string           Overrides the default profile file location (default "/var/lib/netbird/default.json")
+      --daemon-addr string      Daemon service address to serve CLI requests [unix|tcp]://[path|host:port] (default "unix:///var/run/netbird.sock")
+  -n, --hostname string         Sets a custom hostname for the device
+      --log-file console        sets NetBird log paths written to simultaneously. If console is specified the log will be output to stdout. If `syslog` is specified the log will be sent to syslog daemon. You can pass the flag multiple times or separate entries by `,` character (default [/var/log/netbird/client.log])
+  -l, --log-level string        sets NetBird log level (default "info")
+  -m, --management-url string   Management Service URL [http|https]://[host]:[port] (default "https://api.netbird.io:443")
+      --preshared-key string    Sets WireGuard PreSharedKey property. If set, then only peers that have the same key can communicate.
+  -s, --service string          Netbird system service name (default "netbird")
+  -k, --setup-key string        Setup key obtained from the Management Service Dashboard (used to register peer)
+      --setup-key-file string   The path to a setup key obtained from the Management Service Dashboard (used to register peer) This is ignored if the setup-key flag is provided.
+
+Use "netbird networks [command] --help" for more information about a command.
+
+=== netbird profile --help ===
+Commands to list, add, remove, and switch profiles. Profiles allow you to maintain different accounts in one client app.
+
+Usage:
+  netbird profile [command]
+
+Available Commands:
+  add         Add a new profile
+  list        List all profiles
+  remove      Remove a profile
+  select      Select a profile
+
+Flags:
+  -h, --help   help for profile
+
+Global Flags:
+      --admin-url string        Admin Panel URL [http|https]://[host]:[port] (default "https://app.netbird.io:443")
+  -A, --anonymize               anonymize IP addresses and non-netbird.io domains in logs and status output
+  -c, --config string           Overrides the default profile file location (default "/var/lib/netbird/default.json")
+      --daemon-addr string      Daemon service address to serve CLI requests [unix|tcp]://[path|host:port] (default "unix:///var/run/netbird.sock")
+  -n, --hostname string         Sets a custom hostname for the device
+      --log-file console        sets NetBird log paths written to simultaneously. If console is specified the log will be output to stdout. If `syslog` is specified the log will be sent to syslog daemon. You can pass the flag multiple times or separate entries by `,` character (default [/var/log/netbird/client.log])
+  -l, --log-level string        sets NetBird log level (default "info")
+  -m, --management-url string   Management Service URL [http|https]://[host]:[port] (default "https://api.netbird.io:443")
+      --preshared-key string    Sets WireGuard PreSharedKey property. If set, then only peers that have the same key can communicate.
+  -s, --service string          Netbird system service name (default "netbird")
+  -k, --setup-key string        Setup key obtained from the Management Service Dashboard (used to register peer)
+      --setup-key-file string   The path to a setup key obtained from the Management Service Dashboard (used to register peer) This is ignored if the setup-key flag is provided.
+
+Use "netbird profile [command] --help" for more information about a command.
+
+=== netbird state --help ===
+Provides commands for managing and inspecting the NetBird daemon state.
+
+Usage:
+  netbird state [command]
+
+Available Commands:
+  clean       Clean stored states
+  delete      Delete stored states
+  list        List all stored states
+
+Flags:
+  -h, --help   help for state
+
+Global Flags:
+      --admin-url string        Admin Panel URL [http|https]://[host]:[port] (default "https://app.netbird.io:443")
+  -A, --anonymize               anonymize IP addresses and non-netbird.io domains in logs and status output
+  -c, --config string           Overrides the default profile file location (default "/var/lib/netbird/default.json")
+      --daemon-addr string      Daemon service address to serve CLI requests [unix|tcp]://[path|host:port] (default "unix:///var/run/netbird.sock")
+  -n, --hostname string         Sets a custom hostname for the device
+      --log-file console        sets NetBird log paths written to simultaneously. If console is specified the log will be output to stdout. If `syslog` is specified the log will be sent to syslog daemon. You can pass the flag multiple times or separate entries by `,` character (default [/var/log/netbird/client.log])
+  -l, --log-level string        sets NetBird log level (default "info")
+  -m, --management-url string   Management Service URL [http|https]://[host]:[port] (default "https://api.netbird.io:443")
+      --preshared-key string    Sets WireGuard PreSharedKey property. If set, then only peers that have the same key can communicate.
+  -s, --service string          Netbird system service name (default "netbird")
+  -k, --setup-key string        Setup key obtained from the Management Service Dashboard (used to register peer)
+      --setup-key-file string   The path to a setup key obtained from the Management Service Dashboard (used to register peer) This is ignored if the setup-key flag is provided.
+
+Use "netbird state [command] --help" for more information about a command.
+
+=== netbird forwarding --help ===
+Commands to list forwarding rules.
+
+Usage:
+  netbird forwarding [command]
+
+Available Commands:
+  list        List forwarding rules
+
+Flags:
+  -h, --help   help for forwarding
+
+Global Flags:
+      --admin-url string        Admin Panel URL [http|https]://[host]:[port] (default "https://app.netbird.io:443")
+  -A, --anonymize               anonymize IP addresses and non-netbird.io domains in logs and status output
+  -c, --config string           Overrides the default profile file location (default "/var/lib/netbird/default.json")
+      --daemon-addr string      Daemon service address to serve CLI requests [unix|tcp]://[path|host:port] (default "unix:///var/run/netbird.sock")
+  -n, --hostname string         Sets a custom hostname for the device
+      --log-file console        sets NetBird log paths written to simultaneously. If console is specified the log will be output to stdout. If `syslog` is specified the log will be sent to syslog daemon. You can pass the flag multiple times or separate entries by `,` character (default [/var/log/netbird/client.log])
+  -l, --log-level string        sets NetBird log level (default "info")
+  -m, --management-url string   Management Service URL [http|https]://[host]:[port] (default "https://api.netbird.io:443")
+      --preshared-key string    Sets WireGuard PreSharedKey property. If set, then only peers that have the same key can communicate.
+  -s, --service string          Netbird system service name (default "netbird")
+  -k, --setup-key string        Setup key obtained from the Management Service Dashboard (used to register peer)
+      --setup-key-file string   The path to a setup key obtained from the Management Service Dashboard (used to register peer) This is ignored if the setup-key flag is provided.
+
+Use "netbird forwarding [command] --help" for more information about a command.
+

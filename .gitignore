@@ -1,0 +1,14 @@
+# Build artifacts
+*.ipk
+*.apk
+*.tar.gz
+*.tar.zst
+/bin/
+/public/
+/dist/
+
+# System / editor
+.DS_Store
+**/._*
+*.swp
+*~

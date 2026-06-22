@@ -1,0 +1,50 @@
+luci-app-netbird
+================
+
+Copyright 2026 PC27149 (https://github.com/PC27149) and luci-app-netbird contributors
+SPDX-License-Identifier: Apache-2.0
+
+本项目以 Apache License 2.0 授权发布。完整协议文本见仓库根目录 LICENSE 文件，
+或访问 https://www.apache.org/licenses/LICENSE-2.0。
+
+This product is licensed under the Apache License, Version 2.0.
+You may obtain a copy of the License at:
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+---
+
+衍生来源 / Derived Works
+------------------------
+
+以下文件源自或参考了第三方开源项目，各自保留原始版权声明：
+
+1. luci-app-tailscale-community（Apache-2.0）
+   来源：https://github.com/Tokisaki-Galaxy/luci-app-tailscale-community
+   许可：Apache License 2.0
+   受影响文件（已在文件头保留原始版权 + 修改声明）：
+     - htdocs/luci-static/resources/view/netbird/dom-helpers.js
+     - root/etc/uci-defaults/99-luci-app-netbird
+     - root/etc/init.d/netbird（如适用）
+   修改说明：针对 NetBird 客户端行为、UCI 配置结构、后端 RPC 接口进行了大量改写；
+   原始署名保留在各文件首部注释中。
+
+2. OPNsense os-netbird（BSD-2-Clause）
+   来源：https://github.com/opnsense/plugins/tree/master/net/os-netbird
+   版权：Copyright (C) NetBird GmbH，BSD-2-Clause 授权
+   使用范围：仅借鉴 UI 设计思路、Tab 布局、字段名称和帮助文案的语义；
+   未复制、翻译或包含其任何源代码。BSD-2-Clause 仅适用于其原始代码，
+   不影响本项目的 Apache-2.0 授权。
+
+---
+
+Apache License 2.0 核心条款提示
+---------------------------------
+
+在遵守 Apache License 2.0 的前提下，您可以自由使用、复制、修改和分发本软件。
+主要义务：
+  - 保留本 NOTICE 文件及各文件中的原始版权声明
+  - 在修改过的文件中声明您的修改
+  - 分发时附带 LICENSE 文件
+
+本软件按"原样"提供，不附带任何明示或暗示的保证。
