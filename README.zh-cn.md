@@ -70,6 +70,7 @@ apk add --allow-untrusted luci-app-netbird-*.apk luci-i18n-netbird-zh-cn-*.apk
 ## 文档
 
 - [架构](docs/ARCHITECTURE.md) —— 设计、数据流、模块边界
+- [发布](docs/RELEASING.md) —— CI 触发规则、按包版本发布
 - [更新日志](CHANGELOG.md) —— 版本历史
 
 ## 说明

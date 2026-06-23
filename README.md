@@ -70,6 +70,7 @@ Add this repo to an OpenWrt / ImmortalWrt SDK or buildroot (under `package/` or 
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md) — design, data flow, module boundaries
+- [Releasing](docs/RELEASING.md) — CI trigger rules, package-versioned releases
 - [Changelog](CHANGELOG.md) — version history
 - [GitHub](https://github.com/dont-touchme/luci-app-netbird) — source code, issues, releases
 

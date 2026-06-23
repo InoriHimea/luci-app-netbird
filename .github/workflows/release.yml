@@ -5,14 +5,21 @@ name: release
 #
 # Required repository secrets:
 #   KEY_BUILD             usign private key (opkg index signing)
-#   PRIVATE_KEY           RSA private key  (apk index signing)
+#   PRIVATE_KEY           EC P-256 private key (apk index signing)
 #   CLOUDFLARE_ACCOUNT_ID
 #   CLOUDFLARE_API_TOKEN  token with "Cloudflare Pages: Edit"
 
 on:
   push:
     branches: [main, master]
+    paths:
+      - "luci-app-netbird/**"
+      - ".github/workflows/release.yml"
   workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -53,6 +60,8 @@ jobs:
     name: deploy to Cloudflare Pages
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -74,6 +83,7 @@ jobs:
           cp -R docs/screenshots/. public/screenshots/
 
       - name: Generate manifest.json + feed autoindex
+        id: manifest
         run: |
           set -eu
           gen_branch() {
@@ -91,9 +101,23 @@ jobs:
               jq -n --arg base "$base" --arg fmt "$fmt" '{format:$fmt, base:$base, count:0, files:[]}'
             fi
           }
-          VER=$(ls public/openwrt-24.10/all/netbird/luci-app-netbird_*.ipk 2>/dev/null | head -1 \
+          VER=$(find public/openwrt-24.10/all/netbird -maxdepth 1 -type f -name 'luci-app-netbird_*.ipk' -print | sort | head -1 \
                 | sed -E 's#.*/luci-app-netbird_(.+)_all\.ipk#\1#')
-          [ -n "${VER:-}" ] || VER="0.1.0"
+          APK_VER=$(find public/openwrt-25.12/all/netbird -maxdepth 1 -type f -name 'luci-app-netbird-*.apk' -print | sort | head -1 \
+                | sed -E 's#.*/luci-app-netbird-(.+)\.apk#\1#')
+          if [ -z "${VER:-}" ]; then
+            echo "::error::Could not extract package version from the ipk build output."
+            exit 1
+          fi
+          if [ -z "${APK_VER:-}" ]; then
+            echo "::error::Could not extract package version from the apk build output."
+            exit 1
+          fi
+          if [ "$VER" != "$APK_VER" ]; then
+            echo "::error::Package version mismatch: ipk=$VER apk=$APK_VER"
+            exit 1
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
           UPDATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           jq -n --arg v "$VER" --arg u "$UPDATED" \
             --argjson b1 "$(gen_branch openwrt-24.10 ipk)" \
@@ -110,6 +134,38 @@ jobs:
             } > "$d/index.html"
           done
           echo "=== manifest.json ===" ; cat public/manifest.json
+
+      - name: Create or update GitHub Release
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.manifest.outputs.version }}
+        run: |
+          set -eu
+          tag="v${VERSION}"
+          title="luci-app-netbird ${tag}"
+          mkdir -p release-assets
+          find public/openwrt-24.10/all/netbird public/openwrt-25.12/all/netbird \
+            -maxdepth 1 -type f \( -name '*.ipk' -o -name '*.apk' \) \
+            -exec cp {} release-assets/ \;
+          cp public/manifest.json release-assets/manifest.json
+
+          notes="$(mktemp)"
+          {
+            echo "Automated package feed release for ${VERSION}."
+            echo
+            echo "Built from ${GITHUB_SHA}."
+            echo
+            echo "Assets:"
+            ( cd release-assets && find . -maxdepth 1 -type f -printf '- %f\n' | sort )
+          } > "$notes"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --title "$title" --notes-file "$notes" --target "$GITHUB_SHA" --latest
+          else
+            gh release create "$tag" --title "$title" --notes-file "$notes" --target "$GITHUB_SHA" --latest
+          fi
+          gh release upload "$tag" release-assets/* --clobber
 
       - name: Deploy
         uses: cloudflare/wrangler-action@v3
