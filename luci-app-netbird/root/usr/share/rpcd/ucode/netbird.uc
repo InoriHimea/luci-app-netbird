@@ -890,7 +890,24 @@ function _progress_download_cmd(fetcher, out, secs, total) {
     return cmd;
 }
 
-// _dl_cmd(url, out, secs, progress_total) → 拼下载命令(优先 curl,回落 uclient-fetch,再 BusyBox wget)。
+function _download_headers(headers, kind) {
+    let out = '';
+    if (headers == null)
+        return out;
+    if (type(headers) != 'array')
+        headers = [ headers ];
+    for (let h in headers) {
+        if (type(h) != 'string' || length(h) == 0)
+            continue;
+        if (kind == 'curl')
+            out += ' -H ' + shell_quote(h);
+        else
+            out += ' --header=' + shell_quote(h);
+    }
+    return out;
+}
+
+// _dl_cmd(url, out, secs, progress_total, headers) → 拼下载命令(优先 curl,回落 uclient-fetch,再 BusyBox wget)。
 // out 空串=输出到 stdout(读 body 用);非空=写入该文件。url/out 经 shell_quote(注入防线)。
 // OWRT25 最小化镜像常无 curl,但有 uclient-fetch(HTTPS via libustream)——多下载器回落,
 // 避免下载/检测功能在无 curl 系统上静默失效;不强加 curl 硬依赖(打包依赖留给用户决定)。
@@ -898,23 +915,25 @@ function _progress_download_cmd(fetcher, out, secs, total) {
 //
 // secs>0 时保留墙钟上限(用于 API / 自动兜底);secs<=0 时手动下载不限总时长,由前端停止按钮取消。
 // progress_total 非 null 时,包装下载器每秒写进度状态文件,供 LuCI 轮询展示速度/进度。
-function _dl_cmd(url, out, secs, progress_total) {
+function _dl_cmd(url, out, secs, progress_total, headers) {
     let q = shell_quote(url);
     let to_file = (out != null && length(out) > 0);
     let bounded = (secs != null && secs > 0);
     if (access('/usr/bin/curl', 'x') || access('/bin/curl', 'x')) {
         let curl_to = bounded ? (' --max-time ' + secs) : ' --connect-timeout 20';
+        let curl_headers = _download_headers(headers, 'curl');
         if (!to_file)
-            return 'curl -fsSL' + curl_to + ' ' + q + ' 2>/dev/null';
-        let fetcher = 'curl -fL' + curl_to + ' -o ' + shell_quote(out) + ' ' + q + ' 2>&1';
+            return 'curl -fsSL' + curl_to + curl_headers + ' ' + q + ' 2>/dev/null';
+        let fetcher = 'curl -fL' + curl_to + curl_headers + ' -o ' + shell_quote(out) + ' ' + q + ' 2>&1';
         if (progress_total != null)
             return _progress_download_cmd(fetcher, out, secs, progress_total);
         return fetcher;
     }
     let tool = (access('/bin/uclient-fetch', 'x') || access('/usr/bin/uclient-fetch', 'x')) ? 'uclient-fetch' : 'wget';
+    let fetch_headers = _download_headers(headers, 'fetch');
     if (!to_file)
-        return tool + ' -q -T ' + (bounded ? secs : 20) + ' -O - ' + q + ' 2>/dev/null';
-    let fetcher = tool + ' -q -T ' + (bounded ? secs : 20) + ' -O ' + shell_quote(out) + ' ' + q + ' 2>&1';
+        return tool + ' -q -T ' + (bounded ? secs : 20) + fetch_headers + ' -O - ' + q + ' 2>/dev/null';
+    let fetcher = tool + ' -q -T ' + (bounded ? secs : 20) + fetch_headers + ' -O ' + shell_quote(out) + ' ' + q + ' 2>&1';
     if (progress_total != null)
         return _progress_download_cmd(fetcher, out, secs, progress_total);
     if (!bounded)
@@ -962,6 +981,25 @@ function _popen_simple(cmd) {
     let raw = fd.read('all') || '';
     let rc = fd.close();
     return { code: (rc == null ? -1 : rc), out: raw };
+}
+
+function _github_asset_api_url(ver, filename) {
+    if (!match(ver || '', _SEMVER_RE) || length(filename || '') == 0)
+        return '';
+    let api = 'https://api.github.com/repos/netbirdio/netbird/releases/tags/v' + ver;
+    let r = _popen_simple(_dl_cmd(api, '', 15));
+    if (r.code != 0 || length(r.out) == 0)
+        return '';
+    try {
+        let js = json(r.out);
+        for (let asset in (js.assets || [])) {
+            if (asset.name == filename && asset.id != null)
+                return 'https://api.github.com/repos/netbirdio/netbird/releases/assets/' + asset.id;
+        }
+    } catch (e) {
+        return '';
+    }
+    return '';
 }
 
 // _daemon_running() → bool：daemon 是否仍在跑（procd 视角）。
@@ -1061,10 +1099,11 @@ function _now_epoch() {
     return match(n, /^[0-9]+$/) ? int(n) : 0;
 }
 
-function _http_content_length(url) {
+function _http_content_length(url, headers) {
     if (!(access('/usr/bin/curl', 'x') || access('/bin/curl', 'x')))
         return 0;
-    let r = _popen_simple('curl -fsIL --connect-timeout 10 --max-time 20 ' + shell_quote(url) + ' 2>/dev/null');
+    let r = _popen_simple('curl -fsIL --connect-timeout 10 --max-time 20' +
+                          _download_headers(headers, 'curl') + ' ' + shell_quote(url) + ' 2>/dev/null');
     if (r.code != 0 || length(r.out) == 0)
         return 0;
     let out = 0;
@@ -1146,8 +1185,10 @@ function _do_get_binary_update_progress(req) {
 }
 
 function _do_cancel_binary_update(req) {
-    _popen_simple('touch ' + shell_quote(_NB_DL_CANCEL) + ' 2>/dev/null');
     let st = _progress_status();
+    if (!st.active)
+        return ok(st);
+    _popen_simple('touch ' + shell_quote(_NB_DL_CANCEL) + ' 2>/dev/null');
     if (match(st.pid || '', /^[0-9]+$/))
         _popen_simple('kill -9 ' + st.pid + ' 2>/dev/null');
     _progress_phase('stopping', 'Stopping download...', '', st.total);
@@ -1556,6 +1597,7 @@ function _update_binary_locked(req) {
 
     // step 2 — 解析下载 URL + 文件名 + 版本(用于 checksums/日志)
     let dl_url = '';
+    let dl_headers = [];
     let tarball = '';
     let ver = '';
     if (is_custom) {
@@ -1577,6 +1619,11 @@ function _update_binary_locked(req) {
             return fail_pre(CODE.INVALID_INPUT, 'Could not fetch or parse the latest version from GitHub (network failure or unexpected format).');
         tarball = 'netbird_' + ver + '_linux_' + arch + '.tar.gz';
         dl_url  = 'https://github.com/netbirdio/netbird/releases/download/v' + ver + '/' + tarball;
+        let api_asset = _github_asset_api_url(ver, tarball);
+        if (length(api_asset) > 0) {
+            dl_url = api_asset;
+            dl_headers = [ 'Accept: application/octet-stream' ];
+        }
     }
     if (length(tarball) == 0)
         tarball = 'netbird_download.tar.gz';
@@ -1603,7 +1650,7 @@ function _update_binary_locked(req) {
     let cleanup = function() {
         _popen_simple('rm -rf ' + shell_quote(work) + ' 2>/dev/null');
     };
-    let progress_total = _http_content_length(dl_url);
+    let progress_total = _http_content_length(dl_url, dl_headers);
     let fail_work = function(code, message, phase) {
         _progress_phase(phase || 'failed', message, tgz_path, progress_total);
         cleanup();
@@ -1618,7 +1665,7 @@ function _update_binary_locked(req) {
 
     // step 3 — 下载 tarball(经 _dl_cmd 多下载器回落;下载器自带超时防卡死;URL 已 shell_quote)。
     _progress_phase('downloading', 'Downloading...', tgz_path, progress_total);
-    let dl = _popen_simple(_dl_cmd(dl_url, tgz_path, dl_secs, progress_total));
+    let dl = _popen_simple(_dl_cmd(dl_url, tgz_path, dl_secs, progress_total, dl_headers));
     if (_progress_canceled() || dl.code == 130)
         return cancel_work();
     if (dl.code != 0)
@@ -1660,9 +1707,15 @@ function _update_binary_locked(req) {
     } else if (match(ver, _SEMVER_RE)) {
         if (_progress_canceled())
             return cancel_work();
-        let sums_url = 'https://github.com/netbirdio/netbird/releases/download/v' + ver +
-                       '/netbird_' + ver + '_checksums.txt';
-        let ds = _popen_simple(_dl_cmd(sums_url, sums_path, 60));
+        let sums_name = 'netbird_' + ver + '_checksums.txt';
+        let sums_url = 'https://github.com/netbirdio/netbird/releases/download/v' + ver + '/' + sums_name;
+        let sums_headers = [];
+        let sums_asset = _github_asset_api_url(ver, sums_name);
+        if (length(sums_asset) > 0) {
+            sums_url = sums_asset;
+            sums_headers = [ 'Accept: application/octet-stream' ];
+        }
+        let ds = _popen_simple(_dl_cmd(sums_url, sums_path, 60, null, sums_headers));
         if (_progress_canceled())
             return cancel_work();
         if (ds.code == 0) {
