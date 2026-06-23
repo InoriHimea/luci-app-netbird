@@ -12,3 +12,7 @@
 **/._*
 *.swp
 *~
+
+# Local agent entry files (kept at the parent workspace root, not published)
+CLAUDE.md
+AGENTS.md
