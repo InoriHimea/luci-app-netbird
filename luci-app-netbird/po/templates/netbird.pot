@@ -368,10 +368,6 @@ msgstr ""
 msgid "Downloading NetBird binary"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/netbird/versions.js:322
-msgid "Downloading, verifying (checksum + ELF architecture) and installing…"
-msgstr ""
-
 #: htdocs/luci-static/resources/view/netbird/settings.js:191
 msgid "Enable DNS"
 msgstr ""
@@ -1149,10 +1145,6 @@ msgstr ""
 msgid "Unknown"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/netbird/versions.js:330
-msgid "Unknown error"
-msgstr ""
-
 #: htdocs/luci-static/resources/view/netbird/versions.js:157
 msgid "Update now (v%s)"
 msgstr ""
@@ -1305,4 +1297,55 @@ msgid "Connecting"
 msgstr ""
 
 msgid "Idle"
+msgstr ""
+
+msgid "Preparing download..."
+msgstr ""
+
+msgid "Downloading..."
+msgstr ""
+
+msgid "Download complete. Verifying..."
+msgstr ""
+
+msgid "Verifying checksum and architecture..."
+msgstr ""
+
+msgid "Extracting binary..."
+msgstr ""
+
+msgid "Installing binary..."
+msgstr ""
+
+msgid "Stopping download..."
+msgstr ""
+
+msgid "Download stopped."
+msgstr ""
+
+msgid "Binary installed."
+msgstr ""
+
+msgid "Download failed."
+msgstr ""
+
+msgid "Downloaded"
+msgstr ""
+
+msgid "Speed"
+msgstr ""
+
+msgid "Elapsed"
+msgstr ""
+
+msgid "Stop download"
+msgstr ""
+
+msgid "Stopping..."
+msgstr ""
+
+msgid "Download/install did not complete. Check the device logs and try again."
+msgstr ""
+
+msgid "Could not start the download worker."
 msgstr ""

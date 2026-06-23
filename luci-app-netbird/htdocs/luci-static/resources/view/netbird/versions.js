@@ -17,7 +17,9 @@
 // 渲染全程 E()/dom-helpers(XSS 安全基线)。
 
 var callBinaryInfo   = rpc.declare({ object: 'luci.netbird', method: 'get_binary_info',     params: ['check_remote'],      expect: {} });
-var callUpdateBinary = rpc.declare({ object: 'luci.netbird', method: 'update_binary',        params: ['url', 'checksum'],   expect: {} });
+var callStartUpdate = rpc.declare({ object: 'luci.netbird', method: 'start_binary_update', params: ['url', 'checksum'], expect: {} });
+var callBinaryProgress = rpc.declare({ object: 'luci.netbird', method: 'get_binary_update_progress', params: [], expect: {} });
+var callCancelUpdate = rpc.declare({ object: 'luci.netbird', method: 'cancel_binary_update', params: [], expect: {} });
 var callSetSource    = rpc.declare({ object: 'luci.netbird', method: 'set_binary_source',    params: ['source', 'version'], expect: {} });
 var callDeleteCustom = rpc.declare({ object: 'luci.netbird', method: 'delete_custom_binary', params: ['version'],           expect: {} });
 
@@ -161,6 +163,162 @@ return view.extend({
 			else delete L.env.rpctimeout;
 			throw err;
 		});
+	},
+
+	_fmtBytes: function (bytes) {
+		var n = Math.max(0, Number(bytes) || 0);
+		var units = ['B', 'KB', 'MB', 'GB'];
+		var i = 0;
+		while (n >= 1024 && i < units.length - 1) {
+			n = n / 1024;
+			i++;
+		}
+		return (i === 0 ? String(Math.round(n)) : n.toFixed(n >= 10 ? 1 : 2).replace(/\.0+$/, '')) + ' ' + units[i];
+	},
+
+	_fmtDuration: function (seconds) {
+		var s = Math.max(0, Math.floor(Number(seconds) || 0));
+		if (s < 60)
+			return s + 's';
+		var m = Math.floor(s / 60);
+		s = s % 60;
+		if (m < 60)
+			return m + 'm ' + (s < 10 ? '0' : '') + s + 's';
+		var h = Math.floor(m / 60);
+		m = m % 60;
+		return h + 'h ' + (m < 10 ? '0' : '') + m + 'm';
+	},
+
+	_phaseText: function (phase) {
+		if (phase === 'preparing' || phase === 'idle') return _('Preparing download...');
+		if (phase === 'downloading') return _('Downloading...');
+		if (phase === 'downloaded') return _('Download complete. Verifying...');
+		if (phase === 'verifying') return _('Verifying checksum and architecture...');
+		if (phase === 'extracting') return _('Extracting binary...');
+		if (phase === 'installing') return _('Installing binary...');
+		if (phase === 'stopping') return _('Stopping download...');
+		if (phase === 'canceled') return _('Download stopped.');
+		if (phase === 'done') return _('Binary installed.');
+		if (phase === 'failed') return _('Download failed.');
+		return _('Preparing download...');
+	},
+
+	_showDownloadModal: function () {
+		var self = this;
+		var bar = E('progress', { 'style': 'width:100%;max-width:38em;height:1.2em' });
+		var status = E('p', { 'class': 'spinning' }, _('Preparing download...'));
+		var downloaded = E('div', { 'class': 'cbi-value-description' }, _('Downloaded') + ': -');
+		var speed = E('div', { 'class': 'cbi-value-description' }, _('Speed') + ': -');
+		var elapsed = E('div', { 'class': 'cbi-value-description' }, _('Elapsed') + ': 0s');
+		var stop = E('button', {
+			'class': 'btn cbi-button cbi-button-negative',
+			'click': ui.createHandlerFn(self, '_stopCurrentDownload')
+		}, _('Stop download'));
+
+		self._downloadNodes = {
+			bar: bar,
+			status: status,
+			downloaded: downloaded,
+			speed: speed,
+			elapsed: elapsed,
+			stop: stop
+		};
+
+		ui.showModal(_('Downloading NetBird binary'), [
+			status,
+			bar,
+			E('div', { 'style': 'margin-top:.7em' }, [ downloaded, speed, elapsed ]),
+			E('div', { 'class': 'right', 'style': 'margin-top:1em' }, [ stop ])
+		]);
+		self._renderDownloadProgress({ phase: 'preparing', downloaded: 0, total: 0, speed: 0, elapsed: 0, active: true });
+	},
+
+	_renderDownloadProgress: function (p) {
+		var n = this._downloadNodes;
+		if (!n)
+			return;
+		p = p || {};
+		var phase = p.phase || 'preparing';
+		var downloaded = Math.max(0, Number(p.downloaded) || 0);
+		var total = Math.max(0, Number(p.total) || 0);
+		var speed = Math.max(0, Number(p.speed) || 0);
+		var elapsed = Math.max(0, Number(p.elapsed) || 0);
+		var active = !!p.active || phase === 'preparing' || phase === 'downloading' ||
+			phase === 'verifying' || phase === 'extracting' || phase === 'installing' || phase === 'stopping';
+
+		dom.content(n.status, this._phaseText(phase));
+		if (phase === 'downloading')
+			n.status.classList.add('spinning');
+		else
+			n.status.classList.remove('spinning');
+
+		if (total > 0) {
+			var pct = Math.min(100, Math.floor(downloaded * 100 / total));
+			n.bar.setAttribute('max', String(total));
+			n.bar.setAttribute('value', String(Math.min(downloaded, total)));
+			dom.content(n.downloaded, _('Downloaded') + ': ' + this._fmtBytes(downloaded) + ' / ' + this._fmtBytes(total) + ' (' + pct + '%)');
+		} else {
+			n.bar.removeAttribute('value');
+			n.bar.setAttribute('max', '100');
+			dom.content(n.downloaded, _('Downloaded') + ': ' + this._fmtBytes(downloaded));
+		}
+		dom.content(n.speed, _('Speed') + ': ' + (speed > 0 ? (this._fmtBytes(speed) + '/s') : '-'));
+		dom.content(n.elapsed, _('Elapsed') + ': ' + this._fmtDuration(elapsed));
+
+		n.stop.disabled = !active || phase === 'stopping';
+		dom.content(n.stop, phase === 'stopping' ? _('Stopping...') : _('Stop download'));
+	},
+
+	_stopCurrentDownload: function () {
+		var self = this;
+		if (self._downloadStopping)
+			return;
+		self._downloadStopping = true;
+		if (self._downloadNodes) {
+			self._downloadNodes.stop.disabled = true;
+			dom.content(self._downloadNodes.stop, _('Stopping...'));
+		}
+		return L.resolveDefault(callCancelUpdate(), { ok: false }).then(function (res) {
+			if (res && res.ok)
+				self._renderDownloadProgress(res.data || { phase: 'stopping' });
+		});
+	},
+
+	_waitDownloadCompletion: function (token) {
+		var self = this;
+		return new Promise(function (resolve) {
+			var poll = function () {
+				if (self._downloadToken !== token) {
+					resolve({ phase: 'canceled', message: '' });
+					return;
+				}
+				L.resolveDefault(callBinaryProgress(), { ok: false }).then(function (res) {
+					var p = (res && res.ok) ? (res.data || {}) : {};
+					var phase = p.phase || 'idle';
+					self._renderDownloadProgress(p);
+					if (phase === 'done' || phase === 'failed' || phase === 'canceled') {
+						resolve(p);
+						return;
+					}
+					window.setTimeout(poll, 1000);
+				});
+			};
+			poll();
+		});
+	},
+
+	_downloadFailureMessage: function (res) {
+		if (res && res.code === 'checksum_mismatch')
+			return _('Checksum verification failed; the download was rejected.') + (res.message ? ' (' + res.message + ')' : '');
+		if (res && res.code === 'insufficient_space')
+			return _('Not enough storage space. Delete unused downloaded versions and try again.') + (res.message ? ' (' + res.message + ')' : '');
+		if (res && res.code === 'download_canceled')
+			return _('Download stopped.');
+		if (res && res.message)
+			return _(res.message);
+		if (res && res.code)
+			return res.code;
+		return _('Download/install did not complete. Check the device logs and try again.');
 	},
 
 	renderDetail: function () {
@@ -346,34 +504,40 @@ return view.extend({
 
 	_runUpdate: function (url, sha) {
 		var self = this;
-		ui.showModal(_('Downloading NetBird binary'), [
-			E('p', { 'class': 'spinning' }, _('Downloading, verifying (checksum + ELF architecture) and installing…'))
-		]);
-		return L.resolveDefault(self._withRpcTimeout(360, function () {
-			return callUpdateBinary(url || '', sha || '');
+		var token = (self._downloadToken || 0) + 1;
+		self._downloadToken = token;
+		self._downloadStopping = false;
+		self._showDownloadModal();
+		return L.resolveDefault(self._withRpcTimeout(30, function () {
+			return callStartUpdate(url || '', sha || '');
 		}), { ok: false }).then(function (res) {
-			ui.hideModal();
-			if (res && res.ok && res.data) {
-				ui.addNotification(null, E('p', {}, _('Binary installed: v%s.').format(res.data.to || '?')), 'info');
+			if (!(res && res.ok)) {
+				self._downloadToken = token + 1;
+				ui.hideModal();
+				ui.addNotification(null, E('p', {}, _('Download/install failed: %s').format(self._downloadFailureMessage(res))), 'error');
+				return;
+			}
+			return self._waitDownloadCompletion(token).then(function (progress) {
+				self._downloadToken = token + 1;
+				self._renderDownloadProgress(progress || {});
+				ui.hideModal();
+				var phase = progress && progress.phase;
+				if (phase === 'done') {
+					ui.addNotification(null, E('p', {}, _('Binary installed.')), 'info');
+					return self.refresh();
+				}
+				if (phase === 'canceled') {
+					ui.addNotification(null, E('p', {}, _('Download stopped.')), 'info');
+					return self.refresh();
+				}
+				ui.addNotification(null, E('p', {}, _('Download/install failed: %s').format(
+					self._downloadFailureMessage(progress && progress.message ? { message: progress.message } : null))), 'error');
 				return self.refresh();
-			}
-			// 校验值不匹配：用稳定 code 给固定本地化提示（后端动态 message 含哈希、不进 PO，
-			// zh 界面会回落英文 → 按 code 映射，K1 模式）；哈希明细附括号内便于核对。
-			if (res && res.code === 'checksum_mismatch') {
-				ui.addNotification(null, E('p', {},
-					_('Checksum verification failed; the download was rejected.') +
-					(res.message ? ' (' + res.message + ')' : '')), 'error');
-				return;
-			}
-			// 空间不足：稳定 code → 固定本地化可操作提示（后端 message 仅放诊断明细，附括号内）。
-			if (res && res.code === 'insufficient_space') {
-				ui.addNotification(null, E('p', {},
-					_('Not enough storage space. Delete unused downloaded versions and try again.') +
-					(res.message ? ' (' + res.message + ')' : '')), 'error');
-				return;
-			}
-			var msg = (res && res.message) ? _(res.message) : ((res && res.code) || _('Unknown error'));
-			ui.addNotification(null, E('p', {}, _('Download/install failed: %s').format(msg)), 'error');
+			});
+		}, function (err) {
+			self._downloadToken = token + 1;
+			ui.hideModal();
+			ui.addNotification(null, E('p', {}, _('Download/install failed: %s').format(err && err.message ? err.message : self._downloadFailureMessage(null))), 'error');
 		});
 	},
 

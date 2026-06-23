@@ -35,6 +35,7 @@ const CODE = {
     CONNECT_FAILED:    'connect_failed',
     // 二进制管理系（update_binary：下载/校验/安装官方最新二进制）
     DOWNLOAD_FAILED:   'download_failed',
+    DOWNLOAD_CANCELED: 'download_canceled',
     CHECKSUM_MISMATCH: 'checksum_mismatch',
     INSTALL_FAILED:    'install_failed',
     INSUFFICIENT_SPACE: 'insufficient_space',   // overlay 空间不足(下载/写二进制);前端按 code 本地化「删旧版本」提示

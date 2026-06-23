@@ -3,7 +3,7 @@
 // Canonical runtime path: /usr/share/rpcd/ucode/netbird.uc
 // Repo canonical source:  root/usr/share/rpcd/ucode/netbird.uc
 //
-// netbird.uc — rpcd 入口对象（注册 luci.netbird，21 methods = 10 read + 11 write）
+// netbird.uc — rpcd 入口对象（注册 luci.netbird，24 methods = 11 read + 13 write）
 // ACL 合约源：root/usr/share/rpcd/acl.d/luci-app-netbird.json
 // 方法名必须与 ACL 一字不差（双向 diff 是 CI 闸门）。
 //
@@ -842,30 +842,83 @@ function _running_version(bin) {
     return _parse_version_output(raw);
 }
 
-// _dl_cmd(url, out, secs) → 拼下载命令(优先 curl,回落 uclient-fetch,再 BusyBox wget)。
+const _NB_DL_STATUS = '/tmp/luci-netbird-binary-download.status';
+const _NB_DL_CANCEL = '/tmp/luci-netbird-binary-download.cancel';
+const _NB_DL_WORKER_LOG = '/tmp/luci-netbird-binary-download.worker.log';
+
+// _progress_download_cmd(fetcher,out,secs,total) — 包装实际下载器,每秒写状态文件并响应取消。
+// total 为 0/正数时写进度;null 表示仅复用原墙钟 watchdog,不污染当前下载进度状态。
+function _progress_download_cmd(fetcher, out, secs, total) {
+    let bounded = (secs != null && secs > 0);
+    let emit = (total != null);
+    let qout = shell_quote(out);
+    let qstatus = shell_quote(_NB_DL_STATUS);
+    let qcancel = shell_quote(_NB_DL_CANCEL);
+    let qtotal = shell_quote((total != null && total > 0) ? `${total}` : '0');
+
+    let write_progress =
+        'now=$(date +%s); size=0; [ -f ' + qout + ' ] && size=$(wc -c < ' + qout + ' 2>/dev/null | tr -d " "); ' +
+        'elapsed=$((now-started)); [ "$elapsed" -lt 1 ] && elapsed=1; speed=$((size/elapsed)); ' +
+        '{ echo phase=downloading; echo started="$started"; echo updated="$now"; echo pid="$__dlp"; ' +
+        'echo downloaded="$size"; echo total=' + qtotal + '; echo elapsed="$elapsed"; echo speed="$speed"; } > ' + qstatus;
+
+    let final_progress =
+        'now=$(date +%s); size=0; [ -f ' + qout + ' ] && size=$(wc -c < ' + qout + ' 2>/dev/null | tr -d " "); ' +
+        'elapsed=$((now-started)); [ "$elapsed" -lt 1 ] && elapsed=1; speed=$((size/elapsed)); ';
+
+    let cmd = fetcher + ' & __dlp=$!; started=$(date +%s); ';
+    if (emit)
+        cmd += write_progress + '; ';
+    cmd += 'while kill -0 $__dlp 2>/dev/null; do ';
+    if (emit)
+        cmd += write_progress + '; ';
+    cmd += 'if [ -f ' + qcancel + ' ]; then kill -9 $__dlp 2>/dev/null; wait $__dlp 2>/dev/null; ';
+    if (emit)
+        cmd += final_progress + '{ echo phase=canceled; echo started="$started"; echo updated="$now"; echo pid=; echo downloaded="$size"; echo total=' + qtotal + '; echo elapsed="$elapsed"; echo speed="$speed"; echo message="Download stopped by user."; } > ' + qstatus + '; ';
+    cmd += 'exit 130; fi; ';
+    if (bounded) {
+        cmd += 'now=$(date +%s); elapsed=$((now-started)); if [ "$elapsed" -ge ' + secs + ' ]; then kill -9 $__dlp 2>/dev/null; wait $__dlp 2>/dev/null; ';
+        if (emit)
+            cmd += final_progress + '{ echo phase=failed; echo started="$started"; echo updated="$now"; echo pid=; echo downloaded="$size"; echo total=' + qtotal + '; echo elapsed="$elapsed"; echo speed="$speed"; echo message="Download timed out."; } > ' + qstatus + '; ';
+        cmd += 'exit 124; fi; ';
+    }
+    cmd += 'sleep 1; done; wait $__dlp 2>/dev/null; rc=$?; ';
+    if (emit)
+        cmd += final_progress + 'if [ -f ' + qcancel + ' ]; then rc=130; phase=canceled; msg="Download stopped by user."; elif [ "$rc" -eq 0 ]; then phase=downloaded; msg="Download complete."; else phase=failed; msg="Download failed."; fi; ' +
+               '{ echo phase="$phase"; echo started="$started"; echo updated="$now"; echo pid=; echo downloaded="$size"; echo total=' + qtotal + '; echo elapsed="$elapsed"; echo speed="$speed"; echo message="$msg"; } > ' + qstatus + '; ';
+    cmd += 'exit $rc';
+    return cmd;
+}
+
+// _dl_cmd(url, out, secs, progress_total) → 拼下载命令(优先 curl,回落 uclient-fetch,再 BusyBox wget)。
 // out 空串=输出到 stdout(读 body 用);非空=写入该文件。url/out 经 shell_quote(注入防线)。
 // OWRT25 最小化镜像常无 curl,但有 uclient-fetch(HTTPS via libustream)——多下载器回落,
 // 避免下载/检测功能在无 curl 系统上静默失效;不强加 curl 硬依赖(打包依赖留给用户决定)。
 // 错误语义差异(uclient-fetch/wget 在 HTTP 错误时可能仍返 0)由下游校验(tar/ELF/version/JSON)兜底。
 //
-// ⚠️ 墙钟超时:**curl 的 --max-time 限总时长;uclient-fetch/wget 的 -T 仅限连接/请求超时,
-// 慢速传输(连上但慢慢拖)不受其限**(真机实测:-T 20 的下载跑 >90s 不退)。本机无 curl、
-// 无 timeout applet → 对 uclient-fetch/wget 的**文件下载**套墙钟看门狗:后台跑,secs 秒后 kill,
-// wait 取退出码(被 kill 则非零 → 调用方判失败、清理回落)。stdout 小响应(GitHub API)不套(快)。
-function _dl_cmd(url, out, secs) {
+// secs>0 时保留墙钟上限(用于 API / 自动兜底);secs<=0 时手动下载不限总时长,由前端停止按钮取消。
+// progress_total 非 null 时,包装下载器每秒写进度状态文件,供 LuCI 轮询展示速度/进度。
+function _dl_cmd(url, out, secs, progress_total) {
     let q = shell_quote(url);
     let to_file = (out != null && length(out) > 0);
-    if (access('/usr/bin/curl', 'x') || access('/bin/curl', 'x'))
-        return to_file
-            ? ('curl -fsSL --max-time ' + secs + ' -o ' + shell_quote(out) + ' ' + q + ' 2>&1')
-            : ('curl -fsSL --max-time ' + secs + ' ' + q + ' 2>/dev/null');
+    let bounded = (secs != null && secs > 0);
+    if (access('/usr/bin/curl', 'x') || access('/bin/curl', 'x')) {
+        let curl_to = bounded ? (' --max-time ' + secs) : ' --connect-timeout 20';
+        if (!to_file)
+            return 'curl -fsSL' + curl_to + ' ' + q + ' 2>/dev/null';
+        let fetcher = 'curl -fL' + curl_to + ' -o ' + shell_quote(out) + ' ' + q + ' 2>&1';
+        if (progress_total != null)
+            return _progress_download_cmd(fetcher, out, secs, progress_total);
+        return fetcher;
+    }
     let tool = (access('/bin/uclient-fetch', 'x') || access('/usr/bin/uclient-fetch', 'x')) ? 'uclient-fetch' : 'wget';
     if (!to_file)
-        return tool + ' -q -T ' + secs + ' -O - ' + q + ' 2>/dev/null';
-    // 文件下载:套墙钟看门狗强制 secs 上限(uclient-fetch 的 -T 仅连接超时,慢速传输不受限;
-    // 且 uclient-fetch **不响应 SIGTERM**,真机实测必须 SIGKILL)。轮询每秒查存活,超 secs 仍在
-    // 则 kill -9;fetch 自然结束/快速失败则循环即退。无孤儿 sleep、无 PID 复用误杀风险。
-    let fetcher = tool + ' -q -T ' + secs + ' -O ' + shell_quote(out) + ' ' + q + ' 2>&1';
+        return tool + ' -q -T ' + (bounded ? secs : 20) + ' -O - ' + q + ' 2>/dev/null';
+    let fetcher = tool + ' -q -T ' + (bounded ? secs : 20) + ' -O ' + shell_quote(out) + ' ' + q + ' 2>&1';
+    if (progress_total != null)
+        return _progress_download_cmd(fetcher, out, secs, progress_total);
+    if (!bounded)
+        return fetcher;
     return fetcher + ' & __dlp=$!; __i=0; ' +
            'while [ $__i -lt ' + secs + ' ] && kill -0 $__dlp 2>/dev/null; do sleep 1; __i=$((__i+1)); done; ' +
            'kill -0 $__dlp 2>/dev/null && kill -9 $__dlp 2>/dev/null; ' +
@@ -992,6 +1045,143 @@ function _file_size_kb(path) {
         return -1;
     let bytes = int(n);
     return int((bytes + 1023) / 1024);
+}
+
+function _file_size_bytes(path) {
+    if (path == null || !access(path, 'f'))
+        return 0;
+    let r = _popen_simple('wc -c < ' + shell_quote(path) + ' 2>/dev/null');
+    let n = trim(r.out);
+    return match(n, /^[0-9]+$/) ? int(n) : 0;
+}
+
+function _now_epoch() {
+    let r = _popen_simple('date +%s 2>/dev/null');
+    let n = trim(r.out);
+    return match(n, /^[0-9]+$/) ? int(n) : 0;
+}
+
+function _http_content_length(url) {
+    if (!(access('/usr/bin/curl', 'x') || access('/bin/curl', 'x')))
+        return 0;
+    let r = _popen_simple('curl -fsIL --connect-timeout 10 --max-time 20 ' + shell_quote(url) + ' 2>/dev/null');
+    if (r.code != 0 || length(r.out) == 0)
+        return 0;
+    let out = 0;
+    for (let ln in split(r.out, '\n')) {
+        let mm = match(trim(ln), /^[Cc]ontent-[Ll]ength:\s*([0-9]+)/);
+        if (mm)
+            out = int(mm[1]);
+    }
+    return out;
+}
+
+function _progress_reset() {
+    _popen_simple('rm -f ' + shell_quote(_NB_DL_STATUS) + ' ' + shell_quote(_NB_DL_CANCEL) + ' 2>/dev/null');
+}
+
+function _progress_status() {
+    let r = _popen_simple('cat ' + shell_quote(_NB_DL_STATUS) + ' 2>/dev/null');
+    let data = {
+        active: false,
+        phase: 'idle',
+        message: '',
+        downloaded: 0,
+        total: 0,
+        speed: 0,
+        elapsed: 0,
+        started: 0,
+        updated: 0,
+        pid: ''
+    };
+    for (let ln in split(r.out || '', '\n')) {
+        let p = index(ln, '=');
+        if (p <= 0)
+            continue;
+        let k = substr(ln, 0, p);
+        let v = substr(ln, p + 1);
+        if (k == 'phase' || k == 'message' || k == 'pid')
+            data[k] = v;
+        else if (k == 'downloaded' || k == 'total' || k == 'speed' || k == 'elapsed' || k == 'started' || k == 'updated')
+            data[k] = match(v, /^[0-9]+$/) ? int(v) : 0;
+    }
+    data.active = (data.phase == 'preparing' || data.phase == 'downloading' ||
+                   data.phase == 'verifying' || data.phase == 'extracting' ||
+                   data.phase == 'installing' || data.phase == 'stopping');
+    return data;
+}
+
+function _progress_phase(phase, message, path, total) {
+    let now = _now_epoch();
+    let prev = _progress_status();
+    let started = prev.started > 0 ? prev.started : now;
+    let downloaded = (path != null && length(path) > 0) ? _file_size_bytes(path) : prev.downloaded;
+    let elapsed = (now > started) ? (now - started) : 0;
+    let speed = (elapsed > 0 && downloaded > 0) ? int(downloaded / elapsed) : prev.speed;
+    let t = (total != null && total > 0) ? total : prev.total;
+
+    let lines = [
+        'phase=' + phase,
+        'message=' + message,
+        'downloaded=' + downloaded,
+        'total=' + t,
+        'speed=' + speed,
+        'elapsed=' + elapsed,
+        'started=' + started,
+        'updated=' + now,
+        'pid='
+    ];
+    let cmd = ': > ' + shell_quote(_NB_DL_STATUS);
+    for (let ln in lines)
+        cmd += '; printf "%s\\n" ' + shell_quote(ln) + ' >> ' + shell_quote(_NB_DL_STATUS);
+    _popen_simple(cmd + ' 2>/dev/null');
+}
+
+function _progress_canceled() {
+    return access(_NB_DL_CANCEL, 'f');
+}
+
+function _do_get_binary_update_progress(req) {
+    return ok(_progress_status());
+}
+
+function _do_cancel_binary_update(req) {
+    _popen_simple('touch ' + shell_quote(_NB_DL_CANCEL) + ' 2>/dev/null');
+    let st = _progress_status();
+    if (match(st.pid || '', /^[0-9]+$/))
+        _popen_simple('kill -9 ' + st.pid + ' 2>/dev/null');
+    _progress_phase('stopping', 'Stopping download...', '', st.total);
+    return ok(_progress_status());
+}
+
+function _do_start_binary_update(req) {
+    let st = _progress_status();
+    if (st.active || access('/tmp/nb-binop.lock', 'f'))
+        return err(CODE.INSTALL_FAILED, 'Another binary operation is in progress; please wait and try again.');
+
+    let a = (req != null && req.args != null) ? req.args : (req || {});
+    let args = {
+        url: (type(a.url) == 'string') ? a.url : '',
+        checksum: (type(a.checksum) == 'string') ? a.checksum : '',
+        dl_timeout: 0
+    };
+    _progress_reset();
+    _progress_phase('preparing', 'Preparing download...', '', 0);
+
+    let expr =
+        'let mod = loadfile("/usr/share/rpcd/ucode/netbird.uc")(); ' +
+        'let svc = mod["luci.netbird"]; ' +
+        'let r = svc.update_binary.call({ args: ' + sprintf('%J', args) + ' }); ' +
+        'print(sprintf("%J\\n", r));';
+    let cmd = 'NBLIB=' + shell_quote(_LIB) + ' ucode -e ' + shell_quote(expr) +
+              ' > ' + shell_quote(_NB_DL_WORKER_LOG) + ' 2>&1 & echo $!';
+    let r = _popen_simple(cmd);
+    let pid = trim(r.out);
+    if (!match(pid, /^[0-9]+$/)) {
+        _progress_phase('failed', 'Could not start the download worker.', '', 0);
+        return err(CODE.INSTALL_FAILED, 'Could not start the download worker.');
+    }
+    return ok({ started: true, pid: int(pid) });
 }
 
 // _active_binary_path() → /usr/bin/netbird 实际指向的二进制路径(symlink 则 readlink,否则自身)。
@@ -1335,16 +1525,22 @@ function _update_binary_locked(req) {
     let a = (req != null && req.args != null) ? req.args : (req || {});
     let custom_url = (type(a.url) == 'string') ? trim(a.url) : '';
     let is_custom = (length(custom_url) > 0);
-    // tarball 下载超时(秒):默认 300(版本管理页手动下载,容忍慢链);首连自动兜底
+    // tarball 下载超时(秒):手动下载默认 0=不限总时长,仅由「停止下载」取消;首连自动兜底
     // (_ensure_configured_binary)传短值(避免阻塞连接过久;超时则回落 feed)。
-    let dl_secs = (a.dl_timeout != null && a.dl_timeout > 0) ? a.dl_timeout : 300;
+    let dl_secs = (a.dl_timeout != null && a.dl_timeout > 0) ? a.dl_timeout : 0;
+    _progress_reset();
+    _progress_phase('preparing', 'Preparing download...', '', 0);
+    let fail_pre = function(code, message) {
+        _progress_phase('failed', message, '', 0);
+        return err(code, message);
+    };
 
     let det = _detect_arch();
     let arch = det.arch;
     // release 自动选包需 arch 命中 netbird 官方发布的 4 架构(amd64/arm64/386/armv6);
     // 自定义 URL 不限架构(用户贴精确资产 → 支持 mips/mipsle/riscv 等),仅 step 6 以本机原生 ELF 校验。
     if (!is_custom && (length(arch) == 0 || !match(arch, _ARCH_RE)))
-        return err(CODE.ARCH_MISMATCH, sprintf('No official auto-download for architecture %s (only amd64/arm64/386/armv6). Use the system package feed, or a custom URL pointing to a binary for your architecture.', det.uname_m || '?'));
+        return fail_pre(CODE.ARCH_MISMATCH, sprintf('No official auto-download for architecture %s (only amd64/arm64/386/armv6). Use the system package feed, or a custom URL pointing to a binary for your architecture.', det.uname_m || '?'));
 
     // step 1b — 下载前 overlay 空间预检(早失败,免白下载 + 给可操作错误,避免 overlay 被 ~40MB 二进制塞爆)。
     //   仅对「会新增文件」的下载拦:custom 视为新版本;release 仅当 netbird-release 尚不存在(首次)。
@@ -1355,7 +1551,7 @@ function _update_binary_locked(req) {
         let free_kb = _overlay_free_kb();
         // message 只放诊断明细(前端按 code=insufficient_space 给本地化「删旧版本」可操作文案,见 K1)。
         if (free_kb >= 0 && free_kb < 49152)
-            return err(CODE.INSUFFICIENT_SPACE, sprintf('%d MB free, ~48 MB needed', int(free_kb / 1024)));
+            return fail_pre(CODE.INSUFFICIENT_SPACE, sprintf('%d MB free, ~48 MB needed', int(free_kb / 1024)));
     }
 
     // step 2 — 解析下载 URL + 文件名 + 版本(用于 checksums/日志)
@@ -1364,7 +1560,7 @@ function _update_binary_locked(req) {
     let ver = '';
     if (is_custom) {
         if (!match(custom_url, /^https?:\/\//))
-            return err(CODE.INVALID_INPUT, 'The custom URL must start with http:// or https://.');
+            return fail_pre(CODE.INVALID_INPUT, 'The custom URL must start with http:// or https://.');
         dl_url = custom_url;
         let base_noq = custom_url;
         let qpos = index(base_noq, '?');
@@ -1378,7 +1574,7 @@ function _update_binary_locked(req) {
     } else {
         ver = _latest_version();
         if (!match(ver, _SEMVER_RE))
-            return err(CODE.INVALID_INPUT, 'Could not fetch or parse the latest version from GitHub (network failure or unexpected format).');
+            return fail_pre(CODE.INVALID_INPUT, 'Could not fetch or parse the latest version from GitHub (network failure or unexpected format).');
         tarball = 'netbird_' + ver + '_linux_' + arch + '.tar.gz';
         dl_url  = 'https://github.com/netbirdio/netbird/releases/download/v' + ver + '/' + tarball;
     }
@@ -1407,21 +1603,35 @@ function _update_binary_locked(req) {
     let cleanup = function() {
         _popen_simple('rm -rf ' + shell_quote(work) + ' 2>/dev/null');
     };
+    let progress_total = _http_content_length(dl_url);
+    let fail_work = function(code, message, phase) {
+        _progress_phase(phase || 'failed', message, tgz_path, progress_total);
+        cleanup();
+        return err(code, message);
+    };
+    let cancel_work = function() {
+        let message = 'Download stopped by user.';
+        _progress_phase('canceled', message, tgz_path, progress_total);
+        cleanup();
+        return err(CODE.DOWNLOAD_CANCELED, message);
+    };
 
     // step 3 — 下载 tarball(经 _dl_cmd 多下载器回落;下载器自带超时防卡死;URL 已 shell_quote)。
-    let dl = _popen_simple(_dl_cmd(dl_url, tgz_path, dl_secs));
-    if (dl.code != 0) {
-        cleanup();
-        return err(CODE.DOWNLOAD_FAILED, 'Failed to download the binary: ' + substr(dl.out, 0, 300));
-    }
+    _progress_phase('downloading', 'Downloading...', tgz_path, progress_total);
+    let dl = _popen_simple(_dl_cmd(dl_url, tgz_path, dl_secs, progress_total));
+    if (_progress_canceled() || dl.code == 130)
+        return cancel_work();
+    if (dl.code != 0)
+        return fail_work(CODE.DOWNLOAD_FAILED, 'Failed to download the binary: ' + substr(dl.out, 0, 300));
+    _progress_phase('verifying', 'Verifying checksum and architecture...', tgz_path, progress_total);
+    if (_progress_canceled())
+        return cancel_work();
     // 下载器退出 0 仍可能拿到代理错误页/被截断的小文件(尤其自定义 URL/镜像)。NetBird 压缩包
     // 和直链 ELF 都远大于 1MB;小于该阈值直接按不完整下载处理并清理 work。
     let dl_kb = _file_size_kb(tgz_path);
-    if (dl_kb < 1024) {
-        cleanup();
-        return err(CODE.DOWNLOAD_FAILED,
-                   sprintf('Downloaded file is incomplete or too small (%d KB); removed the partial download.', dl_kb < 0 ? 0 : dl_kb));
-    }
+    if (dl_kb < 1024)
+        return fail_work(CODE.DOWNLOAD_FAILED,
+                         sprintf('Downloaded file is incomplete or too small (%d KB); removed the partial download.', dl_kb < 0 ? 0 : dl_kb));
 
     // step 4 — 校验和。优先用用户在「自定义 URL」页填的校验和硬校验(按十六进制长度自动判算法:
     //   32=md5 / 40=sha1 / 64=sha256 / 128=sha512);否则有版本号就去 GitHub 抓官方 sha256
@@ -1435,28 +1645,26 @@ function _update_binary_locked(req) {
         else if (match(want_ck, /^[0-9a-f]{40}$/))   tool = 'sha1sum';
         else if (match(want_ck, /^[0-9a-f]{64}$/))   tool = 'sha256sum';
         else if (match(want_ck, /^[0-9a-f]{128}$/))  tool = 'sha512sum';
-        if (length(tool) == 0) {
-            cleanup();
-            return err(CODE.INVALID_INPUT, 'The checksum must be md5 (32), sha1 (40), sha256 (64) or sha512 (128) hexadecimal characters.');
-        }
+        if (length(tool) == 0)
+            return fail_work(CODE.INVALID_INPUT, 'The checksum must be md5 (32), sha1 (40), sha256 (64) or sha512 (128) hexadecimal characters.');
         let lr = _popen_simple(tool + ' ' + shell_quote(tgz_path) + ' 2>/dev/null');
         let am = match(lr.out, /^([0-9a-fA-F]+)/);
         let actual = am ? lc(am[1]) : '';
-        if (length(actual) == 0) {
-            cleanup();
-            return err(CODE.INSTALL_FAILED, sprintf('Could not compute the checksum: %s is not available on this device.', tool));
-        }
-        if (actual != want_ck) {
-            cleanup();
-            return err(CODE.CHECKSUM_MISMATCH,
-                       sprintf('Checksum mismatch (expected %s…, got %s…); aborted.',
-                               substr(want_ck, 0, 16), substr(actual, 0, 16)));
-        }
+        if (length(actual) == 0)
+            return fail_work(CODE.INSTALL_FAILED, sprintf('Could not compute the checksum: %s is not available on this device.', tool));
+        if (actual != want_ck)
+            return fail_work(CODE.CHECKSUM_MISMATCH,
+                             sprintf('Checksum mismatch (expected %s…, got %s…); aborted.',
+                                     substr(want_ck, 0, 16), substr(actual, 0, 16)));
         checksum_note = sprintf('Checksum (%s) verified against the value you provided.', tool);
     } else if (match(ver, _SEMVER_RE)) {
+        if (_progress_canceled())
+            return cancel_work();
         let sums_url = 'https://github.com/netbirdio/netbird/releases/download/v' + ver +
                        '/netbird_' + ver + '_checksums.txt';
         let ds = _popen_simple(_dl_cmd(sums_url, sums_path, 60));
+        if (_progress_canceled())
+            return cancel_work();
         if (ds.code == 0) {
             let sums_r = _popen_simple('cat ' + shell_quote(sums_path) + ' 2>/dev/null');
             let expected = '';
@@ -1471,12 +1679,10 @@ function _update_binary_locked(req) {
                 let local_r = _popen_simple('sha256sum ' + shell_quote(tgz_path) + ' 2>/dev/null');
                 let am = match(local_r.out, /^([0-9a-fA-F]{64})/);
                 let actual = am ? lc(am[1]) : '';
-                if (actual != expected) {
-                    cleanup();
-                    return err(CODE.CHECKSUM_MISMATCH,
-                               sprintf('sha256 checksum mismatch (expected=%s… actual=%s); aborted',
-                                       substr(expected, 0, 16), length(actual) == 64 ? substr(actual, 0, 16) : '(compute failed)'));
-                }
+                if (actual != expected)
+                    return fail_work(CODE.CHECKSUM_MISMATCH,
+                                     sprintf('sha256 checksum mismatch (expected=%s… actual=%s); aborted',
+                                             substr(expected, 0, 16), length(actual) == 64 ? substr(actual, 0, 16) : '(compute failed)'));
             } else {
                 checksum_note = 'no matching filename in checksums; skipped sha256';
             }
@@ -1489,41 +1695,36 @@ function _update_binary_locked(req) {
 
     // step 5 — 取出 netbird 二进制。下载物可能是 **tar.gz**(官方/镜像 release 包,取 netbird 成员),
     //   也可能是 **直接的二进制直链**(用户自贴):先按 ELF 魔数探测,是 ELF 就直接用,否则按 tar.gz 解压。
+    _progress_phase('extracting', 'Extracting binary...', tgz_path, progress_total);
+    if (_progress_canceled())
+        return cancel_work();
     _popen_simple('mkdir -p ' + shell_quote(extract_dir));
     if (_elf_machine(tgz_path) > 0) {
         // 下载物本身就是 ELF 可执行 → 截断式写入 new_bin(overlay 峰值 1×),后续 step6/7 照常校验。
         // 整组 `{ …; } 2>&1` 收 stderr(同 step 9:`2>&1` 不能只绑末尾 chmod,否则 cat 写失败报错丢失)。
         let cp = _popen_simple('{ cat ' + shell_quote(tgz_path) + ' > ' + shell_quote(new_bin) +
                                ' && chmod +x ' + shell_quote(new_bin) + ' ; } 2>&1');
-        if (cp.code != 0 || !access(new_bin, 'f')) {
-            cleanup();
-            return err(CODE.INSTALL_FAILED, 'Failed to save the downloaded binary: ' +
-                       (length(trim(cp.out)) > 0 ? substr(trim(cp.out), 0, 200)
-                                                 : sprintf('write exited %d with no output (storage may be full)', cp.code)));
-        }
+        if (cp.code != 0 || !access(new_bin, 'f'))
+            return fail_work(CODE.INSTALL_FAILED, 'Failed to save the downloaded binary: ' +
+                             (length(trim(cp.out)) > 0 ? substr(trim(cp.out), 0, 200)
+                                                       : sprintf('write exited %d with no output (storage may be full)', cp.code)));
     } else {
         // 先验**整包完整性**(tar -tzf 全量遍历归档):>1MB 但被截断/损坏的下载(典型「下载中断」,
         // 大小预检放过)在解压前就判出 = 下载侧问题(DOWNLOAD_FAILED 更准),而非笼统 install 失败;
         // 失败清理 work。注:也挡住「下成了非 tar.gz 的错误页/直链非 ELF」的情况。
         let archive_check = _popen_simple('tar -tzf ' + shell_quote(tgz_path) + ' >/dev/null 2>&1');
-        if (archive_check.code != 0) {
-            cleanup();
-            return err(CODE.DOWNLOAD_FAILED, 'The downloaded archive is incomplete or corrupt (download interrupted, or the URL returned an error page instead of a tarball).');
-        }
+        if (archive_check.code != 0)
+            return fail_work(CODE.DOWNLOAD_FAILED, 'The downloaded archive is incomplete or corrupt (download interrupted, or the URL returned an error page instead of a tarball).');
         // 整包完整 → 仅解出 netbird 成员
         let untar = _popen_simple('tar -xzf ' + shell_quote(tgz_path) + ' -C ' + shell_quote(extract_dir) + ' netbird 2>&1');
-        if (untar.code != 0 || !access(new_bin, 'f')) {
-            cleanup();
-            return err(CODE.INSTALL_FAILED, 'Could not extract netbird (the download is neither an ELF binary nor a tar.gz containing a netbird member): ' + substr(untar.out, 0, 300));
-        }
+        if (untar.code != 0 || !access(new_bin, 'f'))
+            return fail_work(CODE.INSTALL_FAILED, 'Could not extract netbird (the download is neither an ELF binary nor a tar.gz containing a netbird member): ' + substr(untar.out, 0, 300));
     }
     // 解压/直链保存后再次检查大小:tar 可能生成截断成员,ELF 魔数也可能出现在不完整直链里。
     let new_kb = _file_size_kb(new_bin);
-    if (new_kb < 1024) {
-        cleanup();
-        return err(CODE.INSTALL_FAILED,
-                   sprintf('Extracted netbird binary is incomplete or too small (%d KB); removed the partial download.', new_kb < 0 ? 0 : new_kb));
-    }
+    if (new_kb < 1024)
+        return fail_work(CODE.INSTALL_FAILED,
+                         sprintf('Extracted netbird binary is incomplete or too small (%d KB); removed the partial download.', new_kb < 0 ? 0 : new_kb));
 
     // step 6 — ELF arch 校验(硬闸:坏包/错架构绝不安装,否则替换后 netbird 服务崩)。
     //   release:比对本机 arch 对应的 netbird e_machine(4 架构表);
@@ -1534,38 +1735,35 @@ function _update_binary_locked(req) {
     if (want_em < 0)
         want_em = _arch_emachine(arch);
     let got_em = _elf_machine(new_bin);
-    if (got_em < 0) {
-        cleanup();
-        return err(CODE.ARCH_MISMATCH, 'The downloaded file is not a valid ELF executable; installation aborted.');
-    }
-    if (want_em > 0 && got_em != want_em) {
-        cleanup();
-        return err(CODE.ARCH_MISMATCH,
-                   sprintf('Downloaded package arch mismatch: host e_machine=%d, package e_machine=%d; installation aborted', want_em, got_em));
-    }
+    if (got_em < 0)
+        return fail_work(CODE.ARCH_MISMATCH, 'The downloaded file is not a valid ELF executable; installation aborted.');
+    if (want_em > 0 && got_em != want_em)
+        return fail_work(CODE.ARCH_MISMATCH,
+                         sprintf('Downloaded package arch mismatch: host e_machine=%d, package e_machine=%d; installation aborted', want_em, got_em));
 
     // step 7 — 解压件能执行 version(完整性兜底)
+    if (_progress_canceled())
+        return cancel_work();
     let chk = _popen_simple('chmod +x ' + shell_quote(new_bin) + '; ' + shell_quote(new_bin) + ' version 2>&1');
     let new_ver = _parse_version_output(chk.out);
-    if (length(new_ver) == 0) {
-        cleanup();
-        return err(CODE.INSTALL_FAILED, 'The downloaded binary cannot run "version" (possibly corrupt): ' + substr(chk.out, 0, 200));
-    }
+    if (length(new_ver) == 0)
+        return fail_work(CODE.INSTALL_FAILED, 'The downloaded binary cannot run "version" (possibly corrupt): ' + substr(chk.out, 0, 200));
 
     // step 7b — 决定目标路径:custom(非空 url)按版本号存 netbird-v<ver>(不覆盖 release、新文件不动 active);
     //            release(空 url)写 _NB_REL_BIN。
     let target_path = _NB_REL_BIN;
     if (is_custom) {
         let sv = _sanitize_version(new_ver);
-        if (length(sv) == 0) {
-            cleanup();
-            return err(CODE.INSTALL_FAILED, 'Could not parse a valid version from the binary (' + substr(new_ver, 0, 40) + '); refusing to save it by name.');
-        }
+        if (length(sv) == 0)
+            return fail_work(CODE.INSTALL_FAILED, 'Could not parse a valid version from the binary (' + substr(new_ver, 0, 40) + '); refusing to save it by name.');
         target_path = _custom_version_path(sv);
     }
     let from = access(target_path, 'x') ? _file_version(target_path) : '';
 
     // step 8 — 备份目标(若存在);仅当目标正是当前运行的二进制时才停 daemon(避 ETXTBSY,所有 sibling 分支一致)
+    _progress_phase('installing', 'Installing binary...', tgz_path, progress_total);
+    if (_progress_canceled())
+        return cancel_work();
     let active_bin = _active_binary_path();
     let need_stop = (target_path == active_bin);
     if (access(target_path, 'f'))
@@ -1574,10 +1772,12 @@ function _update_binary_locked(req) {
     if (need_stop) {
         _popen_simple('/etc/init.d/netbird stop 2>&1');
         if (!_wait_daemon_gone()) {
+            let stop_msg = 'The netbird daemon did not stop in time; replacement aborted to protect the current binary.';
+            _progress_phase('failed', stop_msg, tgz_path, progress_total);
             cleanup();
             _popen_simple('rm -f ' + shell_quote(bak_path) + ' 2>/dev/null');
             _popen_simple('/etc/init.d/netbird start 2>&1');
-            return err(CODE.INSTALL_FAILED, 'The netbird daemon did not stop in time; replacement aborted to protect the current binary.');
+            return err(CODE.INSTALL_FAILED, stop_msg);
         }
         stopped = true;
     }
@@ -1608,8 +1808,11 @@ function _update_binary_locked(req) {
         _popen_simple('rm -f ' + shell_quote(bak_path) + ' 2>/dev/null');
         // 空间不足(ENOSPC)单列 code,前端本地化「删旧版本」可操作提示(K1);其它写失败走 install_failed + 明细。
         let raw = trim(wr.out);
-        if (match(raw, /[Nn]o space left|ENOSPC/))
-            return err(CODE.INSUFFICIENT_SPACE, restored ? 'storage filled up during install (previous binary kept)' : 'storage filled up during install');
+        if (match(raw, /[Nn]o space left|ENOSPC/)) {
+            let space_msg = restored ? 'storage filled up during install (previous binary kept)' : 'storage filled up during install';
+            _progress_phase('failed', space_msg, tgz_path, progress_total);
+            return err(CODE.INSUFFICIENT_SPACE, space_msg);
+        }
         // 明细:即使 wr.out 为空也给可操作信息(写命令非零但无输出多为 overlay 空间不足/只读)。
         let detail;
         if (length(raw) > 0)
@@ -1618,12 +1821,15 @@ function _update_binary_locked(req) {
             detail = sprintf('write command exited %d with no output (storage may be full or read-only)', wr.code);
         else
             detail = 'the written file could not report its version (truncated or corrupt)';
-        return err(CODE.INSTALL_FAILED, 'Failed to write the binary' + (restored ? '; restored the previous one' : '') + ': ' + detail);
+        let write_msg = 'Failed to write the binary' + (restored ? '; restored the previous one' : '') + ': ' + detail;
+        _progress_phase('failed', write_msg, tgz_path, progress_total);
+        return err(CODE.INSTALL_FAILED, write_msg);
     }
 
     // step 10 — 重启(若停过);清理
     if (stopped)
         _popen_simple('/etc/init.d/netbird start 2>&1');
+    _progress_phase('done', 'Binary installed.', tgz_path, progress_total);
     cleanup();
     _popen_simple('rm -f ' + shell_quote(bak_path) + ' 2>/dev/null');
 
@@ -1955,7 +2161,14 @@ return {
             call: _safe(_do_get_binary_info),
         },
 
-        // ==== 11 write ====（ACL write.ubus.luci.netbird 对齐）— 方案 A 已移除 setup_network
+        // get_binary_update_progress — 二进制下载/安装进度（供版本页弹窗轮询）。
+        // ACL: 方法名已加入 read.ubus.luci.netbird（一字不差）。
+        get_binary_update_progress: {
+            args: {},
+            call: _safe(_do_get_binary_update_progress),
+        },
+
+        // ==== 13 write ====（ACL write.ubus.luci.netbird 对齐）— 方案 A 已移除 setup_network
 
         // do_up — 连接（拉起 WireGuard + 连管理端 + 建 P2P）。
         // args { management_url, setup_key } 均瞬时（setup_key 绝不入 UCI/backup）。
@@ -2169,6 +2382,12 @@ return {
         // _NB_REL_BIN（绝不直写 /usr/bin/netbird）；备份+失败还原。args.url 空=GitHub latest。
         // ACL: 方法名已加入 write.ubus.luci.netbird（一字不差）。
         update_binary:         { args: { url: '', checksum: '' },  call: _safe(_do_update_binary) },
+        // start_binary_update — 为 LuCI 前端启动独立后台 worker 跑 update_binary,让 rpcd 可继续响应
+        // 进度轮询/停止按钮。ACL: 方法名已加入 write.ubus.luci.netbird（一字不差）。
+        start_binary_update:   { args: { url: '', checksum: '' },  call: _safe(_do_start_binary_update) },
+        // cancel_binary_update — 请求停止当前二进制下载。下载器看到取消文件后清理并返回 download_canceled。
+        // ACL: 方法名已加入 write.ubus.luci.netbird（一字不差）。
+        cancel_binary_update:  { args: {}, call: _safe(_do_cancel_binary_update) },
         // set_binary_source — 切换 daemon 运行的二进制来源(release/opkg/custom;custom 带 version);
         // 破坏性 → 前端确认。ACL: 方法名已加入 write.ubus.luci.netbird（一字不差）。
         set_binary_source:     { args: { source: '', version: '' }, call: _safe(_do_set_binary_source) },

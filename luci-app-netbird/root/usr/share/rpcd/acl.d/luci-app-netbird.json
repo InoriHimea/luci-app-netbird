@@ -13,6 +13,7 @@
 					"get_connection_info",
 					"get_automation_status",
 					"get_binary_info",
+					"get_binary_update_progress",
 					"get_auth_info"
 				]
 			},
@@ -30,6 +31,8 @@
 					"setup_forwarding",
 					"teardown_automation",
 					"update_binary",
+					"start_binary_update",
+					"cancel_binary_update",
 					"set_binary_source",
 					"delete_custom_binary"
 				]
