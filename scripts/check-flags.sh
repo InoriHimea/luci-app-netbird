@@ -22,6 +22,9 @@ set -u
 
 ROOT="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)"
 INITD="$ROOT/root/etc/init.d/netbird-settings"
+if [ ! -f "$INITD" ] && [ -f "$ROOT/luci-app-netbird/root/etc/init.d/netbird-settings" ]; then
+	INITD="$ROOT/luci-app-netbird/root/etc/init.d/netbird-settings"
+fi
 
 # ── 已知跳过清单(非设置项 / 有意不暴露)—— 改变决策时更新这里 ────────────────────
 # 操作/认证类 flag(不属于「设置」页范畴):
