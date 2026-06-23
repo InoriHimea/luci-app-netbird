@@ -982,6 +982,18 @@ function _elf_machine(path) {
     return be ? ((b18 << 8) | b19) : ((b19 << 8) | b18);
 }
 
+// _file_size_kb(path) → 文件大小 KB(向上取整);不存在/解析失败返 -1。
+function _file_size_kb(path) {
+    if (path == null || !access(path, 'f'))
+        return -1;
+    let r = _popen_simple('wc -c < ' + shell_quote(path) + ' 2>/dev/null');
+    let n = trim(r.out);
+    if (!match(n, /^[0-9]+$/))
+        return -1;
+    let bytes = int(n);
+    return int((bytes + 1023) / 1024);
+}
+
 // _active_binary_path() → /usr/bin/netbird 实际指向的二进制路径(symlink 则 readlink,否则自身)。
 function _active_binary_path() {
     let r = _popen_simple('[ -L ' + shell_quote(_NB_OPKG_BIN) + ' ] && readlink ' +
@@ -1081,10 +1093,32 @@ function _list_custom_versions() {
         let parts = split(ln, '/');
         let base = parts[length(parts) - 1];
         let vm = match(base, /^netbird-v(.+)$/);
-        if (vm)
+        // 只列**可执行且能自报版本**的完整文件:下载/解压半途失败留下的残片不是「已下载版本」,
+        // 否则会以幽灵版本出现在列表、切换时却报 not downloaded(真机 bug P3/P4)。
+        if (vm && access(ln, 'x') && length(_file_version(ln)) > 0)
             push(out, { version: vm[1], path: ln });
     }
     return out;
+}
+
+// _overlay_free_kb() → _NB_REL_DIR 所在文件系统(overlay 持久存储)的可用空间 KB;取不到返 -1。
+//   解析 `df -k` 末行:列序 [Filesystem] 1K-blocks Used Available Use% Mounted —— Available = 倒数第三(NF-2)。
+//   按 NF-2 取兼容 BusyBox 长设备名换行(数据行 5 列)与不换行(6 列)两种排版。best-effort:解析失败返 -1
+//   → 调用方跳过预检(下载仍由 step 9 的 ENOSPC 兜底,见 C11),绝不因 df 差异误拦。
+function _overlay_free_kb() {
+    let r = _popen_simple('df -k ' + shell_quote(_NB_REL_DIR) + ' 2>/dev/null');
+    if (length(trim(r.out)) == 0)
+        return -1;
+    let lines = split(trim(r.out), '\n');
+    let toks = [];
+    for (let t in split(lines[length(lines) - 1], /[ \t]+/))
+        if (length(t) > 0)
+            push(toks, t);
+    let n = length(toks);
+    if (n < 3)
+        return -1;
+    let avail = toks[n - 3];
+    return match(avail, /^[0-9]+$/) ? int(avail) : -1;
 }
 
 // _opkg_feed_has_netbird() → 系统软件源是否提供 netbird 包(本地缓存列表,不联网)。命令按 _pkg_mgr() 分流。
@@ -1156,12 +1190,15 @@ function _fetch_opkg_binary() {
         cleanup();
         return { ok: false, err: 'feed binary cannot run "version" (possibly corrupt)', version: '' };
     }
-    // 截断式写副本(overlay 峰值 1×,避免双份撑爆 overlay)
-    let wr = _popen_simple('mkdir -p ' + shell_quote(_NB_REL_DIR) + ' && cat ' + shell_quote(extracted) +
-                           ' > ' + shell_quote(_NB_OPKG_BAK) + ' && chmod 0755 ' + shell_quote(_NB_OPKG_BAK) + ' 2>&1');
+    // 截断式写副本(overlay 峰值 1×,避免双份撑爆 overlay)。整组 `{ …; } 2>&1` 收 stderr
+    // (同 step 9:`2>&1` 不能只绑末尾 chmod,否则 cat 写失败如 ENOSPC 的报错丢失 → 错误明细空白)。
+    let wr = _popen_simple('{ mkdir -p ' + shell_quote(_NB_REL_DIR) + ' && cat ' + shell_quote(extracted) +
+                           ' > ' + shell_quote(_NB_OPKG_BAK) + ' && chmod 0755 ' + shell_quote(_NB_OPKG_BAK) + ' ; } 2>&1');
     cleanup();
     if (wr.code != 0 || !access(_NB_OPKG_BAK, 'x'))
-        return { ok: false, err: 'could not save the feed copy: ' + substr(trim(wr.out), 0, 200), version: '' };
+        return { ok: false, err: 'could not save the feed copy: ' +
+                 (length(trim(wr.out)) > 0 ? substr(trim(wr.out), 0, 200)
+                                           : sprintf('write exited %d with no output (storage may be full)', wr.code)), version: '' };
     return { ok: true, err: '', version: cv };
 }
 
@@ -1245,15 +1282,35 @@ function _binop_lock() {
 function _binop_unlock() {
     _popen_simple('rmdir ' + shell_quote(_NB_BINOP_LOCK) + ' 2>/dev/null');
 }
-// _binop_guard(fn, req) — 取锁 → 执行 fn → 释放锁(成功/异常路径都释放)。取不到锁返回忙错误。
+// _sweep_binary_junk() — 清理历次二进制操作残留,防止累积撑爆存储(尤其 overlay)。
+//   由 _binop_guard 在每次操作前调用(已持锁,无并发,安全)。删:
+//     · /tmp/nb-update* /tmp/nb-opkg —— 下载/feed-fetch 工作目录(正常 cleanup 已删,这里兜底历史残留)
+//     · _NB_REL_DIR 下**非可执行或不能自报版本**的 netbird-v* —— 下载/解压半途失败的残片(非有效版本)
+//   绝不删:netbird-release / netbird-opkg / 当前 active custom / 能自报版本的 netbird-v*(用户数据)。
+function _sweep_binary_junk() {
+    _popen_simple('rm -rf /tmp/nb-update* /tmp/nb-opkg 2>/dev/null'); // shell-audit-ok: 纯字面常量
+    let active_bin = _active_binary_path();
+    let r = _popen_simple('ls -1 ' + shell_quote(_NB_REL_DIR) + '/netbird-v* 2>/dev/null || true');
+    for (let ln in split(trim(r.out), '\n')) {
+        ln = trim(ln);
+        if (length(ln) == 0 || ln == active_bin)
+            continue;
+        if (!access(ln, 'x') || length(_file_version(ln)) == 0)
+            _popen_simple('rm -f ' + shell_quote(ln) + ' 2>/dev/null');
+    }
+}
+// _binop_guard(fn, req) — 取锁 → 清理历史残留 → 执行 fn → 释放锁(成功/异常路径都释放)。取不到锁返回忙错误。
 function _binop_guard(fn, req) {
     if (!_binop_lock())
         return err(CODE.INSTALL_FAILED, 'Another binary operation is in progress; please wait and try again.');
     try {
+        _sweep_binary_junk();
         let r = fn(req);
+        _sweep_binary_junk();
         _binop_unlock();
         return r;
     } catch (e) {
+        _sweep_binary_junk();
         _binop_unlock();
         return err(CODE.INTERNAL_ERROR, (e != null && e.message != null) ? e.message : `${e}`);
     }
@@ -1289,6 +1346,18 @@ function _update_binary_locked(req) {
     if (!is_custom && (length(arch) == 0 || !match(arch, _ARCH_RE)))
         return err(CODE.ARCH_MISMATCH, sprintf('No official auto-download for architecture %s (only amd64/arm64/386/armv6). Use the system package feed, or a custom URL pointing to a binary for your architecture.', det.uname_m || '?'));
 
+    // step 1b — 下载前 overlay 空间预检(早失败,免白下载 + 给可操作错误,避免 overlay 被 ~40MB 二进制塞爆)。
+    //   仅对「会新增文件」的下载拦:custom 视为新版本;release 仅当 netbird-release 尚不存在(首次)。
+    //   re-update(target 已存在)走截断式写不额外占空间(见 C1),不拦。netbird 二进制约 40MB,留余量取 48MB。
+    //   best-effort:df 取不到(返 -1)则跳过,仍由 step 9 的 ENOSPC 兜底(C11)——绝不因 df 差异误拦正常下载。
+    let writes_new = is_custom || !access(_NB_REL_BIN, 'f');
+    if (writes_new) {
+        let free_kb = _overlay_free_kb();
+        // message 只放诊断明细(前端按 code=insufficient_space 给本地化「删旧版本」可操作文案,见 K1)。
+        if (free_kb >= 0 && free_kb < 49152)
+            return err(CODE.INSUFFICIENT_SPACE, sprintf('%d MB free, ~48 MB needed', int(free_kb / 1024)));
+    }
+
     // step 2 — 解析下载 URL + 文件名 + 版本(用于 checksums/日志)
     let dl_url = '';
     let tarball = '';
@@ -1321,7 +1390,11 @@ function _update_binary_locked(req) {
     // overlay(峰值省空间);并发/重入时各自独立目录,不互相清理。
     let _mk = _popen_simple('mktemp -d /tmp/nb-update.XXXXXX 2>/dev/null');
     let work = trim(_mk.out);
-    if (length(work) == 0 || !access(work, 'd')) {
+    // 注:ucode 的 access() **没有 'd' 模式**(只支持 r/w/x/f),`access(x,'d')` 恒返 null。原写法
+    //   `!access(work,'d')` 永远为真 → 每次都回落到固定 `/tmp/nb-update`、把刚 mktemp 出来的空目录
+    //   丢弃不清(每次下载泄漏一个空的 /tmp/nb-update.XXXXXX,且 per-call 隔离从未真正生效)。
+    //   用 'f'(存在即可,目录也算)正确判定 mktemp 是否成功。
+    if (length(work) == 0 || !access(work, 'f')) {
         work = '/tmp/nb-update';
         _popen_simple('rm -rf ' + shell_quote(work) + ' 2>/dev/null && mkdir -p ' + shell_quote(work));
     }
@@ -1340,6 +1413,14 @@ function _update_binary_locked(req) {
     if (dl.code != 0) {
         cleanup();
         return err(CODE.DOWNLOAD_FAILED, 'Failed to download the binary: ' + substr(dl.out, 0, 300));
+    }
+    // 下载器退出 0 仍可能拿到代理错误页/被截断的小文件(尤其自定义 URL/镜像)。NetBird 压缩包
+    // 和直链 ELF 都远大于 1MB;小于该阈值直接按不完整下载处理并清理 work。
+    let dl_kb = _file_size_kb(tgz_path);
+    if (dl_kb < 1024) {
+        cleanup();
+        return err(CODE.DOWNLOAD_FAILED,
+                   sprintf('Downloaded file is incomplete or too small (%d KB); removed the partial download.', dl_kb < 0 ? 0 : dl_kb));
     }
 
     // step 4 — 校验和。优先用用户在「自定义 URL」页填的校验和硬校验(按十六进制长度自动判算法:
@@ -1410,20 +1491,38 @@ function _update_binary_locked(req) {
     //   也可能是 **直接的二进制直链**(用户自贴):先按 ELF 魔数探测,是 ELF 就直接用,否则按 tar.gz 解压。
     _popen_simple('mkdir -p ' + shell_quote(extract_dir));
     if (_elf_machine(tgz_path) > 0) {
-        // 下载物本身就是 ELF 可执行 → 截断式写入 new_bin(overlay 峰值 1×),后续 step6/7 照常校验
-        let cp = _popen_simple('cat ' + shell_quote(tgz_path) + ' > ' + shell_quote(new_bin) +
-                               ' && chmod +x ' + shell_quote(new_bin) + ' 2>&1');
+        // 下载物本身就是 ELF 可执行 → 截断式写入 new_bin(overlay 峰值 1×),后续 step6/7 照常校验。
+        // 整组 `{ …; } 2>&1` 收 stderr(同 step 9:`2>&1` 不能只绑末尾 chmod,否则 cat 写失败报错丢失)。
+        let cp = _popen_simple('{ cat ' + shell_quote(tgz_path) + ' > ' + shell_quote(new_bin) +
+                               ' && chmod +x ' + shell_quote(new_bin) + ' ; } 2>&1');
         if (cp.code != 0 || !access(new_bin, 'f')) {
             cleanup();
-            return err(CODE.INSTALL_FAILED, 'Failed to save the downloaded binary: ' + substr(cp.out, 0, 200));
+            return err(CODE.INSTALL_FAILED, 'Failed to save the downloaded binary: ' +
+                       (length(trim(cp.out)) > 0 ? substr(trim(cp.out), 0, 200)
+                                                 : sprintf('write exited %d with no output (storage may be full)', cp.code)));
         }
     } else {
-        // 否则按 tar.gz:仅解出 netbird 成员
+        // 先验**整包完整性**(tar -tzf 全量遍历归档):>1MB 但被截断/损坏的下载(典型「下载中断」,
+        // 大小预检放过)在解压前就判出 = 下载侧问题(DOWNLOAD_FAILED 更准),而非笼统 install 失败;
+        // 失败清理 work。注:也挡住「下成了非 tar.gz 的错误页/直链非 ELF」的情况。
+        let archive_check = _popen_simple('tar -tzf ' + shell_quote(tgz_path) + ' >/dev/null 2>&1');
+        if (archive_check.code != 0) {
+            cleanup();
+            return err(CODE.DOWNLOAD_FAILED, 'The downloaded archive is incomplete or corrupt (download interrupted, or the URL returned an error page instead of a tarball).');
+        }
+        // 整包完整 → 仅解出 netbird 成员
         let untar = _popen_simple('tar -xzf ' + shell_quote(tgz_path) + ' -C ' + shell_quote(extract_dir) + ' netbird 2>&1');
         if (untar.code != 0 || !access(new_bin, 'f')) {
             cleanup();
             return err(CODE.INSTALL_FAILED, 'Could not extract netbird (the download is neither an ELF binary nor a tar.gz containing a netbird member): ' + substr(untar.out, 0, 300));
         }
+    }
+    // 解压/直链保存后再次检查大小:tar 可能生成截断成员,ELF 魔数也可能出现在不完整直链里。
+    let new_kb = _file_size_kb(new_bin);
+    if (new_kb < 1024) {
+        cleanup();
+        return err(CODE.INSTALL_FAILED,
+                   sprintf('Extracted netbird binary is incomplete or too small (%d KB); removed the partial download.', new_kb < 0 ? 0 : new_kb));
     }
 
     // step 6 — ELF arch 校验(硬闸:坏包/错架构绝不安装,否则替换后 netbird 服务崩)。
@@ -1483,19 +1582,43 @@ function _update_binary_locked(req) {
         stopped = true;
     }
 
-    // step 9 — 截断式写入 target(先建目录);验证;失败还原备份
-    let wr = _popen_simple('mkdir -p ' + shell_quote(_NB_REL_DIR) + ' && cat ' + shell_quote(new_bin) +
-                           ' > ' + shell_quote(target_path) + ' && chmod 0755 ' + shell_quote(target_path) + ' 2>&1');
+    // step 9 — 截断式写入 target(1× 峰值,省 overlay 空间,见 lessons C1);验证;失败兜底。
+    //   整组用 `{ …; } 2>&1` 收 stderr:原写法 `… cat > target && chmod … 2>&1` 的 `2>&1` 只绑定末尾
+    //   chmod,`cat > target` 写失败(如 overlay 空间不足 ENOSPC)的报错落在未捕获的 stderr → 错误明细
+    //   空白(真机 bug:UI 显示「Failed to write the binary:」后面什么都没有)。整组重定向后 wr.out 拿到真因。
+    let wr = _popen_simple('{ mkdir -p ' + shell_quote(_NB_REL_DIR) + ' && cat ' + shell_quote(new_bin) +
+                           ' > ' + shell_quote(target_path) + ' && chmod 0755 ' + shell_quote(target_path) + ' ; } 2>&1');
     let to = (wr.code == 0) ? _file_version(target_path) : '';
     if (wr.code != 0 || length(to) == 0) {
-        if (access(bak_path, 'f'))
+        // 失败兜底:有备份(=target 原已存在)则还原旧二进制;无备份(=本就是新文件)则删掉**半成品**——
+        //   `cat > target` 即便写失败也已 create/truncate 出 target,且因 `&&` 短路 chmod 没跑 → 残片为
+        //   非可执行的 0644;若不删,会被 _list_custom_versions 当成「已下载版本」列出(幽灵版本),切换时
+        //   又因 access(x)=false 报「not downloaded」(真机 bug P3/P4)。
+        let restored = false;
+        if (access(bak_path, 'f')) {
             _popen_simple('cat ' + shell_quote(bak_path) + ' > ' + shell_quote(target_path) +
                           ' && chmod 0755 ' + shell_quote(target_path) + ' 2>/dev/null');
+            restored = true;
+        } else {
+            _popen_simple('rm -f ' + shell_quote(target_path) + ' 2>/dev/null');
+        }
         if (stopped)
             _popen_simple('/etc/init.d/netbird start 2>&1');
         cleanup();
         _popen_simple('rm -f ' + shell_quote(bak_path) + ' 2>/dev/null');
-        return err(CODE.INSTALL_FAILED, 'Failed to write the binary; restored the backup: ' + substr(wr.out, 0, 200));
+        // 空间不足(ENOSPC)单列 code,前端本地化「删旧版本」可操作提示(K1);其它写失败走 install_failed + 明细。
+        let raw = trim(wr.out);
+        if (match(raw, /[Nn]o space left|ENOSPC/))
+            return err(CODE.INSUFFICIENT_SPACE, restored ? 'storage filled up during install (previous binary kept)' : 'storage filled up during install');
+        // 明细:即使 wr.out 为空也给可操作信息(写命令非零但无输出多为 overlay 空间不足/只读)。
+        let detail;
+        if (length(raw) > 0)
+            detail = substr(raw, 0, 200);
+        else if (wr.code != 0)
+            detail = sprintf('write command exited %d with no output (storage may be full or read-only)', wr.code);
+        else
+            detail = 'the written file could not report its version (truncated or corrupt)';
+        return err(CODE.INSTALL_FAILED, 'Failed to write the binary' + (restored ? '; restored the previous one' : '') + ': ' + detail);
     }
 
     // step 10 — 重启(若停过);清理
@@ -1541,7 +1664,8 @@ function _set_binary_source_locked(req) {
                 return err(CODE.NOT_INSTALLED, 'The system package feed does not provide netbird, so its binary cannot be fetched automatically. Check your package sources, or use the release or custom source.');
             let f = _fetch_opkg_binary();
             if (!f.ok)
-                return err(CODE.INSTALL_FAILED, 'Failed to fetch the package-feed binary automatically: ' + f.err);
+                return err(match(f.err, /[Nn]o space left|ENOSPC/) ? CODE.INSUFFICIENT_SPACE : CODE.INSTALL_FAILED,
+                           'Failed to fetch the package-feed binary automatically: ' + f.err);
         }
         target_bin = _NB_OPKG_BIN;   // opkg = /usr/bin/netbird real file 本体
     }

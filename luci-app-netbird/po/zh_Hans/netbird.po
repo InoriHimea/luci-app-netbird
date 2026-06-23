@@ -870,6 +870,9 @@ msgstr "校验值"
 msgid "Checksum verification failed; the download was rejected."
 msgstr "校验值不匹配，已拒绝下载。"
 
+msgid "Not enough storage space. Delete unused downloaded versions and try again."
+msgstr "存储空间不足。请删除未使用的已下载版本后重试。"
+
 msgid "optional — md5 / sha1 / sha256 / sha512 hex"
 msgstr "可选——md5 / sha1 / sha256 / sha512 十六进制"
 

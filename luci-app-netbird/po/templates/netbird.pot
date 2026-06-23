@@ -191,6 +191,10 @@ msgstr ""
 msgid "Checksum verification failed; the download was rejected."
 msgstr ""
 
+#: htdocs/luci-static/resources/view/netbird/versions.js:351
+msgid "Not enough storage space. Delete unused downloaded versions and try again."
+msgstr ""
+
 #: htdocs/luci-static/resources/view/netbird/setup.js:57
 msgid "Configure the OpenWrt firewall zone and forwarding rules for NetBird."
 msgstr ""

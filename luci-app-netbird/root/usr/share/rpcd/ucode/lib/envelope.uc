@@ -37,6 +37,7 @@ const CODE = {
     DOWNLOAD_FAILED:   'download_failed',
     CHECKSUM_MISMATCH: 'checksum_mismatch',
     INSTALL_FAILED:    'install_failed',
+    INSUFFICIENT_SPACE: 'insufficient_space',   // overlay 空间不足(下载/写二进制);前端按 code 本地化「删旧版本」提示
     // 二进制来源管理系（update_binary/set_binary_source：架构不符/坏包）
     ARCH_MISMATCH:     'arch_mismatch',
 };

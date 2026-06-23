@@ -145,6 +145,24 @@ return view.extend({
 		return out;
 	},
 
+	// LuCI rpc.js 只读取全局 L.env.rpctimeout,没有 per-call timeout。下载/切换二进制可能
+	// 超过默认 20s,临时拉长,避免前端先报超时而后端稍后成功落盘。
+	_withRpcTimeout: function (seconds, fn) {
+		var had = Object.prototype.hasOwnProperty.call(L.env, 'rpctimeout');
+		var old = L.env.rpctimeout;
+		L.env.rpctimeout = Math.max(Number(old) || 20, seconds);
+
+		return fn().then(function (res) {
+			if (had) L.env.rpctimeout = old;
+			else delete L.env.rpctimeout;
+			return res;
+		}, function (err) {
+			if (had) L.env.rpctimeout = old;
+			else delete L.env.rpctimeout;
+			throw err;
+		});
+	},
+
 	renderDetail: function () {
 		var self = this, d = self._bin || {}, sel = self._sel;
 		var rows = [];
@@ -331,7 +349,9 @@ return view.extend({
 		ui.showModal(_('Downloading NetBird binary'), [
 			E('p', { 'class': 'spinning' }, _('Downloading, verifying (checksum + ELF architecture) and installing…'))
 		]);
-		return L.resolveDefault(callUpdateBinary(url || '', sha || ''), { ok: false }).then(function (res) {
+		return L.resolveDefault(self._withRpcTimeout(360, function () {
+			return callUpdateBinary(url || '', sha || '');
+		}), { ok: false }).then(function (res) {
 			ui.hideModal();
 			if (res && res.ok && res.data) {
 				ui.addNotification(null, E('p', {}, _('Binary installed: v%s.').format(res.data.to || '?')), 'info');
@@ -342,6 +362,13 @@ return view.extend({
 			if (res && res.code === 'checksum_mismatch') {
 				ui.addNotification(null, E('p', {},
 					_('Checksum verification failed; the download was rejected.') +
+					(res.message ? ' (' + res.message + ')' : '')), 'error');
+				return;
+			}
+			// 空间不足：稳定 code → 固定本地化可操作提示（后端 message 仅放诊断明细，附括号内）。
+			if (res && res.code === 'insufficient_space') {
+				ui.addNotification(null, E('p', {},
+					_('Not enough storage space. Delete unused downloaded versions and try again.') +
 					(res.message ? ' (' + res.message + ')' : '')), 'error');
 				return;
 			}
@@ -375,10 +402,14 @@ return view.extend({
 		ui.showModal(_('Switching binary source'), [
 			E('p', { 'class': 'spinning' }, _('Switching and restarting NetBird…'))
 		]);
-		return L.resolveDefault(callSetSource(source, version || ''), { ok: false }).then(function (res) {
+		return L.resolveDefault(self._withRpcTimeout(180, function () {
+			return callSetSource(source, version || '');
+		}), { ok: false }).then(function (res) {
 			ui.hideModal();
 			if (res && res.ok)
 				ui.addNotification(null, E('p', {}, _('Active source is now %s (running v%s).').format(srcLabel(source), (res.data && res.data.running_version) || '?')), 'info');
+			else if (res && res.code === 'insufficient_space')
+				ui.addNotification(null, E('p', {}, _('Not enough storage space. Delete unused downloaded versions and try again.') + (res.message ? ' (' + res.message + ')' : '')), 'error');
 			else
 				ui.addNotification(null, E('p', {}, (res && res.message) ? _(res.message) : _('Switch failed.')), 'error');
 			return self.refresh();
