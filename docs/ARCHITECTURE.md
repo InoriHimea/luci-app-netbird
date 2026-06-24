@@ -79,6 +79,15 @@ distro feed". The four feed touchpoints (`_pkg_mgr`, `_opkg_feed_has_netbird`,
 `_dl_cmd` (curl → uclient-fetch → BusyBox wget) so the release/custom paths work on minimal
 images without curl.
 
+**Download durability and cleanup.** Binary downloads that create a new persistent file first run a
+best-effort overlay free-space preflight; low space fails early with `insufficient_space` instead of
+starting a doomed write. ENOSPC is still handled at write time, and failed first-time writes remove
+the half-written target instead of leaving a `netbird-v*` ghost version. Download artifacts must pass
+size sanity checks, archive integrity checks (`tar -tzf` for tarballs), checksum checks when
+available, ELF e_machine validation, and `netbird version` before they enter the version list. Each
+binary operation sweeps old `/tmp/nb-update*` workdirs and stale non-working custom binaries; custom
+versions are listed only when the file is executable and can report a version.
+
 **Multi-arch.** The package is `PKGARCH:=all` (pure ucode/JS/shell) → one artifact for every CPU;
 no build matrix. Arch only matters at runtime for binary acquisition: the **feed path is
 arch-agnostic** (the distro serves the right binary; validated against the host's own ELF
