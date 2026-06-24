@@ -176,6 +176,11 @@ return view.extend({
 		return (i === 0 ? String(Math.round(n)) : n.toFixed(n >= 10 ? 1 : 2).replace(/\.0+$/, '')) + ' ' + units[i];
 	},
 
+	_fmtDownloadSpeed: function (bytesPerSecond) {
+		var kb = Math.max(0, Number(bytesPerSecond) || 0) / 1024;
+		return (kb >= 10 ? String(Math.round(kb)) : kb.toFixed(1).replace(/\.0$/, '')) + ' kb/s';
+	},
+
 	_fmtDuration: function (seconds) {
 		var s = Math.max(0, Math.floor(Number(seconds) || 0));
 		if (s < 60)
@@ -262,7 +267,7 @@ return view.extend({
 			n.bar.setAttribute('max', '100');
 			dom.content(n.downloaded, _('Downloaded') + ': ' + this._fmtBytes(downloaded));
 		}
-		dom.content(n.speed, _('Speed') + ': ' + (speed > 0 ? (this._fmtBytes(speed) + '/s') : '-'));
+		dom.content(n.speed, _('Speed') + ': ' + (speed > 0 ? this._fmtDownloadSpeed(speed) : '-'));
 		dom.content(n.elapsed, _('Elapsed') + ': ' + this._fmtDuration(elapsed));
 
 		n.stop.disabled = !active || phase === 'stopping';
