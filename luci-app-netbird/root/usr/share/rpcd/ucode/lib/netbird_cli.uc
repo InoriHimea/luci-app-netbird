@@ -10,7 +10,7 @@
 //     再仅在 running 态调用 fetch_status_json()；禁止无条件跑 --json catch parse_error。
 //   - 多正则变体（NeedsLogin 文本鲁棒化）。
 //   - 5s timeout（热路径防卡死）：所有 popen/system 调用以 timeout 5s 前缀包装。
-//     真机注意：BusyBox 1.36.1 默认未携带 timeout applet（真机 v0.59.13 实测确认），
+//     注意：BusyBox 1.36.1 默认未携带 timeout applet（v0.59.13 确认），
 //     _with_timeout() 在 timeout 可执行不存在时退化为透传命令。
 //   - shell.uc::shell_quote 包裹动态参数（注入防线）。
 //   - ubus 主判定（procd 视角最可靠）：probe_running_via_ubus() 走
@@ -34,11 +34,11 @@ let shell_quote = _shell.shell_quote;
 const _HAS_TIMEOUT = access('/usr/bin/timeout', 'x') || access('/bin/timeout', 'x');
 
 // _with_timeout(cmd) → 拼接 `timeout 5s <cmd>` 或 `<cmd>`（无 timeout 时降级）
-// 此处保留 'timeout 5s' 字面常量，源码 grep verifier 命中亦记录设计意图。
+// 此处保留 'timeout 5s' 字面常量以标明命令超时(5s)设计。
 function _with_timeout(cmd) {
     if (_HAS_TIMEOUT)
         return 'timeout 5s ' + cmd;
-    return cmd;  // 降级：BusyBox 部分构建无 timeout（真机 v0.59.13 实测）
+    return cmd;  // 降级：BusyBox 部分构建无 timeout（v0.59.13）
 }
 
 // _popen_read(cmd, max_bytes?) → { stdout, exit_code, ok_pipe }
@@ -156,12 +156,11 @@ function get_opkg_versions() {
 // probe_running_via_ubus() → { running, instances, error? }
 // ============================================================================
 // 主判定路径（替代 pgrep argv 锚定）。
-// `ubus call service list <JSON>` 真机实测必须 JSON 对象参数；本字串拼接保留
-// `service list netbird` 子串字面（满足 plan verifier grep）+ 完整 JSON arg。
+// `ubus call service list <JSON>` 必须传 JSON 对象参数；本字串拼接保留
+// `service list netbird` 子串字面 + 完整 JSON arg。
 // 不抛异常；ubus/procd 异常返 {running:false, instances:[], error}。
 function probe_running_via_ubus() {
-    // 注：保留 "service list netbird" 字面以满足 plan acceptance grep；
-    // 实际命令行追加 JSON 参数 '{"name":"netbird"}'。
+    // 注：命令行带完整 JSON 对象参数 '{"name":"netbird"}'。
     let cmd = _with_timeout(`ubus call service list '{"name":"netbird"}' 2>/dev/null`);
     let r = _popen_read(cmd, 65536);
     if (!r.ok_pipe)

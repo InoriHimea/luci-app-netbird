@@ -15,11 +15,11 @@ LUCI_DESCRIPTION:=LuCI web interface to manage the NetBird mesh-VPN client \
 # 格式(apk):**逗号分隔 + 每项带版本约束**。OWRT25 apk 路径(CONFIG_USE_APK)经
 # include/package-pack.mk 的 FormatDepends 处理 EXTRA_DEPENDS,要求逗号分隔且每项必须有版本
 # 约束(无约束直接 $(error);空格分隔会被当成单项 "netbird (版本约束 rpcd)" 致依赖搅烂成
-# netbirdrpcd、其余丢失——真机 apk add 实测)。`(>=0)`=任意版本;此格式对 ipk(原样塞入版本化
+# netbirdrpcd、其余丢失——apk add 下如此)。`(>=0)`=任意版本;此格式对 ipk(原样塞入版本化
 # Depends,opkg 接受)与 apk 同时成立。参照 luci-app-adguardhome 同类(golang)惯例。
 # 不列 libuci:apk 下它是 **ABI 版本化**包(目标上叫 libuci20250120,`apk list libuci` 为空),
 # SDK 的 GetABISuffix 在 SDK 上下文取不到其 ABI 后缀 → 渲染成裸 libuci>=0 在目标无法解析
-# (真机 apk add 实测 breaks);且 libuci 被 rpcd/rpcd-mod-ucode/uci 传递依赖保证存在,无需显式列。
+# (apk add 下 breaks);且 libuci 被 rpcd/rpcd-mod-ucode/uci 传递依赖保证存在,无需显式列。
 LUCI_DEPENDS:=
 LUCI_EXTRA_DEPENDS:=netbird (>=0), rpcd (>=0), rpcd-mod-ucode (>=0), luci-base (>=0)
 LUCI_PKGARCH:=all
@@ -28,7 +28,7 @@ LUCI_MAINTAINER:=PC27149 <foxhis11@gmail.com>
 
 PKG_NAME:=luci-app-netbird
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=5
+PKG_RELEASE:=8
 PKG_MAINTAINER:=PC27149 <foxhis11@gmail.com>
 PKG_LICENSE:=Apache-2.0
 PKG_LICENSE_FILES:=LICENSE

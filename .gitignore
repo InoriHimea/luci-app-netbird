@@ -3,6 +3,7 @@
 *.apk
 *.tar.gz
 *.tar.zst
+uc.out
 /bin/
 /public/
 /dist/

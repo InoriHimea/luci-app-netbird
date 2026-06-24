@@ -1,8 +1,10 @@
 # Architecture — luci-app-netbird
 
 LuCI app to manage the [NetBird](https://netbird.io) mesh-VPN client on OpenWRT.
-It has no daemon of its own — it drives the upstream `netbird` binary and its procd
-service through UCI and a ucode RPC backend.
+It has no VPN daemon of its own — it drives the upstream `netbird` binary and its procd
+service through UCI and a ucode RPC backend. A small LuCI-owned watchdog only records
+the user's desired connection state and asks the same RPC backend to reconnect after
+transient management-server/network outages.
 
 ## Components
 
@@ -14,6 +16,7 @@ service through UCI and a ucode RPC backend.
 | Backend lib | `root/usr/share/rpcd/ucode/lib/*.uc` | `shell`(quote) · `paths`(binary probe) · `envelope`({ok,err,CODE}) · `netbird_cli`(CLI wrap) · `state`(5-state) · `sanitize`(validation). |
 | ACL | `root/usr/share/rpcd/acl.d/luci-app-netbird.json` | read/write method whitelist + UCI scopes. Kept strictly 1:1 with the method table. |
 | Settings pipeline | `root/etc/init.d/netbird-settings` | config-only procd service: renders UCI → `netbird up --flags`. |
+| Reconnect watchdog | `root/etc/init.d/luci-netbird-watchdog`, `root/usr/share/netbird/netbird-autoreconnect.sh` | procd loop that retries only when `netbird.runtime.desired_connected=1`; fatal auth errors stop the loop. |
 | Config | `root/etc/config/netbird`, `root/etc/config/netbird_bin` | settings, and binary-source (kept separate so changing the download URL does not trigger a netbird reconnect). |
 | First-install | `root/etc/uci-defaults/99-luci-app-netbird` | idempotent: seed config, chmod init.d 0755, append identity paths to `sysupgrade.conf`. |
 
@@ -73,9 +76,9 @@ preserved across switches.
 **Package-manager dispatch (OpenWRT 24/25).** The "opkg" source is a *semantic* name for "the
 distro feed". The four feed touchpoints (`_pkg_mgr`, `_opkg_feed_has_netbird`,
 `_opkg_upgradable_netbird`, `_fetch_opkg_binary`, `get_opkg_versions`) dispatch at runtime by
-`_pkg_mgr()` (`apk` if `/usr/bin/apk` exists, else `opkg`). On apk the C9-safe fetch is
+`_pkg_mgr()` (`apk` if `/usr/bin/apk` exists, else `opkg`). On apk the apk-safe fetch is
 `apk fetch` + `apk extract --allow-untrusted` (an OpenWRT `.apk` is apk-v3 ADB, unreadable by
-`tar`); **never** `apk add/del/fix` (C9 — would delete the daemon's `init.d`). Downloads use
+`tar`); **never** `apk add/del/fix` (would delete the daemon's `init.d`). Downloads use
 `_dl_cmd` (curl → uclient-fetch → BusyBox wget) so the release/custom paths work on minimal
 images without curl.
 
@@ -122,6 +125,41 @@ the current version and shows the error. When there is no newer version, `update
 
 Five runtime-first states (trust the daemon when reachable):
 `not_installed` / `service_disabled` / `service_stopped` / `needs_login` / `running`.
+
+## Authentication and failure reporting
+
+The Authentication tab drives upstream NetBird directly through `do_up` / `do_login` /
+`do_down` / `do_logout`.
+
+- Setup keys are write-only RPC parameters. A successful login stores only a masked
+  `setup_key_hint`; the raw key is never written to UCI or returned to LuCI.
+- `do_up` and `do_login` execute `netbird up/login --no-browser` with a bounded
+  wall-clock wrapper (25s for the CLI attempt, then a short connected-state poll). This is
+  necessary because current NetBird clients can keep retrying when the management server
+  rejects an invalid setup key, and LuCI should return a specific reason instead of a generic
+  browser timeout.
+- After each auth attempt, the backend polls `status --json` for
+  `management.connected=true`; it never trusts the CLI exit code alone.
+- If the CLI output or newly-added daemon log lines report `setup key is invalid`,
+  `PermissionDenied`, `NotFound`, `no peer auth method provided`, or peer removal/login
+  expiry, the backend returns `connect_failed` with an actionable message and hint,
+  persists the sanitized reason in `netbird.runtime.last_error`, and runs `netbird down`
+  to stop the upstream retry loop. It also clears `netbird.runtime.desired_connected` so the
+  watchdog will not keep retrying a fatal auth state. It does **not** auto-deregister the local
+  identity; that destructive action remains behind the explicit Deregister button.
+- Manual `Disconnect` and `Deregister` clear `desired_connected`; successful connect and
+  existing-identity reconnect set it. The watchdog may adopt `desired_connected=1` when it
+  observes an already connected daemon, so upgraded routers keep recovering from transient
+  outages without user action.
+- The watchdog never stores setup keys. It retries only with the existing local identity, so a
+  first-time setup-key registration that fails before success still requires the user to click
+  Connect again.
+- Transient management/network errors (`Unavailable`, `DeadlineExceeded`, connection refused,
+  DNS/timeout-like failures) remain retryable while `desired_connected=1`; fatal auth and
+  `NeedsLogin` states are surfaced in `last_error` and stop automatic reconnect.
+- The frontend temporarily raises LuCI's global RPC timeout for auth actions and shows
+  `last_error` on the Authentication form after a failed attempt, so users see the
+  management-server reason instead of a generic XHR timeout.
 
 ## Network automation (network tab) — device-bound zone, no netifd interface
 

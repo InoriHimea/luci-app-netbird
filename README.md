@@ -14,6 +14,7 @@ Compatible with OpenWrt / ImmortalWrt 24.x (`opkg`) and 25.x (`apk`).
 Surfaces the NetBird client's capabilities in the LuCI UI:
 
 - Connect / reconnect / disconnect / deregister; self-hosted management
+- Automatic reconnect after transient outages — with clear authentication-failure reasons
 - Binary version management — official release, package feed, or custom URL
 - Firewall automation — NetBird zone and LAN ↔ mesh forwarding
 - Full `netbird up` settings — WireGuard, routes, DNS, SSH, IPv6, Rosenpass, log level

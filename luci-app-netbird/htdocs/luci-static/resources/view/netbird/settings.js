@@ -36,7 +36,7 @@ function ifaceWarn(value) {
 // 设计取舍(已与用户确认):form.Map('netbird') 会把整个 netbird 配置(含 preshared_key 原文)
 // 载入浏览器 uci 缓存——这等同管理员经 SSH `uci show netbird` 读自己的密钥,非提权,可接受。
 // 注(OWRT25/LuCI 26):此读取需 ACL 显式 `read.uci: ["netbird"]`——旧版 LuCI「uci 写权限隐含
-// 读权限」在 LuCI 26 不再成立,缺显式读 → 设置页 uci/get 报 ubus code 6「没有权限」(真机抓到)。
+// 读权限」在 LuCI 26 不再成立,缺显式读 → 设置页 uci/get 报 ubus code 6「没有权限」。
 // 本字段做到「不回显/不入截图/不入日志」:
 //   - cfgvalue 永远回 ''：表单永不预填/回显原文(即便缓存里有);
 //   - write 仅在用户输入非空时 uci.set：留空=保持原值(LuCI 见 formvalue==cfgvalue 跳过写);

@@ -310,13 +310,13 @@ function _loadAndRender() {
 		if (!res || !res.ok) {
 			// RPC/传输/权限等非 ok 态：服务停/未登录等「服务态」由后端 get_logs 走 ok:true 兜底，
 			// 故走到这里主要是传输/权限/RPC 失败 → 文案用通用「Logs unavailable」比「Service not
-			// running」更准（codex r13 复审建议）。
+			// running」更准。
 			var note  = (res && res.data && res.data.note)  ? res.data.note  : '';
 			var state = (res && res.data && res.data.state) ? res.data.state : '';
 			var msg   = note || state || (res && res.code)  || 'unavailable';
 			_allParsed = [];
 			_source = (res && res.data && res.data.source) ? res.data.source : 'daemon';
-			// 提示写进 _truncEl（_repaint 不覆盖它）；_statusEl 仅作计数会被 _repaint 盖掉（codex P3）。
+			// 提示写进 _truncEl（_repaint 不覆盖它）；_statusEl 仅作计数会被 _repaint 盖掉。
 			if (_truncEl) dom.content(_truncEl, E('p', { 'class': 'alert-message warning' },
 				_('Logs unavailable: %s').format(msg)));
 			_repaint();
@@ -353,12 +353,12 @@ function _loadAndRender() {
 			var emptyMsg = (_source === 'syslog')
 				? _('No NetBird log entries in syslog ring buffer.')
 				: _('No NetBird daemon log entries yet.');
-			// 同 codex P3：空日志态提示也写 _truncEl（_repaint 不覆盖）；benign 故用中性 alert-message。
+			// 同上：空日志态提示也写 _truncEl（_repaint 不覆盖）；benign 故用中性 alert-message。
 			if (_truncEl) dom.content(_truncEl, E('p', { 'class': 'alert-message' }, emptyMsg));
 		}
 
 		// 服务未运行：后端兜底返回 ok:true + state + note（见 get_logs），前端在此明确提示
-		// 而非只显示空表（codex #9）。提示写进 _truncEl（_repaint 不覆盖它；_statusEl 仅作
+		// 而非只显示空表。提示写进 _truncEl（_repaint 不覆盖它；_statusEl 仅作
 		// 计数、会被 _repaint 盖掉）。data.state 仅在非 running 的兜底 envelope 里出现。
 		if (data.state && data.state !== 'running' && _truncEl) {
 			_allParsed = [];
@@ -458,7 +458,7 @@ return view.extend({
 			E('h2', {}, _('NetBird') + ' — ' + _('Logs')),
 			E('div', { 'class': 'cbi-section' }, [
 				toolbar,
-				// 阈值过滤 + 调级别引导(用户实测困惑:三个低级别看着一样=daemon 跑 info 级、文件
+				// 阈值过滤 + 调级别引导(常见困惑:三个低级别看着一样=daemon 跑 info 级、文件
 				// 里没有 DEBUG/TRACE 行;选 INFO 见 WARN/选 WARN 见 ERROR=阈值语义)。纯文本不含 %s 防译文 hash 漂移。
 				E('p', { 'class': 'cbi-section-descr', 'style': 'margin:4px 0 8px;color:#888' },
 					_('The severity filter is a minimum threshold: choosing a level also shows all more severe levels. To capture DEBUG or TRACE lines, raise the log level on the Settings page and reconnect.')),

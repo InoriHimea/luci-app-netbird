@@ -11,7 +11,7 @@
 // 内部 ' 通过 '\'' 序列转义（关闭当前单引号段 → 字面 ' → 开启新单引号段）
 //
 // module-compat：本文件作为 ucode 模块经 loadfile()() 加载，返回 { shell_quote }。
-// 真机 ucode 2025.07.18 不支持 export 关键字，只接受顶层 return 模式；
+// ucode 2025.07.18 不支持 export 关键字，只接受顶层 return 模式；
 // 同时去掉 shebang 与 'use strict'（loadfile 模式不需要）。
 
 function shell_quote(s) {

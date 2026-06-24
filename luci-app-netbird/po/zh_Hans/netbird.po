@@ -587,7 +587,7 @@ msgstr "已移除 NetBird 网络自动化配置。如之后修改网络设置导
 msgid "Failed to remove automation."
 msgstr "移除自动化配置失败。"
 
-# ── v3 二进制来源管理 / 日志阈值 / 网络文案(新增)──
+# ── 二进制来源管理 / 日志阈值 / 网络文案 ──
 
 msgid "Versions"
 msgstr "版本管理"
@@ -685,7 +685,7 @@ msgstr "切换失败。"
 msgid "The severity filter is a minimum threshold: choosing a level also shows all more severe levels. To capture DEBUG or TRACE lines, raise the log level on the Settings page and reconnect."
 msgstr "严重性过滤是「最低级别」阈值：选某级也会显示所有更严重的级别。要看到 DEBUG / TRACE 行，请在设置页提高日志级别并重新连接。"
 
-# v3.1 版本管理重设计新增串
+# 版本管理相关串
 
 msgid "Custom download"
 msgstr "自定义下载"
@@ -744,7 +744,7 @@ msgstr "从自定义链接下载 NetBird 客户端，按版本号保存，随时
 msgid "A NetBird tarball or a direct binary URL; after download it is checked against this CPU architecture."
 msgstr "NetBird 压缩包或二进制直链，下载后会自动校验包是否符合当前 CPU。"
 
-# v3.1 review 手测:撞词消歧 + 防火墙澄清
+# 撞词消歧 + 防火墙澄清
 
 msgid "Allow NetBird peers to reach your LAN (src=netbird, dest=lan). Higher exposure, enable with care. No effect if Block Inbound is enabled on the Settings Firewall tab."
 msgstr "允许 NetBird 对等节点访问您的局域网(src=netbird,dest=lan)。安全风险较高，请谨慎启用。若「设置 ▸ 防火墙」开启了「阻断入站」，本转发不生效。"
@@ -761,7 +761,7 @@ msgstr "选择来源"
 msgid "Switch source"
 msgstr "切换"
 
-# v5 方案 A:网络自动化改设备绑定 zone(去 network 接口概念)
+# 网络自动化:设备绑定 zone(去 network 接口概念)
 
 msgid "Configure the OpenWrt firewall zone and forwarding rules for NetBird."
 msgstr "为 NetBird 配置 OpenWrt 防火墙区域和转发规则。"
@@ -796,11 +796,11 @@ msgstr "NetBird 防火墙区域已配置(设备:%s)。"
 msgid "The NetBird firewall zone was auto-created (prerequisite for forwarding)."
 msgstr "已自动创建 NetBird 防火墙区域(转发的前置依赖)。"
 
-# v5.2 状态页对端连接列标签:Connection -> Connection mode(连接模式,更准确)
+# 状态页对端连接列标签:Connection -> Connection mode(连接模式,更准确)
 msgid "Connection mode"
 msgstr "连接模式"
 
-# v5.3 认证页"重新连接"按钮(已连接态;do_down→do_up,转发流自愈)
+# 认证页"重新连接"按钮(已连接态;do_down→do_up,转发流自愈)
 msgid "Reconnect"
 msgstr "重新连接"
 
@@ -1010,3 +1010,51 @@ msgstr "luci-app-netbird 已是最新版本。"
 
 msgid "Could not determine luci-app-netbird package filename."
 msgstr "无法确定 luci-app-netbird 软件包文件名。"
+
+msgid "Hint:"
+msgstr "提示："
+
+msgid "The NetBird operation is still running or took too long. Check the Logs tab, then try again."
+msgstr "NetBird 操作仍在运行或耗时过长。请查看“日志”页后重试。"
+
+msgid "Last authentication error:"
+msgstr "上次认证失败原因："
+
+msgid "Authentication failed: the setup key was rejected by the NetBird management server."
+msgstr "认证失败：NetBird 管理服务器拒绝了此安装密钥。"
+
+msgid "NetBird was stopped to avoid retrying forever. Generate a new setup key and connect again."
+msgstr "已停止 NetBird，避免无限重试。请生成新的安装密钥后重新连接。"
+
+msgid "Authentication failed: NetBird did not receive a valid setup key."
+msgstr "认证失败：NetBird 没有收到有效的安装密钥。"
+
+msgid "NetBird was stopped to avoid retrying forever. Enter a valid setup key, or deregister this device first if it was removed from NetBird."
+msgstr "已停止 NetBird，避免无限重试。请输入有效安装密钥；如果此设备已从 NetBird 移除，请先注销本机身份。"
+
+msgid "Authentication failed: this peer is no longer accepted by the management server."
+msgstr "认证失败：管理服务器不再接受此节点。"
+
+msgid "NetBird was stopped to avoid retrying forever. Deregister this device, generate a new setup key, and connect again."
+msgstr "已停止 NetBird，避免无限重试。请注销本机身份，生成新的安装密钥后重新连接。"
+
+msgid "Authentication failed: the management server rejected this peer."
+msgstr "认证失败：管理服务器拒绝了此节点。"
+
+msgid "NetBird was stopped to avoid retrying forever. Check whether the setup key is valid or whether this device was removed from NetBird."
+msgstr "已停止 NetBird，避免无限重试。请检查安装密钥是否有效，或此设备是否已从 NetBird 移除。"
+
+msgid "The management server is temporarily unreachable."
+msgstr "暂时无法连接管理服务器。"
+
+msgid "Automatic reconnect will keep trying while the desired state is connected."
+msgstr "只要期望状态为已连接，自动重连会继续尝试恢复。"
+
+msgid "NetBird did not become connected before the timeout."
+msgstr "NetBird 未能在超时前进入已连接状态。"
+
+msgid "Check the Logs tab for the last NetBird message, then try again."
+msgstr "请查看“日志”页中的最后一条 NetBird 消息，然后重试。"
+
+msgid "Login failed before NetBird accepted the setup key."
+msgstr "NetBird 接受安装密钥前登录失败。"

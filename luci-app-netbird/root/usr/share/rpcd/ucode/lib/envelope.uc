@@ -31,7 +31,7 @@ const CODE = {
     ENABLE_FAILED:     'enable_failed',
     START_FAILED:      'start_failed',
     ALREADY_RUNNING:   'already_running',
-    // P2 认证系（do_up/do_login 连接超时）
+    // 认证系（do_up/do_login 连接超时）
     CONNECT_FAILED:    'connect_failed',
     // 二进制管理系（update_binary：下载/校验/安装官方最新二进制）
     DOWNLOAD_FAILED:   'download_failed',

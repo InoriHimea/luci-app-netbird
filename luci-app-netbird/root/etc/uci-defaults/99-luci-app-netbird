@@ -104,6 +104,8 @@ elif head -n1 "$CONFIG_FILE" | grep -qF 'schema v1'; then
 			logger -t "$TAG" "警告：设置 last_connect_ts 失败"
 		uci -q set netbird.runtime.last_error='' || \
 			logger -t "$TAG" "警告：设置 last_error 失败"
+		uci -q set netbird.runtime.desired_connected='' || \
+			logger -t "$TAG" "警告：设置 desired_connected 失败"
 	else
 		# runtime section 存在，同样补缺失字段
 		if ! uci -q get netbird.runtime.last_connect_ts > /dev/null 2>&1; then
@@ -113,6 +115,10 @@ elif head -n1 "$CONFIG_FILE" | grep -qF 'schema v1'; then
 		if ! uci -q get netbird.runtime.last_error > /dev/null 2>&1; then
 			_MISSING_FILLED=1
 			uci -q set netbird.runtime.last_error='' || true
+		fi
+		if ! uci -q get netbird.runtime.desired_connected > /dev/null 2>&1; then
+			_MISSING_FILLED=1
+			uci -q set netbird.runtime.desired_connected='' || true
 		fi
 	fi
 
@@ -128,15 +134,15 @@ else
 	logger -t "$TAG" "future schema ($SCHEMA_VERSION)，跳过处理（v2 迁移脚本在独立文件中实现）"
 fi
 
-# ── 方案 A 迁移（一次性,幂等）：旧版 network 接口 + zone(option network 绑定) → zone 设备绑定 ──
+# ── zone 设备直绑迁移（一次性,幂等）：旧版 network 接口 + zone(option network 绑定) → zone 设备绑定 ──
 # 背景：旧设计建 network.netbird(proto=none)接口 + zone `list network 'netbird'`
 # 引用它;reload network 会让 netifd flush 掉 wt0 的 overlay IP/对端子网路由(netbird 不自愈)→
-# 经 mesh 远程管理时硬锁死。方案 A 改 zone 直接 `list device` 绑定、不建 network 接口。
+# 经 mesh 远程管理时硬锁死。改为 zone 直接 `list device` 绑定、不建 network 接口。
 # 升级机残留的旧 network.netbird 接口 = 潜在地雷:日后任何无关的 reload network 仍会 flush wt0。
 # 本段在安装/升级时一次性迁移:zone 改设备绑定 + 删旧 network 引用 + 删残留接口。
 # ⚠️ **只 reload firewall、绝不 reload network**:删 proto=none 接口若 reload network 会断
 # netbird;UCI-only 删除则 wt0 运行态此刻零中断(残留的 netifd adopt 留待下次自然 reload 协调)。
-# 幂等:迁移后 network.netbird 不存在 → 下次运行本段 if 为假 = no-op;新装(纯方案 A)亦 no-op。
+# 幂等:迁移后 network.netbird 不存在 → 下次运行本段 if 为假 = no-op;新装(纯设备直绑)亦 no-op。
 if [ "$(uci -q get network.netbird 2>/dev/null)" = "interface" ]; then
 	# 设备名取设置接口名(netbird up 的事实源);非法回退 wt0(与 netbird.uc _nb_interface_name 同规则)
 	_nb_dev=$(uci -q get netbird.settings.interface_name 2>/dev/null)
@@ -152,7 +158,7 @@ if [ "$(uci -q get network.netbird 2>/dev/null)" = "interface" ]; then
 	uci -q delete network.netbird 2>/dev/null
 	uci -q commit network 2>/dev/null
 	/etc/init.d/firewall reload >/dev/null 2>&1
-	logger -t "$TAG" "方案A 迁移:删 network.netbird 接口 + zone 改设备绑定($_nb_dev),只 reload firewall"
+	logger -t "$TAG" "迁移:删 network.netbird 接口 + zone 改设备绑定($_nb_dev),只 reload firewall"
 fi
 
 # ── sysupgrade.conf 幂等追加 ──────────────────────────────────────────
@@ -190,6 +196,19 @@ if [ -f /etc/init.d/netbird-settings ]; then
 	chmod 0755 /etc/init.d/netbird-settings
 	/etc/init.d/netbird-settings enable 2>/dev/null || \
 		logger -t "$TAG" "警告：netbird-settings enable 失败"
+fi
+
+# ── 自动重连 watchdog 可执行性 + 注册 ─────────────────────────────────────────
+# 仅在 netbird.runtime.desired_connected=1 时重连;手动断开/注销或认证 fatal 会置 0。
+if [ -f /etc/init.d/luci-netbird-watchdog ]; then
+	chmod 0755 /etc/init.d/luci-netbird-watchdog
+	# watchdog 执行体同样可能被 luci.mk 落成 0644(同 netbird-settings),补幂等 chmod。
+	[ -f /usr/share/netbird/netbird-autoreconnect.sh ] && \
+		chmod 0755 /usr/share/netbird/netbird-autoreconnect.sh
+	/etc/init.d/luci-netbird-watchdog enable 2>/dev/null || \
+		logger -t "$TAG" "警告：luci-netbird-watchdog enable 失败"
+	/etc/init.d/luci-netbird-watchdog start 2>/dev/null || \
+		logger -t "$TAG" "警告：luci-netbird-watchdog start 失败"
 fi
 
 # ── 二进制来源管理:存储目录 + sysupgrade 保全 + 遗留态 adopt ─────────────────────

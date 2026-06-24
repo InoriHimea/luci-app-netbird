@@ -14,6 +14,7 @@ OpenWrt / ImmortalWrt 上管理 [NetBird](https://netbird.io) mesh-VPN 客户端
 把 NetBird 客户端的能力接入 LuCI 管理界面：
 
 - 连接 / 重新连接 / 断开 / 注销；支持自托管管理服务器
+- 短暂断网后自动重连 —— 认证失败时给出明确原因
 - 二进制版本管理 —— 官方 release、系统软件源或自定义 URL
 - 防火墙自动化 —— NetBird 区域与 LAN ↔ mesh 转发
 - 完整 `netbird up` 设置 —— WireGuard、路由、DNS、SSH、IPv6、Rosenpass、日志层级

@@ -1394,3 +1394,51 @@ msgstr ""
 
 msgid "Could not determine luci-app-netbird package filename."
 msgstr ""
+
+msgid "Hint:"
+msgstr ""
+
+msgid "The NetBird operation is still running or took too long. Check the Logs tab, then try again."
+msgstr ""
+
+msgid "Last authentication error:"
+msgstr ""
+
+msgid "Authentication failed: the setup key was rejected by the NetBird management server."
+msgstr ""
+
+msgid "NetBird was stopped to avoid retrying forever. Generate a new setup key and connect again."
+msgstr ""
+
+msgid "Authentication failed: NetBird did not receive a valid setup key."
+msgstr ""
+
+msgid "NetBird was stopped to avoid retrying forever. Enter a valid setup key, or deregister this device first if it was removed from NetBird."
+msgstr ""
+
+msgid "Authentication failed: this peer is no longer accepted by the management server."
+msgstr ""
+
+msgid "NetBird was stopped to avoid retrying forever. Deregister this device, generate a new setup key, and connect again."
+msgstr ""
+
+msgid "Authentication failed: the management server rejected this peer."
+msgstr ""
+
+msgid "NetBird was stopped to avoid retrying forever. Check whether the setup key is valid or whether this device was removed from NetBird."
+msgstr ""
+
+msgid "The management server is temporarily unreachable."
+msgstr ""
+
+msgid "Automatic reconnect will keep trying while the desired state is connected."
+msgstr ""
+
+msgid "NetBird did not become connected before the timeout."
+msgstr ""
+
+msgid "Check the Logs tab for the last NetBird message, then try again."
+msgstr ""
+
+msgid "Login failed before NetBird accepted the setup key."
+msgstr ""

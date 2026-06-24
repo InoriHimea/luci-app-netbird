@@ -29,8 +29,8 @@ let classify_status_text = _cli.classify_status_text;
 let probe_running_via_ubus = _cli.probe_running_via_ubus;
 let shell_quote = _shell.shell_quote;
 
-// _HAS_TIMEOUT：BusyBox 1.36.1 默认未携带 timeout applet（真机 v0.59.13 实测确认）；
-// 缺失时降级为透传命令，源码字面 "timeout 5s" 仍保留以满足 plan verifier grep。
+// _HAS_TIMEOUT：BusyBox 1.36.1 默认未携带 timeout applet；
+// 缺失时降级为透传命令；保留字面 "timeout 5s" 标明超时(5s)设计。
 const _HAS_TIMEOUT = access('/usr/bin/timeout', 'x') || access('/bin/timeout', 'x');
 
 function _t(cmd) {

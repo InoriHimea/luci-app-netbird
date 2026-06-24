@@ -8,7 +8,7 @@
 
 // Network Tab —— OpenWRT 防火墙自动化（本项目相对 OPNsense 的核心价值）。
 //
-// 方案 A（根治远程锁死）：zone 直接 `list device 'wt0'` 绑定 netbird 自管设备，
+// （根治远程锁死的设计）：zone 直接 `list device 'wt0'` 绑定 netbird 自管设备，
 // **不创建 OpenWRT network 接口** → 只 reload firewall、绝不 reload network → wt0 数据面
 // 永不被 flush（旧设计建 proto=none 接口 + reload network 会瞬断 mesh、远程管理锁死）。
 //
@@ -148,7 +148,7 @@ return view.extend({
 		var zoneExists = !!d.zone_exists;
 		var dev = d.zone_device || '';
 
-		// 状态感知摘要——已建/未建,给明确提示。方案 A 只有 zone 一件配置(无 interface 二态)。
+		// 状态感知摘要——已建/未建,给明确提示。本设计只有 zone 一件配置(无 interface 二态)。
 		// 文案纯 ASCII(无 em-dash/花引号/%s),防 i18n 译文 hash 漂移。
 		var setupSummary = zoneExists
 			? _('The NetBird firewall zone already exists.')
@@ -206,7 +206,7 @@ return view.extend({
 			ui.addNotification(null, E('p', {}, _('Settings were saved, but the firewall reload did not complete; they will take effect on the next firewall reload or reboot.')), 'warning');
 	},
 
-	// handleSetup — 一键建绑定 netbird 设备的 firewall zone（方案 A：仅 setup_firewall_zone）。
+	// handleSetup — 一键建绑定 netbird 设备的 firewall zone（仅 setup_firewall_zone）。
 	handleSetup: function (ev) {
 		var self = this;
 		var btn = ev.currentTarget;

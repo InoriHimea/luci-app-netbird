@@ -6,7 +6,7 @@
 'require view.netbird.dom-helpers as nb';
 
 // 认证 Tab —— 顶部状态横幅（statusPill + 文案）+ 5 态空态引导；
-// P2 在此基础上加认证表单：管理 URL + Setup Key + 连接 / 断开 / 注销。
+// 在此基础上加认证表单：管理 URL + Setup Key + 连接 / 断开 / 注销。
 //
 // 状态判定：get_status 给 5 态字面量；connected 与否结合 get_connection_info 的
 // management.connected（running 态才调）。
@@ -61,20 +61,34 @@ function bannerModel(state, connected) {
 // runAction(btn, promise, okMsg, failMsg) — 统一动作按钮流转：转圈+禁用 →
 //   then(ok：通知 okMsg + 800ms 刷新 / 否则：通知 _(res.message)||failMsg + 复位)
 //   → catch：通知异常 + 复位。集中原 4 个 handler 的重复样板。
+function responseMessage(res, fallback) {
+	var msg = (res && res.message) ? _(res.message) : fallback;
+	if (res && res.hint)
+		return [ msg, E('br'), E('span', { 'class': 'cbi-value-description' }, _('Hint:') + ' ' + _(res.hint)) ];
+	return msg;
+}
+
+function exceptionMessage(e) {
+	var msg = String(e && e.message ? e.message : e);
+	if (/XHR request timed out/i.test(msg))
+		return _('The NetBird operation is still running or took too long. Check the Logs tab, then try again.');
+	return msg;
+}
+
 function runAction(btn, promise, okMsg, failMsg) {
 	btn.classList.add('spinning');
 	btn.disabled = true;
 	return promise.then(function (res) {
 		if (res && res.ok) {
-			ui.addNotification(null, E('p', okMsg), 'info');
+			ui.addNotification(null, E('p', {}, okMsg), 'info');
 			window.setTimeout(function () { location.reload(); }, 800);
 		} else {
-			ui.addNotification(null, E('p', (res && res.message) ? _(res.message) : failMsg), 'error');
+			ui.addNotification(null, E('p', {}, responseMessage(res, failMsg)), 'error');
 			btn.classList.remove('spinning');
 			btn.disabled = false;
 		}
 	}).catch(function (e) {
-		ui.addNotification(null, E('p', String(e.message || e)), 'error');
+		ui.addNotification(null, E('p', {}, exceptionMessage(e)), 'error');
 		btn.classList.remove('spinning');
 		btn.disabled = false;
 	});
@@ -96,13 +110,32 @@ return view.extend({
 			var binData = (binRes && binRes.ok && binRes.data) ? binRes.data : {};
 			var mgmtUrl = authData.management_url || '';
 			var keyHint = authData.setup_key_hint || '';
+			var lastAuthError = authData.last_error || '';
 			var pkgMgr = binData.pkg_mgr || '';
 			// 仅 running 态拉 connection info 判 management.connected。
 			if (state === 'running')
 				return L.resolveDefault(callConnInfo(), { ok: false }).then(function (ci) {
-					return { state: state, connInfo: ci, mgmtUrl: mgmtUrl, keyHint: keyHint, pkgMgr: pkgMgr };
+					return { state: state, connInfo: ci, mgmtUrl: mgmtUrl, keyHint: keyHint, lastAuthError: lastAuthError, pkgMgr: pkgMgr };
 				});
-			return { state: state, connInfo: null, mgmtUrl: mgmtUrl, keyHint: keyHint, pkgMgr: pkgMgr };
+			return { state: state, connInfo: null, mgmtUrl: mgmtUrl, keyHint: keyHint, lastAuthError: lastAuthError, pkgMgr: pkgMgr };
+		});
+	},
+
+		// LuCI rpc.js 只读取全局 L.env.rpctimeout,没有 per-call timeout。认证命令会
+		// 等后端归因与收敛,临时覆盖到 90s,避免前端先报 XHR timeout。
+	_withRpcTimeout: function (seconds, fn) {
+		var had = Object.prototype.hasOwnProperty.call(L.env, 'rpctimeout');
+		var old = L.env.rpctimeout;
+		L.env.rpctimeout = Math.max(Number(old) || 20, seconds);
+
+		return fn().then(function (res) {
+			if (had) L.env.rpctimeout = old;
+			else delete L.env.rpctimeout;
+			return res;
+		}, function (err) {
+			if (had) L.env.rpctimeout = old;
+			else delete L.env.rpctimeout;
+			throw err;
 		});
 	},
 
@@ -125,7 +158,10 @@ return view.extend({
 		if (keyEl) keyEl.value = '';
 
 		// 传入 RPC 后立即弃局部密钥引用（不带进 runAction 闭包）
-		var p = callDoUp(mgmtUrl, setupKey);
+		var self = this;
+			var p = self._withRpcTimeout(90, function () {
+				return callDoUp(mgmtUrl, setupKey);
+			});
 		setupKey = '';
 		return runAction(btn, p, _('Connected to NetBird.'), _('Connection failed.'));
 	},
@@ -140,9 +176,12 @@ return view.extend({
 	// do_up 内置 _flush_reconnect_conntrack（等路由恢复后定向冲在途 conntrack），故重连后转发流自愈。
 	// 用途：一键重连;或在 daemon 自发重连未覆盖的边角(WAN 抖动等)手动触发让转发流恢复。
 	handleReconnect: function (ev) {
+		var self = this;
 		// 空参 do_up → 持久身份重连(do_up 解析已存管理 URL)
 		return runAction(ev.currentTarget,
-			callDoDown().then(function () { return callDoUp('', ''); }),
+				self._withRpcTimeout(90, function () {
+					return callDoDown().then(function () { return callDoUp('', ''); });
+				}),
 			_('NetBird reconnected.'), _('Operation failed.'));
 	},
 
@@ -172,15 +211,15 @@ return view.extend({
 		return callDoLogout().then(function (res) {
 			ui.hideModal();
 			if (res && res.ok) {
-				ui.addNotification(null, E('p', _('Logged out. The local NetBird identity was removed.')), 'info');
+				ui.addNotification(null, E('p', {}, _('Logged out. The local NetBird identity was removed.')), 'info');
 				window.setTimeout(function () { location.reload(); }, 800);
 			} else {
 				var msg = (res && res.message) ? _(res.message) : _('Operation failed.');
-				ui.addNotification(null, E('p', msg), 'error');
+				ui.addNotification(null, E('p', {}, responseMessage(res, msg)), 'error');
 			}
 		}).catch(function (e) {
 			ui.hideModal();
-			ui.addNotification(null, E('p', String(e.message || e)), 'error');
+			ui.addNotification(null, E('p', {}, exceptionMessage(e)), 'error');
 		});
 	},
 
@@ -191,7 +230,7 @@ return view.extend({
 	//     在输入框下方 helptext 显示「上次使用：<hint>」。
 	//   - logged-in 态（running / needs_login，即已有身份）文案提示「留空即用现有身份」。
 	// 在 not_installed 态不渲染（无可操作对象）。
-	renderAuthForm: function (state, mgmtUrl, keyHint) {
+	renderAuthForm: function (state, mgmtUrl, keyHint, lastAuthError) {
 		if (state === 'not_installed')
 			return E('div', {});
 
@@ -212,8 +251,12 @@ return view.extend({
 				_('Last used:') + ' ' + keyHint));
 		}
 
-		return E('div', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Authentication')),
+		var rows = [ E('h3', {}, _('Authentication')) ];
+		if (lastAuthError)
+			rows.push(E('div', { 'class': 'alert-message warning' }, [
+				E('strong', {}, _('Last authentication error:')), ' ', _(lastAuthError)
+			]));
+		rows.push(
 			E('div', { 'class': 'cbi-value' }, [
 				E('label', { 'class': 'cbi-value-title', 'for': 'nb-mgmt-url' }, _('Management URL')),
 				E('div', { 'class': 'cbi-value-field' }, [
@@ -227,7 +270,9 @@ return view.extend({
 					E('div', { 'class': 'cbi-value-description' },
 						_('Management server URL — self-hosted or the official one.'))
 				])
-			]),
+			])
+		);
+		rows.push(
 			E('div', { 'class': 'cbi-value' }, [
 				E('label', { 'class': 'cbi-value-title', 'for': 'nb-setup-key' }, _('Setup Key')),
 				E('div', { 'class': 'cbi-value-field' }, [
@@ -240,7 +285,9 @@ return view.extend({
 					}),
 					E('div', { 'class': 'cbi-value-description' }, keyDescChildren)
 				])
-			]),
+			])
+		);
+		rows.push(
 			E('div', { 'class': 'cbi-value' }, [
 				E('div', { 'class': 'cbi-value-field' }, [
 					E('button', {
@@ -249,7 +296,8 @@ return view.extend({
 					}, _('Connect'))
 				])
 			])
-		]);
+		);
+		return E('div', { 'class': 'cbi-section' }, rows);
 	},
 
 	// 已连接操作区：断开 + 注销。
@@ -306,6 +354,7 @@ return view.extend({
 		var state = data.state || 'unknown';
 		var mgmtUrl = data.mgmtUrl || '';
 		var keyHint = data.keyHint || '';
+		var lastAuthError = data.lastAuthError || '';
 		var pkgMgr = data.pkgMgr || '';
 		var connected = !!(data.connInfo && data.connInfo.ok && data.connInfo.data &&
 			data.connInfo.data.management && data.connInfo.data.management.connected);
@@ -326,7 +375,7 @@ return view.extend({
 		if (connected)
 			children.push(this.renderConnectedControls());
 		else
-			children.push(this.renderAuthForm(state, mgmtUrl, keyHint));
+			children.push(this.renderAuthForm(state, mgmtUrl, keyHint, lastAuthError));
 
 		return E('div', { 'class': 'cbi-map' }, children);
 	},

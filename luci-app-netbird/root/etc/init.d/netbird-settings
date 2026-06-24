@@ -22,7 +22,7 @@
 #   **禁止** trap ... exit 0 吞错（tailscale #8）。
 #
 # 调试：环境变量 NB_DRY_RUN=1 时，_render_and_apply 只打印渲染好的命令、不执行，
-#   退出码恒 0；用于真机验收「取反 / 门控是否正确」（不扰动已连接的 daemon）。
+#   退出码恒 0；用于验收「取反 / 门控是否正确」（不扰动已连接的 daemon）。
 
 START=98
 USE_PROCD=1
@@ -92,7 +92,7 @@ _redact_psk() {
 #   故渲染 + 执行内联于此函数。
 # 退出码捕获（BusyBox ash 无 PIPESTATUS）：netbird up 不走管道（管道会丢退出码），
 #   输出重定向到临时文件，$? 即真实退出码，随后把临时文件喂 logger。
-#   NB_DRY_RUN=1 时只打印渲染命令、不执行（退出码 0），用于真机验收取反/门控。
+#   NB_DRY_RUN=1 时只打印渲染命令、不执行（退出码 0），用于验收取反/门控。
 # 取反矩阵（UI 正向 → netbird flag）：
 #   enable_firewall=0       → --disable-firewall
 #   block_inbound=1         → --block-inbound
@@ -142,7 +142,7 @@ _render_and_apply() {
 	# SSH:子项(root/sftp/本地+远程转发/鉴权)只在 SSH 服务启用(allow_ssh=1)时才下发。
 	# UI 用 depends(allow_ssh=1) 隐藏子项,但后端不能只靠前端(前端可绕过):allow_ssh=0 时 UCI 可能
 	# 残留 ssh_root=1 等(depends 隐藏控件但不清值),若不在此 gate,会渲染出「SSH 服务没开却配
-	# root 登录」的悬空 flag(矩阵边界用例实测)。故整组子项嵌在 allow_ssh 之下,后端自洽。
+	# root 登录」的悬空 flag(矩阵边界用例)。故整组子项嵌在 allow_ssh 之下,后端自洽。
 	if _bool allow_ssh 1; then
 		set -- "$@" --allow-server-ssh
 		if _has_flag --enable-ssh-root && _bool ssh_root 1; then
@@ -179,7 +179,7 @@ _render_and_apply() {
 		fi
 	fi
 
-	# dry-run：只打印、不执行（真机验收取反/门控用）。$* 不含 PSK（见上），仅追加静态占位。
+	# dry-run：只打印、不执行（验收取反/门控用）。$* 不含 PSK（见上），仅追加静态占位。
 	if [ "${NB_DRY_RUN:-0}" = "1" ]; then
 		echo "DRY_RUN: $bin $*$psk_disp"
 		logger -t "$TAG" "dry-run: netbird $*$psk_disp"
@@ -208,14 +208,14 @@ _render_and_apply() {
 	return $rc
 }
 
-# ── 接口名变更 → 同步 netbird firewall zone 的 device（方案 A;修死引用断网）─────
+# ── 接口名变更 → 同步 netbird firewall zone 的 device（zone 设备直绑设计;避免修死引用断网）─────
 # 背景：interface_name 是单一事实源，被两处消费：
 #   (a) 本脚本 netbird up --interface-name <name>（daemon 据此命名 WG 设备 wt0/wt3…）；
 #   (b)「网络」Tab 的 setup_firewall_zone 把它写成 firewall.netbird 的 `list device`。
 # 在「设置」页改接口名只走 (a)，(b) 不自动跟随 → zone 仍绑旧设备名(iifname 匹配不到新设备)，
 # 内网互通失效。本函数把 (b) 同步到当前接口名，自动消除 desync。
 #
-# 方案 A：zone 直接设备绑定,**不再有 network.netbird 接口**。故本函数
+# zone 直接设备绑定(不建 network 接口),**不再有 network.netbird 接口**。故本函数
 # 只改 firewall.netbird.device + **只 reload firewall、绝不 reload network** → 即便接口名
 # 变更也零 flush(旧版还要 reload network 才能让接口 device 跟随,会 flush wtX;现彻底消除)。
 #
@@ -225,7 +225,7 @@ _render_and_apply() {
 #   - device 已一致则免动（普通设置保存不触发 firewall reload）。
 # 调用时机（关键）：在 _render_and_apply（netbird down→up）**之前**调用，让 netbird 在 fw
 #   变更**之后**才最后 re-establish——否则 fw reload 打断 netbird 转发、需手动 down/up 才恢复
-#   （用户实测踩坑）。fw4 用 iifname 按名匹配，新设备未建也能先配好 zone。
+#   。fw4 用 iifname 按名匹配，新设备未建也能先配好 zone。
 _sync_openwrt_zone_device() {
 	local want="$1" cur
 	# 接口名格式校验（与 settings.js / netbird.uc _nb_interface_name 同规则），非法不写 UCI
@@ -287,9 +287,9 @@ reload_service() {
 		"$NB_SERVICE" start >/dev/null 2>&1
 	fi
 
-	# 先把 netbird firewall zone 的 device 同步到当前接口名（+ 重载 firewall;方案 A 不动 network），
+	# 先把 netbird firewall zone 的 device 同步到当前接口名（+ 重载 firewall;设备直绑不动 network），
 	# **再** _render_and_apply 让 netbird 最后 down→up 重建。顺序关键：netbird 必须在 fw 变更
-	# **之后**才 re-establish，否则 fw reload 打断转发、需手动 down/up 才恢复（用户实测踩坑）。
+	# **之后**才 re-establish，否则 fw reload 打断转发、需手动 down/up 才恢复。
 	# 仅接口名变更时才真正动 firewall（device 一致则 no-op）。
 	_sync_openwrt_zone_device "$(_get interface_name wt0)"
 
