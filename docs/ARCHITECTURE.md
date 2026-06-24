@@ -16,7 +16,7 @@ transient management-server/network outages.
 | Backend lib | `root/usr/share/rpcd/ucode/lib/*.uc` | `shell`(quote) · `paths`(binary probe) · `envelope`({ok,err,CODE}) · `netbird_cli`(CLI wrap) · `state`(5-state) · `sanitize`(validation). |
 | ACL | `root/usr/share/rpcd/acl.d/luci-app-netbird.json` | read/write method whitelist + UCI scopes. Kept strictly 1:1 with the method table. |
 | Settings pipeline | `root/etc/init.d/netbird-settings` | config-only procd service: renders UCI → `netbird up --flags`. |
-| Reconnect watchdog | `root/etc/init.d/luci-netbird-watchdog`, `root/usr/share/netbird/netbird-autoreconnect.sh` | procd loop that retries only when `netbird.runtime.desired_connected=1`; fatal auth errors stop the loop. |
+| Reconnect watchdog | `root/etc/init.d/luci-netbird-watchdog`, `root/usr/share/netbird/netbird-autoreconnect.sh` | procd loop that retries only when `netbird.runtime.desired_connected=1`, with exponential backoff on repeated failures (the status poll stays fixed-interval, so recovery and error-clearing remain prompt); fatal auth errors stop the loop. |
 | Config | `root/etc/config/netbird`, `root/etc/config/netbird_bin` | settings, and binary-source (kept separate so changing the download URL does not trigger a netbird reconnect). |
 | First-install | `root/etc/uci-defaults/99-luci-app-netbird` | idempotent: seed config, chmod init.d 0755, append identity paths to `sysupgrade.conf`. |
 
@@ -147,16 +147,22 @@ The Authentication tab drives upstream NetBird directly through `do_up` / `do_lo
   to stop the upstream retry loop. It also clears `netbird.runtime.desired_connected` so the
   watchdog will not keep retrying a fatal auth state. It does **not** auto-deregister the local
   identity; that destructive action remains behind the explicit Deregister button.
-- Manual `Disconnect` and `Deregister` clear `desired_connected`; successful connect and
-  existing-identity reconnect set it. The watchdog may adopt `desired_connected=1` when it
-  observes an already connected daemon, so upgraded routers keep recovering from transient
-  outages without user action.
+- `desired_connected` records **user intent** only. Manual `Disconnect` / `Deregister` clear it; a
+  user-initiated connect (or existing-identity reconnect) sets it. The watchdog's own reconnect calls
+  `do_up` with `caller=watchdog` and does **not** write `desired_connected`, so a deliberate stop is
+  never re-asserted by it; it still adopts `desired_connected=1` when it observes an already connected
+  daemon, so upgraded routers keep recovering from transient outages without user action.
 - The watchdog never stores setup keys. It retries only with the existing local identity, so a
   first-time setup-key registration that fails before success still requires the user to click
   Connect again.
 - Transient management/network errors (`Unavailable`, `DeadlineExceeded`, connection refused,
   DNS/timeout-like failures) remain retryable while `desired_connected=1`; fatal auth and
   `NeedsLogin` states are surfaced in `last_error` and stop automatic reconnect.
+- A setup-key first-connect that times out without a clear fatal reason also runs `netbird down` and
+  clears `desired_connected` (the daemon would otherwise keep retrying that key in the background);
+  the empty-key (existing-identity) reconnect path instead leaves `desired_connected=1` for the
+  watchdog. The reported reason is the specific transient message when one is classified, not a
+  generic timeout.
 - The frontend temporarily raises LuCI's global RPC timeout for auth actions and shows
   `last_error` on the Authentication form after a failed attempt, so users see the
   management-server reason instead of a generic XHR timeout.
