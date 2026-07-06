@@ -3,6 +3,63 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## 0.1.0-r9 — 2026-07-07
+
+### Added
+
+- Language-split install scripts: `install.sh` installs the app only; the new `install-zh.sh` also installs the Simplified Chinese language pack (#3 follow-up).
+- OpenWrt snapshot support: apk-based `SNAPSHOT` builds now use the 25.x package feed — the package is architecture-independent, so it installs there unchanged. Old opkg-based snapshots get a clear unsupported message (#1).
+
+### Fixed
+
+- Uninstall now unregisters the Simplified Chinese entry from the LuCI language list when no other zh-cn language pack remains, and falls back to auto-detection if Chinese was the active UI language (#3).
+- On apk systems, uninstalling the LuCI app no longer removes a `netbird` that was installed as its dependency — the client is pinned as explicitly installed before package removal.
+
+### Changed
+
+- Repository links updated to the new GitHub owner (`looong-cat`).
+
+## 0.1.0-r8 — 2026-06-24
+
+### Added
+
+- Automatic reconnect: a watchdog restores the connection after transient management/network outages while the user intends to stay connected; fatal authentication states stop the retries.
+
+### Fixed
+
+- Authentication failures (invalid or revoked setup key, removed peer, expired login, permission errors) are detected and reported with a hint in the UI instead of a generic timeout, and the background retry loop is stopped.
+
+*(PKG_RELEASE 6 and 7 were internal iterations of this work; r8 is the shipped build.)*
+
+## 0.1.0-r5 — 2026-06-24
+
+### Fixed
+
+- UI wording now follows the system package manager (opkg vs apk) instead of always saying opkg.
+
+## 0.1.0-r4 — 2026-06-24
+
+### Fixed
+
+- LuCI package metadata (project URL, maintainer) in the built packages.
+
+## 0.1.0-r3 — 2026-06-24
+
+### Added
+
+- Binary download progress display and cancel button; official binaries are fetched via the GitHub API release-assets endpoint.
+- Update detection for luci-app-netbird itself on the Versions tab.
+
+### Fixed
+
+- Download speed display unit.
+
+## 0.1.0-r2 — 2026-06-23
+
+### Fixed
+
+- Binary download failures and stale "ghost" entries in the Versions tab.
+
 ## 0.1.0 — 2026-06-22
 
 Initial public release.

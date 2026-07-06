@@ -10,9 +10,18 @@ release workflow changes:
 - `luci-app-netbird/**`
 - `.github/workflows/release.yml`
 
-Changes limited to non-code public material such as `site/**`, `docs/**`,
+Changes limited to non-code public material such as `feed/**`, `site/**`, `docs/**`,
 `README.md`, or `CHANGELOG.md` do not automatically rebuild or redeploy the feed.
-Use the manual `workflow_dispatch` trigger if a rebuild is still desired.
+Use the manual `workflow_dispatch` trigger if a rebuild is still desired — note this
+includes the install/uninstall scripts under `feed/`, which only reach the site
+through a workflow run.
+
+## Changelog
+
+Every release must update `CHANGELOG.md` in the same change set: one entry per
+shipped `PKG_RELEASE` (version, date, notable changes). The automated GitHub
+Release notes only list build provenance and assets — they are not a substitute
+for the changelog.
 
 ## Version source
 
