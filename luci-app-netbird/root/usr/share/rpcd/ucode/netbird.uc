@@ -24,7 +24,7 @@
 // 路径走 NBLIB env override（默认 /usr/share/rpcd/ucode/lib）。
 // shebang 与 'use strict' 在 module 模式下都不允许，已删除。
 
-import { popen, access, open } from 'fs';
+import { popen, access, open, unlink, lsdir } from 'fs';
 import * as uci from 'uci';
 
 const _LIB = getenv('NBLIB') || '/usr/share/rpcd/ucode/lib';
@@ -91,8 +91,9 @@ function _require_running() {
 // ============================================================================
 // _run_init(action) — init.d 子进程包装（5s timeout + 白名单 assert）
 // ============================================================================
-// 严格白名单 action ∈ {enable, start}（当前 scope；若要 stop/disable
-// 须扩 _INIT_ACTIONS 并同步更新威胁模型）。
+// 严格白名单 action ∈ {enable, start, stop}（stop 仅本地身份清除用：删除
+// config.json 前必须停 daemon，否则运行中的 daemon 持有旧身份继续重连；
+// 若要 disable 须扩 _INIT_ACTIONS 并同步更新威胁模型）。
 //
 // 契约：
 //   返回 { code:<exit>, stdout, stderr }
@@ -104,7 +105,7 @@ function _require_running() {
 //   - 5s timeout 前缀包装：BusyBox 部分构建无 timeout applet，与 state.uc
 //     _HAS_TIMEOUT 模式一致 —— 降级透传；源码字面保留 'timeout 5s' 以满足
 //     源码字面保留以记录设计意图。
-const _INIT_ACTIONS = { enable: true, start: true };
+const _INIT_ACTIONS = { enable: true, start: true, stop: true };
 const _RUN_INIT_HAS_TIMEOUT = access('/usr/bin/timeout', 'x') || access('/bin/timeout', 'x');
 
 // _to(cmd) — 给命令加 5s 墙钟前缀(timeout applet 在才加;缺失透传)。集中原 5 处重复的
@@ -116,7 +117,7 @@ function _to(cmd) {
 function _run_init(action) {
     // 白名单 assert（防 caller 注入恶意 action）
     if (!_INIT_ACTIONS[action])
-        die(sprintf('_run_init: illegal action "%s" (not in whitelist enable/start)', action));
+        die(sprintf('_run_init: illegal action "%s" (not in whitelist enable/start/stop)', action));
 
     // 命令拼接：timeout 5s /etc/init.d/netbird <action>
     // 注：action 经白名单 assert 后是字面常量，命令字面安全；2>&1 合并便于截 stderr。
@@ -298,6 +299,44 @@ function _mgmt_url_from_config() {
         return '';  // 解析失败静默返空（前端回退 placeholder）
     }
     return '';
+}
+
+// _wipe_local_identity() → int：删除的本地身份文件数；-1 = 存在但删除失败。
+// 身份配置路径因包与 netbird 版本而异：
+//   - OpenWrt opkg 包 init 传 NB_CONFIG=/etc/netbird/config.json；
+//   - 上游 Linux 默认 /var/lib/netbird/config.json；
+//   - netbird 0.74+ profile 布局把身份放 NB_STATE_DIR/<profile>.json
+//     （含 active_profile.json，apk 包 init 传 NB_STATE_DIR=/root/.config/netbird）。
+// 优先解析 init 脚本实际声明的路径，再叠加已知默认路径兜底；全部幂等（不存在即跳过）。
+// 仅供 do_logout local_only 分支（用户二次确认后的显式销毁）调用；调用前必须已停 daemon。
+function _wipe_local_identity() {
+    let candidates = [ '/etc/netbird/config.json', '/var/lib/netbird/config.json' ];
+    let state_dirs = [ '/root/.config/netbird' ];
+    let f = open('/etc/init.d/netbird', 'r');
+    if (f) {
+        let txt = f.read('all');
+        f.close();
+        let m = match(txt, /NB_CONFIG="([^"]+)"/);
+        if (m) push(candidates, m[1]);
+        m = match(txt, /NB_STATE_DIR="([^"]+)"/);
+        if (m) push(state_dirs, m[1]);
+    }
+    for (let d in uniq(state_dirs)) {
+        let entries = lsdir(d);
+        if (entries)
+            for (let e in entries)
+                if (match(e, /\.json$/))
+                    push(candidates, d + '/' + e);
+    }
+    let removed = 0;
+    for (let p in uniq(candidates)) {
+        if (!access(p, 'f'))
+            continue;
+        if (!unlink(p))
+            return -1;
+        removed++;
+    }
+    return removed;
 }
 
 // _resolve_display_mgmt_url() → string：展示用管理 URL（优先级 UCI → config.json → ''）。
@@ -511,14 +550,14 @@ function _classify_auth_failure(text) {
     if (match(text, /no peer auth method provided|please use a setup key|setup key.*missing/i)) {
         return {
             message: 'Authentication failed: NetBird did not receive a valid setup key.',
-            hint: 'NetBird was stopped to avoid retrying forever. Enter a valid setup key, or deregister this device first if it was removed from NetBird.',
+            hint: 'NetBird was stopped to avoid retrying forever. Enter a new setup key and connect — re-registering does not require deregistering first, even if the server was rebuilt or this device was removed there.',
         };
     }
 
     if (match(text, /peer login has expired|login has expired|peer not found|not registered|removed from network|peer.*(removed|deleted)/i)) {
         return {
             message: 'Authentication failed: this peer is no longer accepted by the management server.',
-            hint: 'NetBird was stopped to avoid retrying forever. Deregister this device, generate a new setup key, and connect again.',
+            hint: 'NetBird was stopped to avoid retrying forever. Generate a new setup key and connect again — no need to deregister first; this also recovers a device orphaned by a rebuilt management server.',
         };
     }
 
@@ -2740,9 +2779,35 @@ return {
         // do_logout — 完整登出：netbird down 后 netbird deregister（别名 logout）。
         // 会从管理端注销并删本地身份；与 do_down 语义不同（UI 必须区分）。
         // 注：deregister 后需重新用 setup-key 登录，不可仅靠 do_up 现有身份重连。
+        //
+        // args.local_only='1' — 本地身份清除兜底：deregister 必须管理服务器配合,服务器
+        // 重建/不可达/已删本机时只会一直失败,旧身份卡死在设备上。此分支不调 deregister,
+        // 改为 down → 停 daemon → 删本地 config.json → 重启 daemon(回到待登录态)。
+        // 服务器端的 peer 记录不受影响,需用户在控制台自行删除(前端确认弹窗已说明)。
+        // 注:config.json 的"只读"基线约束的是 read 方法(禁绕过 CLI 语义读状态);
+        // 本分支是用户二次确认后的显式销毁动作,且删除前 daemon 已停,无一致性风险。
         do_logout: {
-            args: {},
-            call: _safe(function() {
+            args: { local_only: '' },
+            call: _safe(function(req) {
+                let a = (req != null && req.args != null) ? req.args : (req || {});
+                let local_only = (type(a.local_only) == 'string' && a.local_only == '1');
+
+                if (local_only) {
+                    _set_desired_connected(false);
+                    let bin = resolve_netbird_bin();
+                    if (bin != null)
+                        _exec_short_verb(bin, 'down');     // 幂等,断开在途连接,忽略非零
+                    _run_init('stop');                     // 删配置前必须停 daemon(否则内存身份继续重连)
+                    let removed = _wipe_local_identity();
+                    if (removed < 0) {
+                        _run_init('start');
+                        return err(CODE.CLI_ERROR, 'Failed to remove the local NetBird configuration files.');
+                    }
+                    _run_init('start');                    // 拉回 daemon,页面回到待登录态
+                    _clear_runtime_error();
+                    return ok({ logged_out: true, local_only: true, removed_files: removed });
+                }
+
                 let bin = resolve_netbird_bin();
                 if (bin == null)
                     return err(CODE.NOT_INSTALLED, 'The netbird binary is not installed.');

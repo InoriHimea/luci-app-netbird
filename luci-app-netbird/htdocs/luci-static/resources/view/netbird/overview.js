@@ -21,7 +21,8 @@ var callEnableStart = rpc.declare({ object: 'luci.netbird', method: 'do_enable_a
 var callDoUp        = rpc.declare({ object: 'luci.netbird', method: 'do_up',
 	params: [ 'management_url', 'setup_key' ] });
 var callDoDown      = rpc.declare({ object: 'luci.netbird', method: 'do_down' });
-var callDoLogout    = rpc.declare({ object: 'luci.netbird', method: 'do_logout' });
+var callDoLogout    = rpc.declare({ object: 'luci.netbird', method: 'do_logout',
+	params: [ 'local_only' ] });
 var callBinaryInfo  = rpc.declare({ object: 'luci.netbird', method: 'get_binary_info',
 	params: [ 'check_remote' ], expect: {} });
 
@@ -205,13 +206,51 @@ return view.extend({
 	},
 
 	doLogoutConfirmed: function (ev) {
+		var self = this;
 		var btn = ev.currentTarget;
 		btn.classList.add('spinning');
 		btn.disabled = true;
-		return callDoLogout().then(function (res) {
+		return callDoLogout('').then(function (res) {
 			ui.hideModal();
 			if (res && res.ok) {
 				ui.addNotification(null, E('p', {}, _('Logged out. The local NetBird identity was removed.')), 'info');
+				window.setTimeout(function () { location.reload(); }, 800);
+			} else {
+				var msg = (res && res.message) ? _(res.message) : _('Operation failed.');
+				self.showLocalWipeModal(responseMessage(res, msg));
+			}
+		}).catch(function (e) {
+			ui.hideModal();
+			ui.addNotification(null, E('p', {}, exceptionMessage(e)), 'error');
+		});
+	},
+
+	// 注销失败兜底：deregister 依赖管理服务器配合;服务器重建/不可达/已删本机时永远失败,
+	// 旧身份会卡死在设备上。此弹窗提供「仅清除本地身份」出路(do_logout local_only='1')。
+	showLocalWipeModal: function (errText) {
+		var self = this;
+		ui.showModal(_('Deregister failed'), [
+			E('p', {}, errText),
+			E('p', {}, _('The management server could not deregister this device — it may be unreachable, rebuilt, or it no longer knows this peer. You can remove the local identity only and then log in again with a new setup key. If the device is still listed on the server, remove it there manually.')),
+			E('div', { 'class': 'right' }, [
+				E('button', { 'class': 'btn', 'click': ui.hideModal }, _('Cancel')),
+				' ',
+				E('button', {
+					'class': 'btn cbi-button cbi-button-negative',
+					'click': ui.createHandlerFn(self, 'doLocalWipeConfirmed')
+				}, _('Remove local identity only'))
+			])
+		]);
+	},
+
+	doLocalWipeConfirmed: function (ev) {
+		var btn = ev.currentTarget;
+		btn.classList.add('spinning');
+		btn.disabled = true;
+		return callDoLogout('1').then(function (res) {
+			ui.hideModal();
+			if (res && res.ok) {
+				ui.addNotification(null, E('p', {}, _('Local NetBird identity removed. Use a setup key to log in again.')), 'info');
 				window.setTimeout(function () { location.reload(); }, 800);
 			} else {
 				var msg = (res && res.message) ? _(res.message) : _('Operation failed.');

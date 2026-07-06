@@ -326,6 +326,10 @@ msgstr ""
 msgid "Deregister this NetBird device?"
 msgstr ""
 
+#: htdocs/luci-static/resources/view/netbird/overview.js:232
+msgid "Deregister failed"
+msgstr ""
+
 #: htdocs/luci-static/resources/view/netbird/overview.js:259
 msgid "Disconnect"
 msgstr ""
@@ -595,6 +599,18 @@ msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/overview.js:165
 msgid "Logged out. The local NetBird identity was removed."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/netbird/overview.js:253
+msgid "Local NetBird identity removed. Use a setup key to log in again."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/netbird/overview.js:241
+msgid "Remove local identity only"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/netbird/overview.js:234
+msgid "The management server could not deregister this device — it may be unreachable, rebuilt, or it no longer knows this peer. You can remove the local identity only and then log in again with a new setup key. If the device is still listed on the server, remove it there manually."
 msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/settings.js:237
@@ -1413,13 +1429,13 @@ msgstr ""
 msgid "Authentication failed: NetBird did not receive a valid setup key."
 msgstr ""
 
-msgid "NetBird was stopped to avoid retrying forever. Enter a valid setup key, or deregister this device first if it was removed from NetBird."
+msgid "NetBird was stopped to avoid retrying forever. Enter a new setup key and connect — re-registering does not require deregistering first, even if the server was rebuilt or this device was removed there."
 msgstr ""
 
 msgid "Authentication failed: this peer is no longer accepted by the management server."
 msgstr ""
 
-msgid "NetBird was stopped to avoid retrying forever. Deregister this device, generate a new setup key, and connect again."
+msgid "NetBird was stopped to avoid retrying forever. Generate a new setup key and connect again — no need to deregister first; this also recovers a device orphaned by a rebuilt management server."
 msgstr ""
 
 msgid "Authentication failed: the management server rejected this peer."
