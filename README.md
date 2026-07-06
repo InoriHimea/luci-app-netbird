@@ -22,7 +22,7 @@ Surfaces the NetBird client's capabilities in the LuCI UI:
 
 ## Install
 
-**One-click** — adds the signed package feed, then installs the app + Chinese language pack:
+**One-click** — adds the signed package feed, then installs the app:
 
 ```sh
 # with curl:
@@ -37,8 +37,8 @@ Afterwards manage it normally — `opkg`/`apk` on the command line, or **LuCI �
 
 ```sh
 wget -O - https://luci-app-netbird.okk.sh/feed.sh | sh
-opkg install luci-app-netbird luci-i18n-netbird-zh-cn
-# or:  apk add luci-app-netbird luci-i18n-netbird-zh-cn
+opkg install luci-app-netbird
+# or:  apk add luci-app-netbird
 ```
 </details>
 
@@ -49,10 +49,10 @@ Runtime deps (usually present): `rpcd`, `rpcd-mod-ucode`, `luci-base`, `netbird`
 ```sh
 # OpenWrt / ImmortalWrt 24.10 (opkg)
 opkg install rpcd rpcd-mod-ucode luci-base netbird
-opkg install luci-app-netbird_*.ipk luci-i18n-netbird-zh-cn_*.ipk
+opkg install luci-app-netbird_*.ipk
 # OpenWrt / ImmortalWrt 25+ (apk)
 apk add rpcd rpcd-mod-ucode luci-base netbird
-apk add --allow-untrusted luci-app-netbird-*.apk luci-i18n-netbird-zh-cn-*.apk
+apk add --allow-untrusted luci-app-netbird-*.apk
 ```
 </details>
 
@@ -74,7 +74,7 @@ Add this repo to an OpenWrt / ImmortalWrt SDK or buildroot (under `package/` or 
 - [Architecture](docs/ARCHITECTURE.md) — design, data flow, module boundaries
 - [Releasing](docs/RELEASING.md) — CI trigger rules, package-versioned releases
 - [Changelog](CHANGELOG.md) — version history
-- [GitHub](https://github.com/dont-touchme/luci-app-netbird) — source code, issues, releases
+- [GitHub](https://github.com/looong-cat/luci-app-netbird) — source code, issues, releases
 
 ## Notes
 

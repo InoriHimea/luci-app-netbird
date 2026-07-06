@@ -39,5 +39,5 @@ else
 fi
 
 echo "Feed added: $FEED"
-echo "Install:  opkg install luci-app-netbird luci-i18n-netbird-zh-cn"
-echo "    (apk: apk add luci-app-netbird luci-i18n-netbird-zh-cn)"
+echo "Install:  opkg install luci-app-netbird"
+echo "    (apk: apk add luci-app-netbird)"

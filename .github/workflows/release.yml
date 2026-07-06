@@ -73,7 +73,7 @@ jobs:
 
       - name: Add install scripts + public keys
         run: |
-          cp feed/feed.sh feed/install.sh feed/uninstall.sh \
+          cp feed/feed.sh feed/install.sh feed/install-zh.sh feed/uninstall.sh \
              feed/key-build.pub feed/public-key.pem public/
 
       - name: Add landing pages + screenshots

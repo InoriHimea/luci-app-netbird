@@ -33,7 +33,7 @@
     "operatingSystem": "OpenWrt, ImmortalWrt",
     "description": "在 OpenWrt 上管理 NetBird mesh-VPN 客户端的 LuCI 应用。支持自托管服务器、WireGuard 设置、防火墙自动化。",
     "offers": { "@type": "Offer", "price": "0" },
-    "url": "https://github.com/dont-touchme/luci-app-netbird",
+    "url": "https://github.com/looong-cat/luci-app-netbird",
     "license": "https://spdx.org/licenses/Apache-2.0.html"
   }
   </script>
@@ -220,7 +220,7 @@
       <a href="#install-methods">安装</a>
       <a href="#faq">FAQ</a>
       <a href="#downloads">下载</a>
-      <a href="https://github.com/dont-touchme/luci-app-netbird" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/looong-cat/luci-app-netbird" target="_blank" rel="noopener">GitHub</a>
       <a href="/" class="lang-tag" hreflang="en">English</a>
     </nav>
   </div>
@@ -242,19 +242,19 @@
       <div class="install-block">
         <p class="cmd-label">使用 curl：</p>
         <div class="cmd-wrap">
-          <code id="cmd-curl">sh -c "$(curl -fsSL https://luci-app-netbird.okk.sh/install.sh)"</code>
+          <code id="cmd-curl">sh -c "$(curl -fsSL https://luci-app-netbird.okk.sh/install-zh.sh)"</code>
           <button class="copy-btn" onclick="copyCmd('cmd-curl', this)" aria-label="复制 curl 安装命令">复制</button>
         </div>
         <p class="cmd-label second">没有 curl 的路由器（wget）：</p>
         <div class="cmd-wrap">
-          <code id="cmd-wget">wget -O - https://luci-app-netbird.okk.sh/install.sh | sh</code>
+          <code id="cmd-wget">wget -O - https://luci-app-netbird.okk.sh/install-zh.sh | sh</code>
           <button class="copy-btn" onclick="copyCmd('cmd-wget', this)" aria-label="复制 wget 安装命令">复制</button>
         </div>
       </div>
 
       <div class="hero-actions">
         <a href="#setup" class="btn btn-primary">快速上手</a>
-        <a href="https://github.com/dont-touchme/luci-app-netbird" class="btn btn-outline" target="_blank" rel="noopener">GitHub 仓库</a>
+        <a href="https://github.com/looong-cat/luci-app-netbird" class="btn btn-outline" target="_blank" rel="noopener">GitHub 仓库</a>
       </div>
     </div>
   </section>
@@ -487,7 +487,7 @@ opkg install luci-app-netbird luci-i18n-netbird-zh-cn</pre>
         <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:6px">没有 curl 怎么在 OpenWrt 上安装 NetBird?</h3>
         <p style="font-size:.9rem;color:var(--text-muted)">
           使用页面顶部的 wget 命令即可:
-          <code>wget -O - https://luci-app-netbird.okk.sh/install.sh | sh</code>。
+          <code>wget -O - https://luci-app-netbird.okk.sh/install-zh.sh | sh</code>。
           大多数 OpenWrt 固件默认包含 wget。如果路由器既没有 curl 也没有 wget,
           可以从<a href="#downloads">下载区</a>
           下载 <strong>.ipk 软件包</strong>,传输到路由器后手动安装。
@@ -582,9 +582,9 @@ opkg install luci-app-netbird luci-i18n-netbird-zh-cn</pre>
 <footer class="site-footer">
   <div class="container">
     <div class="footer-links">
-      <a href="https://github.com/dont-touchme/luci-app-netbird" target="_blank" rel="noopener">GitHub</a>
-      <a href="https://github.com/dont-touchme/luci-app-netbird/blob/main/LICENSE" target="_blank" rel="noopener">Apache-2.0 许可</a>
-      <a href="https://github.com/dont-touchme/luci-app-netbird/blob/main/CHANGELOG.md" target="_blank" rel="noopener">更新日志</a>
+      <a href="https://github.com/looong-cat/luci-app-netbird" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/looong-cat/luci-app-netbird/blob/main/LICENSE" target="_blank" rel="noopener">Apache-2.0 许可</a>
+      <a href="https://github.com/looong-cat/luci-app-netbird/blob/main/CHANGELOG.md" target="_blank" rel="noopener">更新日志</a>
       <a href="/" hreflang="en">English</a>
     </div>
     <p>

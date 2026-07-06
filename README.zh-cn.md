@@ -26,9 +26,9 @@ OpenWrt / ImmortalWrt 上管理 [NetBird](https://netbird.io) mesh-VPN 客户端
 
 ```sh
 # 使用 curl:
-sh -c "$(curl -fsSL https://luci-app-netbird.okk.sh/install.sh)"
+sh -c "$(curl -fsSL https://luci-app-netbird.okk.sh/install-zh.sh)"
 # 没有 curl 的路由器:
-wget -O - https://luci-app-netbird.okk.sh/install.sh | sh
+wget -O - https://luci-app-netbird.okk.sh/install-zh.sh | sh
 ```
 
 之后照常管理 —— 命令行 `opkg`/`apk`,或 **LuCI → 系统 → 软件包**。本插件与架构无关(`PKGARCH:=all`);在 **服务 → NetBird** 中访问。
