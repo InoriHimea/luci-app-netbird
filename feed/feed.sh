@@ -16,7 +16,17 @@ fi
 case "$DISTRIB_RELEASE" in
 	*24.10*) BRANCH="openwrt-24.10" ;;
 	*25.12*) BRANCH="openwrt-25.12" ;;
-	*) echo "Unsupported release: $DISTRIB_RELEASE (supported: 24.10, 25.12)." >&2; exit 1 ;;
+	*SNAPSHOT*)
+		if [ -x /usr/bin/apk ]; then
+			# main snapshot builds are apk-only and package-arch-independent,
+			# so the 25.12 apk feed installs there unchanged.
+			BRANCH="openwrt-25.12"
+		else
+			echo "opkg-based snapshot builds are not supported; use a 24.10/25.12 release or a current apk-based snapshot." >&2
+			exit 1
+		fi
+		;;
+	*) echo "Unsupported release: $DISTRIB_RELEASE (supported: 24.10, 25.12, snapshot)." >&2; exit 1 ;;
 esac
 FEED="$REPO/$BRANCH/all/$NAME"
 
