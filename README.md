@@ -44,7 +44,7 @@ opkg install luci-app-netbird
 
 <details><summary><b>Install from package files</b></summary>
 
-Runtime deps (usually present): `rpcd`, `rpcd-mod-ucode`, `luci-base`, `netbird`. Optional: `conntrack`.
+Runtime deps (usually present): `rpcd`, `rpcd-mod-ucode`, `luci-base`, `netbird`, `conntrack`.
 
 ```sh
 # OpenWrt / ImmortalWrt 24.10 (opkg)

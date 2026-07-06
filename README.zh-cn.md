@@ -44,7 +44,7 @@ opkg install luci-app-netbird luci-i18n-netbird-zh-cn
 
 <details><summary><b>用安装包手动安装</b></summary>
 
-运行依赖(通常已随固件存在):`rpcd`、`rpcd-mod-ucode`、`luci-base`、`netbird`。可选:`conntrack`。
+运行依赖(通常已随固件存在):`rpcd`、`rpcd-mod-ucode`、`luci-base`、`netbird`、`conntrack`。
 
 ```sh
 # OpenWrt / ImmortalWrt 24.10(opkg)

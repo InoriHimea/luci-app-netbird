@@ -3,6 +3,17 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## 0.1.0-r10 — 2026-07-07
+
+### Added
+
+- Recovery path for a rebuilt or unreachable management server: when deregister fails because the server cannot cooperate, the UI now offers to remove the local identity only (with confirmation), so a new setup key can re-register the device.
+- `conntrack` is now a package dependency — cancelling a forwarding rule reliably disconnects established flows on every deployment instead of only where the tool happened to be installed.
+
+### Changed
+
+- Authentication-failure hints now explain that entering a new setup key re-registers the device directly — no deregister needed, including after a management-server rebuild.
+
 ## 0.1.0-r9 — 2026-07-07
 
 ### Added

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>luci-app-netbird — OpenWrt / ImmortalWrt 上的 NetBird 客户端管理界面</title>
-  <meta name="description" content="在 OpenWrt 上安装、配置和管理 NetBird mesh-VPN 客户端的 LuCI 应用。支持自托管服务器、WireGuard 设置、防火墙自动化。一键安装。">
+  <title>luci-app-netbird — OpenWrt / ImmortalWrt 上的 NetBird 客户端 Web UI 管理界面</title>
+  <meta name="description" content="在 OpenWrt 上安装、配置和管理 NetBird mesh-VPN 客户端的 LuCI Web UI（网页管理界面）。支持自托管服务器、WireGuard 设置、防火墙自动化。一键安装。">
   <meta name="robots" content="index, follow">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
@@ -12,16 +12,16 @@
   <link rel="canonical" href="https://luci-app-netbird.okk.sh/zh-cn">
   <link rel="alternate" hreflang="en" href="https://luci-app-netbird.okk.sh/">
 
-  <meta property="og:title" content="luci-app-netbird — OpenWrt / ImmortalWrt 上的 NetBird 客户端管理界面">
-  <meta property="og:description" content="在 OpenWrt 上安装、配置和管理 NetBird mesh-VPN 客户端的 LuCI 应用。支持自托管服务器、WireGuard 设置、防火墙自动化。一键安装。">
+  <meta property="og:title" content="luci-app-netbird — OpenWrt / ImmortalWrt 上的 NetBird 客户端 Web UI 管理界面">
+  <meta property="og:description" content="在 OpenWrt 上安装、配置和管理 NetBird mesh-VPN 客户端的 LuCI Web UI（网页管理界面）。支持自托管服务器、WireGuard 设置、防火墙自动化。一键安装。">
   <meta property="og:url" content="https://luci-app-netbird.okk.sh/zh-cn">
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://luci-app-netbird.okk.sh/og-card.png">
   <meta property="og:site_name" content="luci-app-netbird">
 
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="luci-app-netbird — OpenWrt / ImmortalWrt 上的 NetBird 客户端管理界面">
-  <meta name="twitter:description" content="在 OpenWrt 上安装、配置和管理 NetBird mesh-VPN 客户端的 LuCI 应用。支持自托管服务器、WireGuard 设置、防火墙自动化。一键安装。">
+  <meta name="twitter:title" content="luci-app-netbird — OpenWrt / ImmortalWrt 上的 NetBird 客户端 Web UI 管理界面">
+  <meta name="twitter:description" content="在 OpenWrt 上安装、配置和管理 NetBird mesh-VPN 客户端的 LuCI Web UI（网页管理界面）。支持自托管服务器、WireGuard 设置、防火墙自动化。一键安装。">
   <meta name="twitter:image" content="https://luci-app-netbird.okk.sh/og-card.png">
 
   <script type="application/ld+json">
@@ -31,7 +31,7 @@
     "name": "luci-app-netbird",
     "applicationCategory": "NetworkingApplication",
     "operatingSystem": "OpenWrt, ImmortalWrt",
-    "description": "在 OpenWrt 上管理 NetBird mesh-VPN 客户端的 LuCI 应用。支持自托管服务器、WireGuard 设置、防火墙自动化。",
+    "description": "在 OpenWrt 上管理 NetBird mesh-VPN 客户端的 LuCI Web UI（网页管理界面）。支持自托管服务器、WireGuard 设置、防火墙自动化。",
     "offers": { "@type": "Offer", "price": "0" },
     "url": "https://github.com/looong-cat/luci-app-netbird",
     "license": "https://spdx.org/licenses/Apache-2.0.html"
@@ -232,7 +232,7 @@
       <h1>luci-app-netbird</h1>
       <p class="tagline">
         在 <strong>OpenWrt</strong> / <strong>ImmortalWrt</strong> 上管理
-        <strong>NetBird</strong> mesh-VPN 客户端的 <strong>LuCI 应用</strong>——
+        <strong>NetBird</strong> mesh-VPN 客户端的 <strong>LuCI Web UI</strong>——
         在路由器后台使用 NetBird，无需命令行。
         <br>
         同时兼容 <strong>OpenWrt / ImmortalWrt 24.x</strong>（<code>opkg</code>）
