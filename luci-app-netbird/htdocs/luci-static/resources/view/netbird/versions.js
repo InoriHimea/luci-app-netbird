@@ -141,7 +141,7 @@ return view.extend({
 					E('div', { 'class': 'nb-pair-value nb-pair-value-block' }, [
 						fmtVer(d.luci_app_version) || '-',
 						' ',
-						E('a', { 'href': 'https://github.com/dont-touchme/luci-app-netbird', 'target': '_blank', 'rel': 'noopener noreferrer' }, 'GitHub'),
+						E('a', { 'href': 'https://github.com/looong-cat/luci-app-netbird', 'target': '_blank', 'rel': 'noopener noreferrer' }, 'GitHub'),
 						E('div', { 'class': 'cbi-section-actions', 'style': 'margin-top:.4em' }, this._spaced(luActs)),
 						luMsg || E('span', {})
 					])
