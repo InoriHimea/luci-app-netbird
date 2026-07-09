@@ -35,7 +35,11 @@ SKIP_OPERATIONAL="--admin-url --anonymize --config --daemon-addr --foreground-mo
 #   --extra-iface-blacklist --dns-router-interval
 #   --ssh-jwt-cache-ttl                                冷门/高级
 #   --network-monitor --disable-auto-connect
-#   --enable-lazy-connection --dns-resolver-address    待评估,暂未做(候选)
+#   --dns-resolver-address                             待评估,暂未做(候选)
+#   --enable-lazy-connection                           上游 0.74.1 起退役(help 已移除,旧调用 inert):
+#                                                      lazy connection 改由管理端 feature flag 驱动,
+#                                                      本地覆盖走 NB_LAZY_CONN 环境变量(on/off),
+#                                                      不再是 up flag;条目保留以兼容 ≤0.73 的 help
 SKIP_OMITTED="--mtu --external-ip-map --extra-dns-labels --extra-iface-blacklist --dns-router-interval --ssh-jwt-cache-ttl --network-monitor --disable-auto-connect --enable-lazy-connection --dns-resolver-address"
 SKIP=" $SKIP_OPERATIONAL $SKIP_OMITTED "
 
