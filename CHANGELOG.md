@@ -3,6 +3,12 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## 0.1.0-r11 — 2026-07-10
+
+### Fixed
+
+- NetBird pages no longer freeze for long stretches while the management server is unreachable. Background watchdog reconnect attempts now run with a shorter command budget (10s wall clock and 3 confirmation polls instead of 25s and 6): concurrent RPC calls to the backend are serialized, so each doomed retry used to block status reads for up to ~35 seconds. User-initiated connects keep the full budget so authentication errors can still be attributed reliably.
+
 ## 0.1.0-r10 — 2026-07-07
 
 ### Added
