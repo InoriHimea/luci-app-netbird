@@ -3,6 +3,16 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## 0.1.0-r12 — 2026-07-14
+
+### Added
+
+- Exit node selection on the Network tab (#5): pick any exit node your NetBird management server has granted this router, or switch back to direct internet access. Changes take effect immediately — no save or restart — and are remembered by the NetBird daemon. Internet traffic from the router and from LAN clients using it as gateway follows the selected node; more-specific mesh routes keep working unchanged.
+
+### Changed
+
+- The Hostname setting's help text now explains that the peer name and FQDN are taken from the hostname only when the peer first registers; renaming an already registered device must be done in the NetBird management console.
+
 ## 0.1.0-r11 — 2026-07-10
 
 ### Fixed
