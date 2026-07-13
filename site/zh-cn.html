@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>luci-app-netbird — OpenWrt / ImmortalWrt 上的 NetBird 客户端 Web UI 管理界面</title>
-  <meta name="description" content="在 OpenWrt 上安装、配置和管理 NetBird mesh-VPN 客户端的 LuCI Web UI（网页管理界面）。支持自托管服务器、WireGuard 设置、防火墙自动化。一键安装。">
+  <meta name="description" content="在 OpenWrt 上安装、配置和管理 NetBird mesh-VPN 客户端的 LuCI Web UI（网页管理界面）。支持自托管服务器、WireGuard 设置、防火墙自动化、出口节点(Exit Node)选择。一键安装。">
   <meta name="robots" content="index, follow">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
@@ -13,7 +13,7 @@
   <link rel="alternate" hreflang="en" href="https://luci-app-netbird.okk.sh/">
 
   <meta property="og:title" content="luci-app-netbird — OpenWrt / ImmortalWrt 上的 NetBird 客户端 Web UI 管理界面">
-  <meta property="og:description" content="在 OpenWrt 上安装、配置和管理 NetBird mesh-VPN 客户端的 LuCI Web UI（网页管理界面）。支持自托管服务器、WireGuard 设置、防火墙自动化。一键安装。">
+  <meta property="og:description" content="在 OpenWrt 上安装、配置和管理 NetBird mesh-VPN 客户端的 LuCI Web UI（网页管理界面）。支持自托管服务器、WireGuard 设置、防火墙自动化、出口节点(Exit Node)选择。一键安装。">
   <meta property="og:url" content="https://luci-app-netbird.okk.sh/zh-cn">
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://luci-app-netbird.okk.sh/og-card.png">
@@ -21,7 +21,7 @@
 
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="luci-app-netbird — OpenWrt / ImmortalWrt 上的 NetBird 客户端 Web UI 管理界面">
-  <meta name="twitter:description" content="在 OpenWrt 上安装、配置和管理 NetBird mesh-VPN 客户端的 LuCI Web UI（网页管理界面）。支持自托管服务器、WireGuard 设置、防火墙自动化。一键安装。">
+  <meta name="twitter:description" content="在 OpenWrt 上安装、配置和管理 NetBird mesh-VPN 客户端的 LuCI Web UI（网页管理界面）。支持自托管服务器、WireGuard 设置、防火墙自动化、出口节点(Exit Node)选择。一键安装。">
   <meta name="twitter:image" content="https://luci-app-netbird.okk.sh/og-card.png">
 
   <script type="application/ld+json">
@@ -31,7 +31,7 @@
     "name": "luci-app-netbird",
     "applicationCategory": "NetworkingApplication",
     "operatingSystem": "OpenWrt, ImmortalWrt",
-    "description": "在 OpenWrt 上管理 NetBird mesh-VPN 客户端的 LuCI Web UI（网页管理界面）。支持自托管服务器、WireGuard 设置、防火墙自动化。",
+    "description": "在 OpenWrt 上管理 NetBird mesh-VPN 客户端的 LuCI Web UI（网页管理界面）。支持自托管服务器、WireGuard 设置、防火墙自动化、出口节点(Exit Node)选择。",
     "offers": { "@type": "Offer", "price": "0" },
     "url": "https://github.com/looong-cat/luci-app-netbird",
     "license": "https://spdx.org/licenses/Apache-2.0.html"
@@ -306,6 +306,15 @@
           </p>
         </div>
         <div class="feature-card">
+          <div class="icon">🌐</div>
+          <h3>出口节点选择</h3>
+          <p>
+            在 LuCI 界面直接选择 NetBird <strong>出口节点(Exit Node)</strong>:
+            让路由器及其下游设备的<strong>全部互联网流量经指定节点出口</strong>,
+            一键切换节点或恢复直连。
+          </p>
+        </div>
+        <div class="feature-card">
           <div class="icon">🖥️</div>
           <h3>对端状态</h3>
           <p>
@@ -515,6 +524,18 @@ opkg install luci-app-netbird luci-i18n-netbird-zh-cn</pre>
       </div>
 
       <div class="faq-item" style="margin-bottom:28px">
+        <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:6px">如何在 OpenWrt 上选择 NetBird 出口节点(Exit Node)?</h3>
+        <p style="font-size:.9rem;color:var(--text-muted)">
+          打开 LuCI 应用的<strong>网络</strong>标签页,<strong>Exit node</strong>
+          区会列出管理服务器授权给这台路由器的全部出口节点。选中一个并点击
+          <strong>Apply exit node</strong>,路由器(及以它为网关的设备)的全部互联网
+          流量就会改经该节点出口——<strong>VPN 出口节点</strong>即时生效,无需保存或
+          重启;选「关闭(直连互联网)」即恢复直连。出口节点本身需在 NetBird
+          管理控制台中定义,路由器只能在被授权的节点中选择。
+        </p>
+      </div>
+
+      <div class="faq-item" style="margin-bottom:28px">
         <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:6px">NetBird 能在 OpenWrt 上和 WireGuard 一起用吗?</h3>
         <p style="font-size:.9rem;color:var(--text-muted)">
           NetBird 底层使用的就是 <strong>WireGuard</strong> 隧道协议,而且
@@ -556,7 +577,7 @@ opkg install luci-app-netbird luci-i18n-netbird-zh-cn</pre>
     </div>
   </section>
 
-.  <section id="downloads">
+  <section id="downloads">
     <div class="container">
       <h2>下载</h2>
       <p class="section-desc">

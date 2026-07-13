@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>luci-app-netbird — NetBird Web UI &amp; Client Manager for OpenWrt / ImmortalWrt</title>
-  <meta name="description" content="A LuCI web UI to install, configure and manage the NetBird mesh-VPN client on OpenWrt. Self-hosted server, WireGuard setup, firewall automation. One-click install.">
+  <meta name="description" content="A LuCI web UI to install, configure and manage the NetBird mesh-VPN client on OpenWrt. Self-hosted server, WireGuard setup, firewall automation, exit node selection. One-click install.">
   <meta name="robots" content="index, follow">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
@@ -13,7 +13,7 @@
   <link rel="alternate" hreflang="zh" href="https://luci-app-netbird.okk.sh/zh-cn">
 
   <meta property="og:title" content="luci-app-netbird — NetBird Web UI &amp; Client Manager for OpenWrt / ImmortalWrt">
-  <meta property="og:description" content="A LuCI web UI to install, configure and manage the NetBird mesh-VPN client on OpenWrt. Self-hosted server, WireGuard setup, firewall automation. One-click install.">
+  <meta property="og:description" content="A LuCI web UI to install, configure and manage the NetBird mesh-VPN client on OpenWrt. Self-hosted server, WireGuard setup, firewall automation, exit node selection. One-click install.">
   <meta property="og:url" content="https://luci-app-netbird.okk.sh/">
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://luci-app-netbird.okk.sh/og-card.png">
@@ -21,7 +21,7 @@
 
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="luci-app-netbird — NetBird Web UI &amp; Client Manager for OpenWrt / ImmortalWrt">
-  <meta name="twitter:description" content="A LuCI web UI to install, configure and manage the NetBird mesh-VPN client on OpenWrt. Self-hosted server, WireGuard setup, firewall automation. One-click install.">
+  <meta name="twitter:description" content="A LuCI web UI to install, configure and manage the NetBird mesh-VPN client on OpenWrt. Self-hosted server, WireGuard setup, firewall automation, exit node selection. One-click install.">
   <meta name="twitter:image" content="https://luci-app-netbird.okk.sh/og-card.png">
 
   <script type="application/ld+json">
@@ -31,7 +31,7 @@
     "name": "luci-app-netbird",
     "applicationCategory": "NetworkingApplication",
     "operatingSystem": "OpenWrt, ImmortalWrt",
-    "description": "A LuCI web UI to install, configure and manage the NetBird mesh-VPN client on OpenWrt. Supports self-hosted server, WireGuard setup, firewall automation.",
+    "description": "A LuCI web UI to install, configure and manage the NetBird mesh-VPN client on OpenWrt. Supports self-hosted server, WireGuard setup, firewall automation, exit node selection.",
     "offers": { "@type": "Offer", "price": "0" },
     "url": "https://github.com/looong-cat/luci-app-netbird",
     "license": "https://spdx.org/licenses/Apache-2.0.html"
@@ -311,6 +311,16 @@
           </p>
         </div>
         <div class="feature-card">
+          <div class="icon">🌐</div>
+          <h3>Exit Node Selection</h3>
+          <p>
+            Pick a NetBird <strong>exit node</strong> from the LuCI UI to
+            <strong>route all internet traffic</strong> from your OpenWrt router
+            and its LAN clients through a mesh peer — switch nodes or go back
+            to direct access in one click.
+          </p>
+        </div>
+        <div class="feature-card">
           <div class="icon">🖥️</div>
           <h3>Peer Status</h3>
           <p>
@@ -533,6 +543,21 @@ opkg install luci-app-netbird</pre>
       </div>
 
       <div class="faq-item" style="margin-bottom:28px">
+        <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:6px">How do I select a NetBird exit node on OpenWrt?</h3>
+        <p style="font-size:.9rem;color:var(--text-muted)">
+          Go to the <strong>Network</strong> tab in the LuCI app. The
+          <strong>Exit node</strong> section lists every exit node your NetBird
+          management server has made available to this router. Pick one and click
+          <strong>Apply exit node</strong> to route all internet traffic from the
+          router (and devices using it as gateway) through that peer — the
+          <strong>VPN exit node</strong> takes effect immediately, no save or
+          restart needed. Selecting <em>Off</em> restores direct internet
+          access. Exit nodes themselves are defined in the NetBird management
+          console; the router can only choose among the nodes it was granted.
+        </p>
+      </div>
+
+      <div class="faq-item" style="margin-bottom:28px">
         <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:6px">Can I use NetBird with WireGuard on OpenWrt?</h3>
         <p style="font-size:.9rem;color:var(--text-muted)">
           Yes — NetBird uses <strong>WireGuard</strong> as its underlying tunnel
@@ -578,7 +603,7 @@ opkg install luci-app-netbird</pre>
     </div>
   </section>
 
-.  <section id="downloads">
+  <section id="downloads">
     <div class="container">
       <h2>Downloads</h2>
       <p class="section-desc">
