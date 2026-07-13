@@ -122,11 +122,11 @@ msgstr "无法获取 NetBird 服务状态。"
 msgid "Current configuration"
 msgstr "当前配置"
 
-msgid "Custom device name shown in NetBird. Leave blank to use the system hostname."
-msgstr "在 NetBird 中显示的自定义设备名称。留空则使用系统主机名。"
-
 msgid "Daemon version"
 msgstr "守护进程版本"
+
+msgid "Device name reported to NetBird. Applied only when the peer first registers; to rename an already registered device, edit it in the NetBird management console. Leave blank to use the system hostname."
+msgstr "上报给 NetBird 的设备名称，仅在设备首次注册时生效；已注册设备如需改名，请在 NetBird 管理控制台中编辑。留空则使用系统主机名。"
 
 msgid "Disconnect"
 msgstr "断开连接"

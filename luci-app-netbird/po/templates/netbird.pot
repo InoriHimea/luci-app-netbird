@@ -266,11 +266,6 @@ msgstr ""
 msgid "Current configuration"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/netbird/settings.js:116
-msgid ""
-"Custom device name shown in NetBird. Leave blank to use the system hostname."
-msgstr ""
-
 #: htdocs/luci-static/resources/view/netbird/versions.js:29
 #: htdocs/luci-static/resources/view/netbird/versions.js:72
 msgid "Custom download"
@@ -328,6 +323,13 @@ msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/overview.js:232
 msgid "Deregister failed"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/netbird/settings.js:118
+msgid ""
+"Device name reported to NetBird. Applied only when the peer first "
+"registers; to rename an already registered device, edit it in the NetBird "
+"management console. Leave blank to use the system hostname."
 msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/overview.js:259
