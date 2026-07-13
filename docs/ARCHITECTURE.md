@@ -12,7 +12,7 @@ transient management-server/network outages.
 |---|---|---|
 | Frontend (views) | `htdocs/luci-static/resources/view/netbird/*.js` | 6 tabs: overview / versions / settings / status / setup(network) / logs. All DOM via `E()` (no innerHTML). |
 | Frontend helpers | `.../netbird/dom-helpers.js`, `netbird.css` | `pair / code / statusPill` builders. |
-| Backend entry | `root/usr/share/rpcd/ucode/netbird.uc` | The `luci.netbird` rpcd object — 26 methods (12 read + 14 write). |
+| Backend entry | `root/usr/share/rpcd/ucode/netbird.uc` | The `luci.netbird` rpcd object — 28 methods (13 read + 15 write). |
 | Backend lib | `root/usr/share/rpcd/ucode/lib/*.uc` | `shell`(quote) · `paths`(binary probe) · `envelope`({ok,err,CODE}) · `netbird_cli`(CLI wrap) · `state`(5-state) · `sanitize`(validation). |
 | ACL | `root/usr/share/rpcd/acl.d/luci-app-netbird.json` | read/write method whitelist + UCI scopes. Kept strictly 1:1 with the method table. |
 | Settings pipeline | `root/etc/init.d/netbird-settings` | config-only procd service: renders UCI → `netbird up --flags`. |
@@ -195,11 +195,28 @@ self-heal, so a router managed over the mesh could hard-lock. Instead:
   netbird-routed destinations is flushed (both directions) so in-flight forwarded flows re-establish
   on the restored routes instead of staying pinned to a now-stale route.
 
+### Exit node selection
+
+- `list_exit_nodes` (read) — runs `netbird networks list` (plain text; there is no `--json`), parses
+  `ID / Network / Status` entries and returns routes whose range contains `0.0.0.0/0` or `::/0` with
+  their selected state. Running-but-disconnected returns `ok` with `connected:false` instead of the
+  CLI's "not connected" error. Oversized output (>64 KB) is rejected explicitly — a truncated list
+  could mis-report selected states or drop nodes.
+- `select_exit_node` (write, `id`; empty = off) — the target must be present in a fresh
+  `networks list` (whitelist; arbitrary strings never reach the CLI). Switch = deselect every other
+  exit node, then `networks select -a <id>`: `-a` is append semantics — without it the CLI replaces
+  the *entire* route selection; the explicit deselect-then-select keeps exit nodes mutually
+  exclusive on every netbird version (the daemon-side reconciliation only exists on newer ones).
+  Positional ids are passed after `--` (cobra's flag terminator) so leading-dash names work; the
+  literal name `all` is excluded on both paths because the CLI treats a sole `all` argument as
+  select-all/deselect-all. Selection state lives in the netbird daemon (persisted across restarts),
+  deliberately **not** in UCI — a second source of truth would drift from management-console changes.
+
 ## Conventions (gotchas worth knowing)
 
 - **ucode modules** load via `loadfile()` IIFE (the runtime build does not support `export`), and
   **do not hoist function declarations** — a helper must be defined textually before its callers.
-- **ACL ↔ method table** must stay strictly 1:1 (12 read + 14 write = 26).
+- **ACL ↔ method table** must stay strictly 1:1 (13 read + 15 write = 28).
 - **DOM** is built with `E()` only (XSS).
 - **Binary/state paths** are probed at runtime, never hard-coded.
 - Identity is protected on two axes: `conffiles` (opkg upgrades) and `sysupgrade.conf`

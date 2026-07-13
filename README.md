@@ -17,6 +17,7 @@ Surfaces the NetBird client's capabilities in the LuCI UI:
 - Automatic reconnect after transient outages — with clear authentication-failure reasons
 - Binary version management — official release, package feed, or custom URL
 - Firewall automation — NetBird zone and LAN ↔ mesh forwarding
+- Exit node selection — route all internet traffic through a mesh peer, switch or turn off in one click
 - Full `netbird up` settings — WireGuard, routes, DNS, SSH, IPv6, Rosenpass, log level
 - Peer status and live logs
 
