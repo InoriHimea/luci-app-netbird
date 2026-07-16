@@ -23,7 +23,7 @@ LUCI_DESCRIPTION:=LuCI web interface to manage the NetBird mesh-VPN client \
 LUCI_DEPENDS:=
 # conntrack:网络页「删除转发规则即时断开已建连接」靠 conntrack 定向 flush;缺它会静默
 # 退化为只挡新流、已建流持续。列入依赖使该行为在所有部署一致可靠。
-LUCI_EXTRA_DEPENDS:=netbird (>=0), rpcd (>=0), rpcd-mod-ucode (>=0), luci-base (>=0), conntrack (>=0)
+LUCI_EXTRA_DEPENDS:=rpcd (>=0), rpcd-mod-ucode (>=0), luci-base (>=0), conntrack (>=0)
 LUCI_PKGARCH:=all
 LUCI_URL:=https://github.com/looong-cat/luci-app-netbird
 LUCI_MAINTAINER:=looong-cat <foxhis11@gmail.com>
