@@ -3,6 +3,7 @@
 'require view';
 'require rpc';
 'require ui';
+'require uci';
 'require dom';
 'require view.netbird.dom-helpers as nb';
 
@@ -50,7 +51,13 @@ return view.extend({
 
 	load: function () {
 		// 进页只拉本地信息(不联网);远端由「检测更新」按钮触发。
-		return L.resolveDefault(callBinaryInfo(false), { ok: false });
+		// 加载 netbird_bin UCI 配置(api_base/cdn_base)
+		return Promise.all([
+			L.resolveDefault(callBinaryInfo(false), { ok: false }),
+			uci.load('netbird_bin')
+		]).then(function(results) {
+			return results[0];
+		});
 	},
 
 	render: function (res) {
@@ -375,6 +382,38 @@ return view.extend({
 			rows.push(nb.pair(_('Path'), rel.path || '/usr/share/netbird/bin/netbird-release'));
 			self._relCheck = E('div', { 'style': 'margin:.5em 0' });
 			rows.push(self._relCheck);
+			// GitHub 替换地址配置(api_base / cdn_base);留空=走官方直连。
+			var curApi = (uci.get('netbird_bin', 'binary', 'api_base') || '').trim();
+			var curCdn = (uci.get('netbird_bin', 'binary', 'cdn_base') || '').trim();
+			self._apiInput = E('input', {
+				'type': 'text', 'class': 'cbi-input-text', 'style': 'width:32em;max-width:90%',
+				'placeholder': _('empty = https://api.github.com (official)'),
+				'value': curApi
+			});
+			self._cdnInput = E('input', {
+				'type': 'text', 'class': 'cbi-input-text', 'style': 'width:32em;max-width:90%',
+				'placeholder': _('empty = https://github.com (official)'),
+				'value': curCdn
+			});
+			rows.push(E('div', { 'class': 'cbi-value' }, [
+				E('label', { 'class': 'cbi-value-title' }, _('GitHub API base URL')),
+				E('div', { 'class': 'cbi-value-field' }, [
+					self._apiInput,
+					E('div', { 'class': 'cbi-value-description' },
+						_('Replace the GitHub API host for version queries and asset resolution. Use a proxy like "https://nexus.mellivora.com.cn:18082/repository/github-group" if github.com is slow or blocked. Leave empty for official.'))
+				])
+			]));
+			rows.push(E('div', { 'class': 'cbi-value' }, [
+				E('label', { 'class': 'cbi-value-title' }, _('GitHub CDN base URL')),
+				E('div', { 'class': 'cbi-value-field' }, [
+					self._cdnInput,
+					E('div', { 'class': 'cbi-value-description' },
+						_('Replace the GitHub download host for tarball/checksums downloads. Use a proxy or CDN mirror if direct access is slow. Leave empty for official.'))
+				])
+			]));
+			rows.push(E('div', { 'class': 'cbi-section-actions' }, [
+				E('button', { 'class': 'btn cbi-button cbi-button-positive', 'click': ui.createHandlerFn(self, 'saveMirrorConfig') }, _('Save mirror configuration'))
+			]));
 			// 所有操作按钮同进一个 cbi-section-actions(左对齐):检测更新 +(有新版才)立即更新 +(非 active 才)切换。
 			var acts = [
 				E('button', { 'class': 'btn cbi-button cbi-button-action', 'click': ui.createHandlerFn(self, 'checkUpdate') }, _('Check for updates'))
@@ -691,6 +730,22 @@ return view.extend({
 			else
 				ui.addNotification(null, E('p', {}, (res && res.message) ? _(res.message) : _('Delete failed.')), 'error');
 			return self.refresh();
+		});
+	},
+
+	// 保存 GitHub 镜像地址(UCI netbird_bin.binary → api_base / cdn_base)。
+	// 留空=走官方直连;填 Nexus/CDN 域名=绕开 github.com。
+	saveMirrorConfig: function () {
+		var self = this;
+		var api = (self._apiInput && self._apiInput.value) ? String(self._apiInput.value).trim() : '';
+		var cdn = (self._cdnInput && self._cdnInput.value) ? String(self._cdnInput.value).trim() : '';
+		uci.set('netbird_bin', 'binary', 'api_base', api);
+		uci.set('netbird_bin', 'binary', 'cdn_base', cdn);
+		return L.resolveDefault(uci.commit('netbird_bin'), { ok: false }).then(function (res) {
+			if (res && res.ok)
+				ui.addNotification(null, E('p', {}, _('Mirror configuration saved. Next update/check will use the new URLs.')), 'info');
+			else
+				ui.addNotification(null, E('p', {}, _('Failed to save mirror configuration.')), 'error');
 		});
 	},
 
