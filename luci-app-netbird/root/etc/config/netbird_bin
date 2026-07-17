@@ -8,7 +8,12 @@
 #   opkg    = OpenWRT 软件仓库版(/usr/bin/netbird 本体;从保留副本或软件源 download+解压复原,
 #             绝不 opkg --force-reinstall / apk add——那会连带删 /etc/init.d/netbird)
 # release_url —— 自定义下载链接(镜像/加速;空=用 GitHub releases/latest)
+# api_base —— GitHub API 根地址替换(自动更新版本查询/资产解析走这里;空=api.github.com)
+# cdn_base —— GitHub 直链根地址替换(tarball/checksums 下载走这里;空=github.com)
+#   两者均用于 official(非 custom_url)下载路径;填 Nexus/CDN 代理域名可绕开直连 github.com 慢/不通。
 
 config netbird_bin 'binary'
 	option binary_source 'release'
 	option release_url ''
+	option api_base ''
+	option cdn_base ''

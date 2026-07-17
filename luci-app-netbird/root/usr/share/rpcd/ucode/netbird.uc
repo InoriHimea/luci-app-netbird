@@ -1251,10 +1251,12 @@ function _dl_cmd(url, out, secs, progress_total, headers) {
            'wait $__dlp 2>/dev/null; exit $?';
 }
 
-// _latest_version() → GitHub 最新稳定版 'X.Y.Z' | ''（网络失败/解析失败返 ''，不报错）。
-// 经 _dl_cmd 取 GitHub releases/latest 的 tag_name 去前导 v；下载器自带超时,无需 timeout applet。
+// _latest_version() → GitHub(或镜像)最新稳定版 'X.Y.Z' | ''（网络失败/解析失败返 ''，不报错）。
+// api_base 走 netbird_bin.api_base UCI，默认官方 API；可配 Nexus 代理。
 function _latest_version() {
-    let cmd = _dl_cmd('https://api.github.com/repos/netbirdio/netbird/releases/latest', '', 15);
+    let api_base = _uci_binary('api_base', 'https://api.github.com');
+    let api = api_base + '/repos/netbirdio/netbird/releases/latest';
+    let cmd = _dl_cmd(api, '', 15);
     let fd = popen(cmd, 'r'); // shell-audit-ok: URL 字面常量,_dl_cmd 内对其 shell_quote
     if (fd == null)
         return '';
@@ -1295,7 +1297,8 @@ function _popen_simple(cmd) {
 function _github_asset_api_url(ver, filename) {
     if (!match(ver || '', _SEMVER_RE) || length(filename || '') == 0)
         return '';
-    let api = 'https://api.github.com/repos/netbirdio/netbird/releases/tags/v' + ver;
+    let api_base = _uci_binary('api_base', 'https://api.github.com');
+    let api = api_base + '/repos/netbirdio/netbird/releases/tags/v' + ver;
     let r = _popen_simple(_dl_cmd(api, '', 15));
     if (r.code != 0 || length(r.out) == 0)
         return '';
@@ -1303,7 +1306,7 @@ function _github_asset_api_url(ver, filename) {
         let js = json(r.out);
         for (let asset in (js.assets || [])) {
             if (asset.name == filename && asset.id != null)
-                return 'https://api.github.com/repos/netbirdio/netbird/releases/assets/' + asset.id;
+                return api_base + '/repos/netbirdio/netbird/releases/assets/' + asset.id;
         }
     } catch (e) {
         return '';
@@ -2096,7 +2099,8 @@ function _update_binary_locked(req) {
         if (!match(ver, _SEMVER_RE))
             return fail_pre(CODE.INVALID_INPUT, 'Could not fetch or parse the latest version from GitHub (network failure or unexpected format).');
         tarball = 'netbird_' + ver + '_linux_' + arch + '.tar.gz';
-        dl_url  = 'https://github.com/netbirdio/netbird/releases/download/v' + ver + '/' + tarball;
+        let cdn_base = _uci_binary('cdn_base', 'https://github.com');
+        dl_url  = cdn_base + '/netbirdio/netbird/releases/download/v' + ver + '/' + tarball;
         let api_asset = _github_asset_api_url(ver, tarball);
         if (length(api_asset) > 0) {
             dl_url = api_asset;
@@ -2186,7 +2190,8 @@ function _update_binary_locked(req) {
         if (_progress_canceled())
             return cancel_work();
         let sums_name = 'netbird_' + ver + '_checksums.txt';
-        let sums_url = 'https://github.com/netbirdio/netbird/releases/download/v' + ver + '/' + sums_name;
+        let cdn_base = _uci_binary('cdn_base', 'https://github.com');
+        let sums_url = cdn_base + '/netbirdio/netbird/releases/download/v' + ver + '/' + sums_name;
         let sums_headers = [];
         let sums_asset = _github_asset_api_url(ver, sums_name);
         if (length(sums_asset) > 0) {
