@@ -1,13 +1,11 @@
 name: release
 
-# Push to main/master → build + sign the package feed → deploy to Cloudflare Pages.
+# Push to main/master → build + sign the package feed → publish a GitHub Release.
 # The package is PKGARCH:=all, so one build per branch covers every architecture.
 #
 # Required repository secrets:
 #   KEY_BUILD             usign private key (opkg index signing)
 #   PRIVATE_KEY           EC P-256 private key (apk index signing)
-#   CLOUDFLARE_ACCOUNT_ID
-#   CLOUDFLARE_API_TOKEN  token with "Cloudflare Pages: Edit"
 
 on:
   push:
@@ -57,7 +55,7 @@ jobs:
           path: public
 
   deploy:
-    name: deploy to Cloudflare Pages
+    name: publish GitHub Release
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -166,10 +164,3 @@ jobs:
             gh release create "$tag" --title "$title" --notes-file "$notes" --target "$GITHUB_SHA" --latest
           fi
           gh release upload "$tag" release-assets/* --clobber
-
-      - name: Deploy
-        uses: cloudflare/wrangler-action@v3
-        with:
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          command: pages deploy public --project-name=luci-app-netbird
