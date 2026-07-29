@@ -100,7 +100,7 @@ function fetch_status_json(bin_path) {
         return { ok: false, code: 'cli_error', message: 'The binary path is empty.' };
 
     let cmd = _with_timeout(shell_quote(bin_path) + ' status --json 2>&1');
-    let r = _popen_read(cmd, 8192);
+    let r = _popen_read(cmd, 65536);
 
     if (r.exit_code == 124)
         return { ok: false, code: 'cli_error', message: 'timeout after 5s' };

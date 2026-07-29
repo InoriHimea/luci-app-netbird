@@ -1251,6 +1251,16 @@ function _dl_cmd(url, out, secs, progress_total, headers) {
            'wait $__dlp 2>/dev/null; exit $?';
 }
 
+// _uci_binary(field, dflt) → 读 netbird_bin.binary.<field>(独立配置文件);缺省回 dflt。
+// 定义在此(而非文件后段)是刚性要求:ucode 不 hoist 顶层 function,_latest_version /
+// _github_asset_api_url 在此之前调用它;若定义在其后,调用点解析到全局 null → 运行期
+// "left-hand side is not a function"(check_remote 版本查询整条崩)。
+function _uci_binary(field, dflt) {
+    let c = uci.cursor();
+    let v = c.get('netbird_bin', 'binary', field);
+    return (v != null && v !== '') ? v : dflt;
+}
+
 // _latest_version() → GitHub(或镜像)最新稳定版 'X.Y.Z' | ''（网络失败/解析失败返 ''，不报错）。
 // api_base 走 netbird_bin.api_base UCI，默认官方 API；可配 Nexus 代理。
 function _latest_version() {
@@ -1335,18 +1345,18 @@ function _wait_daemon_gone() {
     return !_daemon_running();
 }
 
-// ── 二进制来源管理(release/opkg 共存 + symlink 切换)─────────────────────────────
-// 设计:opkg 自带 /etc/init.d/netbird 硬编码 procd command /usr/bin/netbird,
-// 切换 daemon 实际跑哪个二进制只能动该路径 → 采 symlink:
-//   source=release → /usr/bin/netbird 为 symlink → _NB_REL_BIN(opkg 真二进制不被 release 覆盖)
-//   source=opkg    → /usr/bin/netbird 为 opkg 真二进制(切回时从保留副本 _NB_OPKG_BAK 复原;**绝不** reinstall)
-// OWRT25(apk)兼容:来源语义名仍叫 "opkg"(=「系统软件源」),底层 feed 查询/获取命令由
-// _pkg_mgr() 在 opkg(≤24.10)与 apk(≥25)间分流;安全红线:绝不 apk add/del/fix 切二进制(会连带删 init.d)。
-// release 存 _NB_REL_BIN(overlay 持久,uci-defaults 已追加进 sysupgrade.conf 保全)。
-const _NB_OPKG_BIN = '/usr/bin/netbird';        // opkg/daemon 规范路径(procd command 硬编码)
-const _NB_REL_DIR  = '/usr/share/netbird/bin';  // release 持久存储目录
-const _NB_REL_BIN  = '/usr/share/netbird/bin/netbird-release';
-const _NB_OPKG_BAK = '/usr/share/netbird/bin/netbird-opkg';   // adopt 保留的 opkg 真二进制副本(切回 opkg 用,免 feed)
+// ── 二进制来源管理(release 真文件 + custom symlink 多版本)────────────────────────
+// v0.2.0 起 opkg 源下线(feed 不可达+依赖复杂),界面仅留 release/custom 二选一。
+// /etc/init.d/netbird 硬编码 procd command /usr/bin/netbird,切源只能动该路径:
+//   source=release → /usr/bin/netbird 为真文件(GitHub 官方 tarball 直解压,单版本)
+//   source=custom  → /usr/bin/netbird 为 symlink → _NB_REL_DIR/netbird-v<版本>(多版本共存)
+// custom 保留 symlink 模型支持同时保存多个自定义版本(用户自选 URL 下载);release 单版本
+// 真文件足够(更新=覆盖,daemon 重启期间 ETXTBSY 规避由 _update_binary_locked 处理)。
+// _NB_REL_BIN / _NB_OPKG_BAK 常量保留供历史迁移逻辑识别,但新下载/切换不再使用。
+const _NB_OPKG_BIN = '/usr/bin/netbird';        // daemon 规范路径(procd command 硬编码)
+const _NB_REL_DIR  = '/usr/share/netbird/bin';  // custom 多版本存储目录
+const _NB_REL_BIN  = '/usr/share/netbird/bin/netbird-release';  // 历史 release symlink 目标(已废弃)
+const _NB_OPKG_BAK = '/usr/share/netbird/bin/netbird-opkg';     // 历史 opkg 副本(已废弃)
 
 // _file_version(path) → 该二进制文件自身版本 'X.Y.Z'|''(直接 `<path> version`,不走 daemon)。
 function _file_version(path) {
@@ -1545,30 +1555,25 @@ function _active_binary_path() {
     return (length(t) > 0) ? t : _NB_OPKG_BIN;
 }
 
-// _active_source() → 'release'|'opkg'|'custom':据 /usr/bin/netbird symlink 指向判定(三态)。
-//   symlink → netbird-release   ⟹ release
-//   symlink → netbird-v<ver>    ⟹ custom
-//   real file(非 symlink)/其它  ⟹ opkg
-// 用 shell test(避 ucode lstat API 版本差异)。
+// _active_source() → 'release'|'custom':据 /usr/bin/netbird 真文件 vs symlink 判定(二态)。
+//   real file(非 symlink)          ⟹ release
+//   symlink → netbird-v<version>   ⟹ custom
+// v0.2.0 起 opkg 源下线,仅余 release(真文件)+ custom(symlink 多版本)。历史遗留的
+// symlink→netbird-release 或真文件(旧 opkg)均归入 release(前端已将 active_source='opkg'
+// 强制归约到 'release',后端同步:任何非 custom 模式的 netbird 均视作 release)。
 function _active_source() {
     let r = _popen_simple('[ -L ' + shell_quote(_NB_OPKG_BIN) + ' ] && readlink ' +
                           shell_quote(_NB_OPKG_BIN) + ' 2>/dev/null || true');
     let tgt = trim(r.out);
+    // 非 symlink(真文件)→ release
     if (length(tgt) == 0)
-        return 'opkg';
-    if (tgt == _NB_REL_BIN)
         return 'release';
+    // symlink → netbird-v<版本> → custom
     let cpfx = _NB_REL_DIR + '/netbird-v';
     if (length(tgt) > length(cpfx) && substr(tgt, 0, length(cpfx)) == cpfx)
         return 'custom';
-    return 'opkg';
-}
-
-// _uci_binary(field, dflt) → 读 netbird_bin.binary.<field>(独立配置文件);缺省回 dflt。
-function _uci_binary(field, dflt) {
-    let c = uci.cursor();
-    let v = c.get('netbird_bin', 'binary', field);
-    return (v != null && v !== '') ? v : dflt;
+    // 其它 symlink(含历史 netbird-release)→ release
+    return 'release';
 }
 
 // _pkg_mgr() → 'apk' | 'opkg':探测系统包管理器,决定 feed 查询/获取走哪套命令。
@@ -1921,7 +1926,6 @@ function _do_get_binary_info(req) {
     let check_remote = !!a.check_remote;
 
     let det = _detect_arch();
-    let opkg = get_opkg_versions();
     let active = _active_source();
     let active_bin = _active_binary_path();
 
@@ -1939,14 +1943,9 @@ function _do_get_binary_info(req) {
         push(custom_out, { version: cv.version, path: cv.path, active: is_act });
     }
 
-    let opkg_copy = access(_NB_OPKG_BAK, 'x');
-
     let latest = '';
-    let opkg_upgradable = '';
-    if (check_remote) {
+    if (check_remote)
         latest = _latest_version();
-        opkg_upgradable = _opkg_upgradable_netbird();
-    }
     let update_available = (length(latest) > 0 && latest != rel_version);
 
     return ok({
@@ -1960,23 +1959,13 @@ function _do_get_binary_info(req) {
             version:   rel_version,
             path:      _NB_REL_BIN,
         },
-        opkg: {
-            version: opkg.netbird || '',
-            path:    _NB_OPKG_BIN,
-            // 能否切到 opkg:有副本 / 当前已是 opkg / feed 提供(可 opkg download 自动获取,V4)。
-            binary_available: (opkg_copy || active == 'opkg' || _opkg_feed_has_netbird()),
-            copy_preserved:   opkg_copy,
-        },
         custom: {
             versions:       custom_out,
             active_version: active_custom_version,
         },
         latest_version:   latest,
-        opkg_upgradable:  opkg_upgradable,
         pkg_mgr:          _pkg_mgr(),
         update_available: update_available,
-        release_url:      _uci_binary('release_url', ''),
-        luci_app_version: opkg.luci_app_netbird || '',
     });
 }
 
@@ -2102,7 +2091,7 @@ function _update_binary_locked(req) {
         let cdn_base = _uci_binary('cdn_base', 'https://github.com');
         dl_url  = cdn_base + '/netbirdio/netbird/releases/download/v' + ver + '/' + tarball;
         let api_asset = _github_asset_api_url(ver, tarball);
-        if (length(api_asset) > 0) {
+        if (length(api_asset) > 0 && cdn_base == 'https://github.com') {
             dl_url = api_asset;
             dl_headers = [ 'Accept: application/octet-stream' ];
         }
@@ -2194,7 +2183,7 @@ function _update_binary_locked(req) {
         let sums_url = cdn_base + '/netbirdio/netbird/releases/download/v' + ver + '/' + sums_name;
         let sums_headers = [];
         let sums_asset = _github_asset_api_url(ver, sums_name);
-        if (length(sums_asset) > 0) {
+        if (length(sums_asset) > 0 && cdn_base == 'https://github.com') {
             sums_url = sums_asset;
             sums_headers = [ 'Accept: application/octet-stream' ];
         }
@@ -2285,14 +2274,14 @@ function _update_binary_locked(req) {
     if (length(new_ver) == 0)
         return fail_work(CODE.INSTALL_FAILED, 'The downloaded binary cannot run "version" (possibly corrupt): ' + substr(chk.out, 0, 200));
 
-    // step 7b — 决定目标路径:custom(非空 url)按版本号存 netbird-v<ver>(不覆盖 release、新文件不动 active);
-    //            release(空 url)写 _NB_REL_BIN。
-    let target_path = _NB_REL_BIN;
+    // step 7b — 决定目标路径:custom(非空 url)按版本号存 netbird-v<ver>(多版本共存);
+    //            release(空 url)直写 /usr/bin/netbird(单版本真文件,opkg 源已下线)。
+    let target_path = _NB_OPKG_BIN;  // release 默认写 daemon 规范路径(真文件)
     if (is_custom) {
         let sv = _sanitize_version(new_ver);
         if (length(sv) == 0)
             return fail_work(CODE.INSTALL_FAILED, 'Could not parse a valid version from the binary (' + substr(new_ver, 0, 40) + '); refusing to save it by name.');
-        target_path = _custom_version_path(sv);
+        target_path = _custom_version_path(sv);  // custom 按版本号存多份
     }
     let from = access(target_path, 'x') ? _file_version(target_path) : '';
 
@@ -2301,7 +2290,10 @@ function _update_binary_locked(req) {
     if (_progress_canceled())
         return cancel_work();
     let active_bin = _active_binary_path();
-    let need_stop = (target_path == active_bin);
+    let need_stop = (target_path == _NB_OPKG_BIN) || (target_path == active_bin);
+    // _NB_OPKG_BIN 是 daemon 规范路径,procd 硬编码 exec 此文件;任何覆盖此路径的写操作
+    // 都需先停 daemon(避 ETXTBSY)。加 _NB_OPKG_BIN 直接比较是因为 _active_binary_path()
+    // 在某些系统(readlink 行为差异)可能返回空串或非预期值,导致 need_stop 漏判。
     if (access(target_path, 'f'))
         _popen_simple('cat ' + shell_quote(target_path) + ' > ' + shell_quote(bak_path) + ' 2>/dev/null');
     let stopped = false;
@@ -2382,8 +2374,8 @@ function _do_update_binary(req) { return _binop_guard(_update_binary_locked, req
 function _set_binary_source_locked(req) {
     let a = (req != null && req.args != null) ? req.args : (req || {});
     let source = (type(a.source) == 'string') ? a.source : '';
-    if (source != 'release' && source != 'opkg' && source != 'custom')
-        return err(CODE.INVALID_INPUT, 'source must be release, opkg, or custom.');
+    if (source != 'release' && source != 'custom')
+        return err(CODE.INVALID_INPUT, 'source must be release or custom (opkg source removed in v0.2.0).');
 
     // 解析目标二进制路径(各来源就绪性检查)——**先校验目标可用,通过后再写 binary_source**:
     // 失败时不留下「configured=新来源 但 active=旧二进制」的不一致(原先先 commit 后校验有此问题)。
@@ -2399,17 +2391,6 @@ function _set_binary_source_locked(req) {
         target_bin = _custom_version_path(version);
         if (!access(target_bin, 'x'))
             return err(CODE.NOT_INSTALLED, sprintf('Custom version v%s is not downloaded.', version));
-    } else {
-        // opkg:无副本则非破坏性从 feed 自动获取(_fetch_opkg_binary;绝不 --force-reinstall,免删 init.d)。
-        if (!access(_NB_OPKG_BAK, 'x')) {
-            if (!_opkg_feed_has_netbird())
-                return err(CODE.NOT_INSTALLED, 'The system package feed does not provide netbird, so its binary cannot be fetched automatically. Check your package sources, or use the release or custom source.');
-            let f = _fetch_opkg_binary();
-            if (!f.ok)
-                return err(match(f.err, /[Nn]o space left|ENOSPC/) ? CODE.INSUFFICIENT_SPACE : CODE.INSTALL_FAILED,
-                           'Failed to fetch the package-feed binary automatically: ' + f.err);
-        }
-        target_bin = _NB_OPKG_BIN;   // opkg = /usr/bin/netbird real file 本体
     }
 
     // 目标来源已确认可用 → 记录用户选择(独立配置文件,不触发 netbird down→up)。
@@ -2432,35 +2413,24 @@ function _set_binary_source_locked(req) {
     }
 
     let sw;
-    if (source == 'opkg') {
-        // /usr/bin/netbird 当前可能是 symlink → 先删再写 real file(否则 cat> 穿透 symlink 写坏目标)。
-        sw = _popen_simple('rm -f ' + shell_quote(_NB_OPKG_BIN) + ' && cat ' + shell_quote(_NB_OPKG_BAK) +
-                           ' > ' + shell_quote(_NB_OPKG_BIN) + ' && chmod 0755 ' + shell_quote(_NB_OPKG_BIN) + ' 2>&1');
-    } else {
+    if (source == 'release' || source == 'custom') {
         // release / custom:原子换 symlink(先建临时 link 再 mv -f,避免半态)。
         sw = _popen_simple('ln -sf ' + shell_quote(target_bin) + ' ' + shell_quote(_NB_OPKG_BIN + '.tmp') +
                            ' && mv -f ' + shell_quote(_NB_OPKG_BIN + '.tmp') + ' ' + shell_quote(_NB_OPKG_BIN) + ' 2>&1');
     }
-    // 校验切换结果(读 symlink/disk,daemon 仍停——无需先 start;避免 review 指出的「已 start 再回退」窗口)
+    // 校验切换结果(读 symlink/disk,daemon 仍停——无需先 start)
     let now = _active_source();
     let ok_switch = (now == source) && (source != 'custom' || _active_binary_path() == target_bin);
     if (sw.code != 0 || !ok_switch) {
-        // 切换失败:**仍在停止态**做回退(daemon 未持 inode,rm+cat 无 ETXTBSY、不会把运行中 daemon 留在错二进制)。
-        // 绝不把 /usr/bin/netbird 留成 dangling/缺失:优先回退 release symlink,否则 opkg 副本。
         if (access(_NB_REL_BIN, 'x'))
             _popen_simple('ln -sf ' + shell_quote(_NB_REL_BIN) + ' ' + shell_quote(_NB_OPKG_BIN) + ' 2>/dev/null');
-        else if (access(_NB_OPKG_BAK, 'x'))
-            _popen_simple('rm -f ' + shell_quote(_NB_OPKG_BIN) + ' && cat ' + shell_quote(_NB_OPKG_BAK) +
-                          ' > ' + shell_quote(_NB_OPKG_BIN) + ' && chmod 0755 ' + shell_quote(_NB_OPKG_BIN) + ' 2>/dev/null');
         _popen_simple('/etc/init.d/netbird start 2>&1');
         return err(CODE.INSTALL_FAILED, sprintf('Failed to switch to %s; rolled back: %s', source, substr(sw.out, 0, 200)));
     }
-    // 成功:启动切换后的二进制(单次 start,在校验之后)
+    // 成功:启动切换后的二进制
     _popen_simple('/etc/init.d/netbird start 2>&1');
     return ok({ source: source, active_source: now, running_version: _running_version(_NB_OPKG_BIN) });
 }
-// _do_set_binary_source(req) — _set_binary_source_locked 的互斥包装(见 _binop_guard)。
-function _do_set_binary_source(req) { return _binop_guard(_set_binary_source_locked, req); }
 
 // _delete_custom_binary_locked(req) — 删除一个非 active 的自定义下载版本 netbird-v<ver>(多版本盘面清理)。
 // 拒删正在使用的版本(防把 active 删掉致 daemon 跑空)。经 _do_delete_custom_binary 包 _binop_guard 互斥。

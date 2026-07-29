@@ -63,7 +63,11 @@ return view.extend({
 	render: function (res) {
 		var self = this;
 		self._bin = (res && res.ok && res.data) ? res.data : {};
-		self._sel = self._bin.active_source || 'release';   // 默认显示当前 active 来源
+		// 下拉仅剩 release/custom(opkg 源已下线)。后端仍可能报 active_source='opkg'
+		// (历史真文件 /usr/bin/netbird),归约到 release,否则 select 视觉停在 release 而
+		// renderDetail 却渲染 opkg 分支 → 需手动切一下才对的 stale 表单。任何非白名单值同样兜底。
+		var _src = self._bin.active_source || 'release';
+		self._sel = (_src === 'release' || _src === 'custom') ? _src : 'release';
 		self._relLatest = null;                             // checkUpdate(release) 结果缓存
 		self._luciAppLatest = null;                         // checkLuciAppUpdate 结果缓存
 
@@ -88,7 +92,6 @@ return view.extend({
 			'change': ui.createHandlerFn(self, 'onSelect')
 		}, [
 			mkOpt('release', 'NetBird-Release'),
-			mkOpt('opkg', 'NetBird-OpenWrt'),
 			mkOpt('custom', _('Custom download'))
 		]);
 		self._detailBox = E('div', {});
@@ -741,11 +744,12 @@ return view.extend({
 		var cdn = (self._cdnInput && self._cdnInput.value) ? String(self._cdnInput.value).trim() : '';
 		uci.set('netbird_bin', 'binary', 'api_base', api);
 		uci.set('netbird_bin', 'binary', 'cdn_base', cdn);
-		return L.resolveDefault(uci.commit('netbird_bin'), { ok: false }).then(function (res) {
-			if (res && res.ok)
-				ui.addNotification(null, E('p', {}, _('Mirror configuration saved. Next update/check will use the new URLs.')), 'info');
-			else
-				ui.addNotification(null, E('p', {}, _('Failed to save mirror configuration.')), 'error');
+		return uci.save().then(function () {
+			return uci.apply();
+		}).then(function () {
+			ui.addNotification(null, E('p', {}, _('Mirror configuration saved. Next update/check will use the new URLs.')), 'info');
+		}).catch(function (e) {
+			ui.addNotification(null, E('p', {}, _('Failed to save mirror configuration: %s').format(e && e.message ? e.message : String(e))), 'error');
 		});
 	},
 
