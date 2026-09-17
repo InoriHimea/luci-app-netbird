@@ -3,6 +3,15 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## 0.1.0-r22 — 2026-09-17
+
+### Fixed
+
+- Reconnect no longer leaves the router offline when LuCI is opened over NetBird ([#12](https://github.com/looong-cat/luci-app-netbird/pull/12), reported with a clear analysis by [@stackcn](https://github.com/stackcn)). The button used to send two requests from the browser, disconnect and then connect, but the disconnect removed the tunnel the second request had to travel through, so it never arrived. Disconnecting also cleared the "stay connected" intent, so the automatic-reconnect watchdog treated it as a deliberate stop and never brought the connection back. Reconnect is now a single request: the router records that it should stay connected, disconnects and reconnects on its own, and replies once it is connected again. Over NetBird the tunnel drops for a second or two and the page still receives the result; if the request is cut off anyway, the router still finishes reconnecting, and the watchdog takes over if it could not.
+- The install script no longer stops when an unrelated package feed fails to update ([#13](https://github.com/looong-cat/luci-app-netbird/issues/13), reported by [@netsrot303](https://github.com/netsrot303)). `opkg update` and `apk update` exit with an error when any configured feed fails, for example the `glinet` feed on GL.iNet firmware, which publishes no `Packages.sig`. `feed.sh` therefore aborted before the one-click installer reached the install step. It now stops only if the NetBird feed itself could not be loaded, including when its signature does not verify, and prints a warning about other feeds.
+
+Reboot once after upgrading (or restart rpcd) so the updated backend loads.
+
 ## 0.1.0-r21 — 2026-08-17
 
 ### Fixed
