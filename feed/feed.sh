@@ -45,7 +45,18 @@ if [ -x /bin/opkg ]; then
 	rm -f /tmp/netbird-key.pub
 	sed -i "\\#$REPO#d" /etc/opkg/customfeeds.conf
 	echo "src/gz $NAME $FEED" >> /etc/opkg/customfeeds.conf
-	opkg update
+	# opkg update exits non-zero when any configured feed fails, including vendor
+	# feeds unrelated to this one (e.g. one that publishes no Packages.sig while
+	# signature checking is on). Stop only if this feed's own package list is
+	# missing: opkg deletes a list whose signature check fails.
+	if ! opkg update; then
+		LISTS_DIR="$(awk '$1 == "lists_dir" { print $3; exit }' /etc/opkg.conf 2>/dev/null)"
+		if [ ! -s "${LISTS_DIR:-/var/opkg-lists}/$NAME" ]; then
+			echo "opkg update could not load the NetBird feed: $FEED" >&2
+			exit 1
+		fi
+		echo "Warning: opkg update reported errors for other feeds (see above); the NetBird feed is available, continuing." >&2
+	fi
 else
 	echo "Adding apk feed..."
 	wget -O /etc/apk/keys/luci-app-netbird.pem "$REPO/public-key.pem"
@@ -53,7 +64,16 @@ else
 	LIST=/etc/apk/repositories.d/customfeeds.list
 	[ -f "$LIST" ] && sed -i "\\#$REPO#d" "$LIST"
 	echo "$FEED/packages.adb" >> "$LIST"
-	apk update
+	# apk update exits non-zero when any repository fails to update, including
+	# ones unrelated to this feed. Stop only if the package is not available from
+	# this feed (a repository with an untrusted signature is not loaded).
+	if ! apk update; then
+		if ! apk policy luci-app-netbird 2>/dev/null | grep -qF "$FEED/packages.adb"; then
+			echo "apk update could not load the NetBird feed: $FEED" >&2
+			exit 1
+		fi
+		echo "Warning: apk update reported errors for other repositories (see above); the NetBird feed is available, continuing." >&2
+	fi
 fi
 
 echo "Feed added: $FEED"
