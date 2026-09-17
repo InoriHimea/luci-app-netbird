@@ -12,7 +12,7 @@ transient management-server/network outages.
 |---|---|---|
 | Frontend (views) | `htdocs/luci-static/resources/view/netbird/*.js` | 6 tabs: overview / versions / settings / status / setup(network) / logs. All DOM via `E()` (no innerHTML). |
 | Frontend helpers | `.../netbird/dom-helpers.js`, `netbird.css` | `pair / code / statusPill` builders. |
-| Backend entry | `root/usr/share/rpcd/ucode/netbird.uc` | The `luci.netbird` rpcd object — 28 methods (13 read + 15 write). |
+| Backend entry | `root/usr/share/rpcd/ucode/netbird.uc` | The `luci.netbird` rpcd object — 31 methods (13 read + 18 write). |
 | Backend lib | `root/usr/share/rpcd/ucode/lib/*.uc` | `shell`(quote) · `paths`(binary probe) · `envelope`({ok,err,CODE}) · `netbird_cli`(CLI wrap) · `state`(5-state) · `sanitize`(validation). |
 | ACL | `root/usr/share/rpcd/acl.d/luci-app-netbird.json` | read/write method whitelist + UCI scopes. Kept strictly 1:1 with the method table. |
 | Settings pipeline | `root/etc/init.d/netbird-settings` | config-only procd service: renders UCI → `netbird up --flags`. |
@@ -133,7 +133,7 @@ Five runtime-first states (trust the daemon when reachable):
 ## Authentication and failure reporting
 
 The Authentication tab drives upstream NetBird directly through `do_up` / `do_login` /
-`do_down` / `do_logout`.
+`do_down` / `do_reconnect` / `do_logout`.
 
 - Setup keys are write-only RPC parameters. A successful login stores only a masked
   `setup_key_hint`; the raw key is never written to UCI or returned to LuCI.
@@ -156,6 +156,13 @@ The Authentication tab drives upstream NetBird directly through `do_up` / `do_lo
   `do_up` with `caller=watchdog` and does **not** write `desired_connected`, so a deliberate stop is
   never re-asserted by it; it still adopts `desired_connected=1` when it observes an already connected
   daemon, so upgraded routers keep recovering from transient outages without user action.
+- `Reconnect` is a single `do_reconnect` RPC that runs `netbird down` and then the `do_up`
+  existing-identity path inside the backend. It must not be two browser-side calls: when LuCI is
+  reached over the NetBird tunnel, `down` removes the path the second request needs, and `do_down`
+  would also clear `desired_connected`, leaving the router disconnected with nothing to bring it
+  back. rpcd finishes the method even if the browser connection drops or uhttpd cuts the request,
+  and `desired_connected=1` is written before `down`, so the watchdog recovers the connection if
+  the call is interrupted.
 - The watchdog never stores setup keys. It retries only with the existing local identity, so a
   first-time setup-key registration that fails before success still requires the user to click
   Connect again.
@@ -227,8 +234,8 @@ self-heal, so a router managed over the mesh could hard-lock. Instead:
 
 - **ucode modules** load via `loadfile()` IIFE (the runtime build does not support `export`), and
   **do not hoist function declarations** — a helper must be defined textually before its callers.
-- **ACL ↔ method table** must stay strictly 1:1 for UI-callable methods (13 read + 16 write = 29
-  of the 30 registered methods; the one exception is `restore_exit_node`, which is watchdog-only
+- **ACL ↔ method table** must stay strictly 1:1 for UI-callable methods (13 read + 17 write = 30
+  of the 31 registered methods; the one exception is `restore_exit_node`, which is watchdog-only
   and deliberately kept out of the session ACL).
 - **DOM** is built with `E()` only (XSS).
 - **Binary/state paths** are probed at runtime, never hard-coded.
