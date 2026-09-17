@@ -6,6 +6,9 @@
 
 [English](README.md) | **简体中文**
 
+> [!NOTE]
+> 本项目的代码几乎都是通过 vibe coding 写成的。能保证的是：每个版本上线前，都已经在不同版本的 OpenWrt 上做过实机测试。并且本人有 10 台以上的 OpenWrt 在运行此应用，它已经成为本人的组网基建。
+
 OpenWrt / ImmortalWrt 上管理 [NetBird](https://netbird.io) mesh-VPN 客户端的 LuCI 应用 —— 在路由器上使用 NetBird，无需命令行。
 同时兼容 OpenWrt / ImmortalWrt 22.03 / 23.05 / 24.x（`opkg`）和 25.x / 最新 snapshot（`apk`）。
 OpenWrt 21.02 及更早版本无法支持——官方软件源缺少后端运行所需的 `ucode` / `rpcd-mod-ucode`。

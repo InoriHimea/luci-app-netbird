@@ -6,6 +6,9 @@
 
 **English** | [简体中文](README.zh-cn.md)
 
+> [!NOTE]
+> Almost all of the code in this project was written through vibe coding. What is guaranteed is that every release is tested on real devices running different OpenWrt versions before it goes live. I also run this app on more than 10 OpenWrt devices, and it has become part of my own mesh networking infrastructure.
+
 LuCI app for the [NetBird](https://netbird.io) mesh-VPN client on OpenWrt / ImmortalWrt — manage NetBird on OpenWrt from the router, no command line needed.
 Compatible with OpenWrt / ImmortalWrt 22.03 / 23.05 / 24.x (`opkg`) and 25.x / current snapshots (`apk`).
 OpenWrt 21.02 and older cannot be supported — their package feeds lack `ucode` / `rpcd-mod-ucode`, which the backend runs on.
