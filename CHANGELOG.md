@@ -3,6 +3,15 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## 0.1.0-r24 — 2026-10-11
+
+### Fixed
+
+- On apk-based systems (OpenWrt / ImmortalWrt 25+), `apk upgrade` and LuCI's Software page stopped upgrading the app after it had been updated from the Versions tab. The in-app updater installs the downloaded package files directly, and apk records a package installed from a file in `/etc/apk/world` as pinned to that exact file (`luci-app-netbird><Q1…`), so later upgrades from the package feed skip it without any message. Installing the package now turns such pins for the app and its translation packages back into plain package names right after the install finishes; the installed version does not change. This also clears pins left by earlier in-app updates and by manually installing a downloaded `.apk` file, and it applies already to the update that installs this version.
+- Stopping or restarting the automatic-reconnect watchdog (including at reboot) no longer waits for the service manager to kill it. The watchdog was meant to exit as soon as it is asked to stop, but the shell only handles that request after its current 30-second pause has finished, so procd gave up after 5 seconds, killed it, and left the pause process behind. The pause can now be interrupted.
+
+Reboot once after upgrading (or restart the `luci-netbird-watchdog` service) so the updated watchdog loads.
+
 ## 0.1.0-r23 — 2026-10-11
 
 ### Fixed
