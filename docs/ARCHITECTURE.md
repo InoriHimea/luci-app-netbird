@@ -13,7 +13,7 @@ transient management-server/network outages.
 | Frontend (views) | `htdocs/luci-static/resources/view/netbird/*.js` | 6 tabs: overview / versions / settings / status / setup(network) / logs. All DOM via `E()` (no innerHTML). |
 | Frontend helpers | `.../netbird/dom-helpers.js`, `netbird.css` | `pair / code / statusPill` builders. |
 | Backend entry | `root/usr/share/rpcd/ucode/netbird.uc` | The `luci.netbird` rpcd object — 31 methods (13 read + 18 write). |
-| Backend lib | `root/usr/share/rpcd/ucode/lib/*.uc` | `shell`(quote) · `paths`(binary probe) · `envelope`({ok,err,CODE}) · `netbird_cli`(CLI wrap) · `state`(5-state) · `sanitize`(validation). |
+| Backend lib | `root/usr/share/rpcd/ucode/lib/*.uc` | `shell`(命令引用与超时能力探测) · `paths`(binary probe) · `envelope`({ok,err,CODE}) · `netbird_cli`(CLI wrap) · `state`(5-state) · `sanitize`(validation). |
 | ACL | `root/usr/share/rpcd/acl.d/luci-app-netbird.json` | read/write method whitelist + UCI scopes. Kept strictly 1:1 with the method table. |
 | Settings pipeline | `root/etc/init.d/netbird-settings` | config-only procd service: renders UCI → `netbird up --flags`. |
 | Reconnect watchdog | `root/etc/init.d/luci-netbird-watchdog`, `root/usr/share/netbird/netbird-autoreconnect.sh` | procd loop that retries only when `netbird.runtime.desired_connected=1`, with exponential backoff on repeated failures (the status poll stays fixed-interval, so recovery and error-clearing remain prompt); fatal auth errors stop the loop. |
@@ -234,6 +234,7 @@ self-heal, so a router managed over the mesh could hard-lock. Instead:
 
 - **ucode modules** load via `loadfile()` IIFE (the runtime build does not support `export`), and
   **do not hoist function declarations** — a helper must be defined textually before its callers.
+- **超时能力探测**：后端统一使用 `shell.with_timeout`，加载时执行 `timeout 1 true` 验证能力；自动重连脚本启动时使用同一判据。无效 BusyBox 链接或缺失命令均走已有透传路径，不能仅凭路径存在判定可用。时间参数使用纯数字秒。
 - **ACL ↔ method table** must stay strictly 1:1 for UI-callable methods (13 read + 17 write = 30
   of the 31 registered methods; the one exception is `restore_exit_node`, which is watchdog-only
   and deliberately kept out of the session ACL).

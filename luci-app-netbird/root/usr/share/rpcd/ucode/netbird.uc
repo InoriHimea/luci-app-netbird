@@ -36,6 +36,7 @@ let _state    = loadfile(_LIB + '/state.uc')();
 let _cli      = loadfile(_LIB + '/netbird_cli.uc')();
 
 let shell_quote          = _shell.shell_quote;
+let _to                  = _shell.with_timeout;
 let resolve_netbird_bin  = _paths.resolve_netbird_bin;
 let ok                   = _envelope.ok;
 let err                  = _envelope.err;
@@ -104,24 +105,15 @@ function _require_running() {
 // 不变量（安全/性能）：
 //   - action 非枚举 → die()：防 caller 注入 `'; rm -rf /` 等恶意 action
 //   - /etc/init.d/netbird 字面命令；action 亦是字面常量，无需 shell_quote
-//   - 5s timeout 前缀包装：BusyBox 部分构建无 timeout applet，与 state.uc
-//     _HAS_TIMEOUT 模式一致 —— 降级透传；源码字面保留 'timeout 5s' 以满足
-//     源码字面保留以记录设计意图。
+//   - 5s timeout 前缀包装：共享 shell 模块实际探测能力，不可用则降级透传。
 const _INIT_ACTIONS = { enable: true, start: true, stop: true };
-const _RUN_INIT_HAS_TIMEOUT = access('/usr/bin/timeout', 'x') || access('/bin/timeout', 'x');
-
-// _to(cmd) — 给命令加 5s 墙钟前缀(timeout applet 在才加;缺失透传)。集中原 5 处重复的
-// `_RUN_INIT_HAS_TIMEOUT ? ('timeout 5s '+x) : x` 三元(ucode 不 hoist 函数,helper 定义在所有调用方之上)。
-function _to(cmd) {
-    return _RUN_INIT_HAS_TIMEOUT ? ('timeout 5s ' + cmd) : cmd;
-}
 
 function _run_init(action) {
     // 白名单 assert（防 caller 注入恶意 action）
     if (!_INIT_ACTIONS[action])
         die(sprintf('_run_init: illegal action "%s" (not in whitelist enable/start/stop)', action));
 
-    // 命令拼接：timeout 5s /etc/init.d/netbird <action>
+    // 命令拼接：timeout 5 /etc/init.d/netbird <action>
     // 注：action 经白名单 assert 后是字面常量，命令字面安全；2>&1 合并便于截 stderr。
     let base = '/etc/init.d/netbird ' + action + ' 2>&1';
     let cmd = _to(base);
@@ -452,7 +444,7 @@ function _poll_connected(bin, rounds) {
 // _exec_short_verb(bin, verb) → { code, stdout }
 // 短认证命令（down / deregister）：5s timeout 包装（与 _run_init 同模式，BusyBox 无 timeout 降级）；
 // verb 是字面常量（调用方传 'down'/'deregister'），bin 经 shell_quote。
-// timeout applet 探测复用 _RUN_INIT_HAS_TIMEOUT（同值，避免重复定义）。
+// timeout 能力探测复用共享 shell 模块。
 function _exec_short_verb(bin, verb) {
     let base = shell_quote(bin) + ' ' + verb + ' 2>&1';
     let cmd = _to(base);
