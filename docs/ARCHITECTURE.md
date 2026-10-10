@@ -125,6 +125,14 @@ or is incomplete, the update is rejected and temporary files are removed; the UI
 the current version and shows the error. When there is no newer version, `update_luci_app` returns
 `invalid_input` and does not create an install workdir.
 
+On apk systems, installing a package from a file records it in `/etc/apk/world` pinned to that file
+(`luci-app-netbird><Q1…`), which makes later `apk upgrade` runs skip it. The package therefore ships
+`root/etc/uci-defaults/98-luci-app-netbird-apk-world`: it runs inside the install transaction (where
+apk still holds its lock and rewrites `world` at commit), so it only spawns a detached job that waits
+for the installing apk process (its parent) to exit and then runs `apk add <name>` for any pinned
+`luci-app-netbird` / `luci-i18n-netbird-*` entries. That changes only the constraint, not the
+installed version, and also covers updates performed by older in-app updaters and manual file installs.
+
 ## State machine
 
 Five runtime-first states (trust the daemon when reachable):
