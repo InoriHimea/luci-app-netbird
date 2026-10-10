@@ -1258,6 +1258,13 @@ function _download_headers(headers, kind) {
     return out;
 }
 
+// _dl_tool() → 'curl'|'uclient-fetch'|'wget':_dl_cmd 实际使用的下载器(同一优先级)。
+function _dl_tool() {
+    if (access('/usr/bin/curl', 'x') || access('/bin/curl', 'x'))
+        return 'curl';
+    return (access('/bin/uclient-fetch', 'x') || access('/usr/bin/uclient-fetch', 'x')) ? 'uclient-fetch' : 'wget';
+}
+
 // _dl_cmd(url, out, secs, progress_total, headers) → 拼下载命令(优先 curl,回落 uclient-fetch,再 BusyBox wget)。
 // out 空串=输出到 stdout(读 body 用);非空=写入该文件。url/out 经 shell_quote(注入防线)。
 // OWRT25 最小化镜像常无 curl,但有 uclient-fetch(HTTPS via libustream)——多下载器回落,
@@ -1270,7 +1277,8 @@ function _dl_cmd(url, out, secs, progress_total, headers) {
     let q = shell_quote(url);
     let to_file = (out != null && length(out) > 0);
     let bounded = (secs != null && secs > 0);
-    if (access('/usr/bin/curl', 'x') || access('/bin/curl', 'x')) {
+    let tool = _dl_tool();
+    if (tool == 'curl') {
         let curl_to = bounded ? (' --max-time ' + secs) : ' --connect-timeout 20';
         let curl_headers = _download_headers(headers, 'curl');
         if (!to_file)
@@ -1280,7 +1288,6 @@ function _dl_cmd(url, out, secs, progress_total, headers) {
             return _progress_download_cmd(fetcher, out, secs, progress_total);
         return fetcher;
     }
-    let tool = (access('/bin/uclient-fetch', 'x') || access('/usr/bin/uclient-fetch', 'x')) ? 'uclient-fetch' : 'wget';
     let fetch_headers = _download_headers(headers, 'fetch');
     if (!to_file)
         return tool + ' -q -T ' + (bounded ? secs : 20) + fetch_headers + ' -O - ' + q + ' 2>/dev/null';
@@ -1336,8 +1343,22 @@ function _popen_simple(cmd) {
     return { code: (rc == null ? -1 : rc), out: raw };
 }
 
+// _dl_sends_headers() → 当前下载器能否附加请求头(API asset 下载必须带 Accept 头)。
+//   curl 恒可;uclient-fetch 到 24.10 才有 --header,22.03/23.05 自带版本遇到该参数会直接报用法错误、
+//   整条下载失败,故按 --help 实测。结果在本进程内缓存。
+let _dl_headers_ok = null;
+function _dl_sends_headers() {
+    if (_dl_headers_ok == null) {
+        let tool = _dl_tool();
+        _dl_headers_ok = (tool == 'curl') || index(_popen_simple(tool + ' --help 2>&1').out, '--header') >= 0;
+    }
+    return _dl_headers_ok;
+}
+
+// _github_asset_api_url(ver, filename) → 该 release 资产的 API 下载地址 | ''。
+//   下载器不能带请求头时返回 '',调用方回落 releases/download 直链。
 function _github_asset_api_url(ver, filename) {
-    if (!match(ver || '', _SEMVER_RE) || length(filename || '') == 0)
+    if (!match(ver || '', _SEMVER_RE) || length(filename || '') == 0 || !_dl_sends_headers())
         return '';
     let api = 'https://api.github.com/repos/netbirdio/netbird/releases/tags/v' + ver;
     let r = _popen_simple(_dl_cmd(api, '', 15));
