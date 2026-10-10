@@ -2398,6 +2398,9 @@ function _update_binary_locked(req) {
                            ' > ' + shell_quote(target_path) + ' && chmod 0755 ' + shell_quote(target_path) + ' ; } 2>&1');
     let to = (wr.code == 0) ? _file_version(target_path) : '';
     if (wr.code != 0 || length(to) == 0) {
+        // 写入成功却读不到版本:回滚前用同一命令再跑一次并保留 stderr,让错误明细带上真实退出码与输出
+        //   (例如包装命令本身不可用时的 127),而不是一律归为文件损坏。
+        let ver_diag = (wr.code == 0) ? _popen_simple(_to(shell_quote(target_path) + ' version 2>&1')) : null;
         // 失败兜底:有备份(=target 原已存在)则还原旧二进制;无备份(=本就是新文件)则删掉**半成品**——
         //   `cat > target` 即便写失败也已 create/truncate 出 target,且因 `&&` 短路 chmod 没跑 → 残片为
         //   非可执行的 0644;若不删,会被 _list_custom_versions 当成「已下载版本」列出(幽灵版本),切换时
@@ -2427,8 +2430,11 @@ function _update_binary_locked(req) {
             detail = substr(raw, 0, 200);
         else if (wr.code != 0)
             detail = sprintf('write command exited %d with no output (storage may be full or read-only)', wr.code);
-        else
-            detail = 'the written file could not report its version (truncated or corrupt)';
+        else {
+            let diag_out = substr(trim(ver_diag.out), 0, 160);
+            detail = sprintf('the written file could not report its version (exit %d%s)', ver_diag.code,
+                             length(diag_out) > 0 ? ': ' + diag_out : ', no output; truncated or corrupt');
+        }
         let write_msg = 'Failed to write the binary' + (restored ? '; restored the previous one' : '') + ': ' + detail;
         _progress_phase('failed', write_msg, tgz_path, progress_total);
         return err(CODE.INSTALL_FAILED, write_msg);
