@@ -3,6 +3,16 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## 0.1.0-r23 — 2026-10-11
+
+### Fixed
+
+- On some firmwares the Versions tab showed `-` for every version and installing the official NetBird release failed with `the written file could not report its version (truncated or corrupt)`; the Status tab could also report the service as disabled while it was running. The cause was a `/usr/bin/timeout` symlink pointing at a BusyBox built without the `timeout` applet: the file exists and is executable, but every command run through it exits 127 with `applet not found`. The app decided whether to use `timeout` only by checking that the file exists, so every version, package and service query wrapped in it returned nothing, and the check that runs right after writing a downloaded binary rejected a perfectly good file. The backend and the automatic-reconnect watchdog now actually run `timeout 1 true` once to decide, and fall back to running commands directly when it does not work. Nothing on the system is changed or removed.
+- If the check after writing a binary still fails, the error now includes the real exit code and output instead of always blaming a corrupt file.
+- Downloading the official NetBird release from the Versions tab failed on OpenWrt 22.03 and 23.05 routers without `curl` (`uclient-fetch: unrecognized option: header=...`). The download goes through GitHub's API, which needs an extra request header, and the `uclient-fetch` shipped with those releases has no option to send one. The app now checks whether the downloader can send headers and otherwise downloads from the regular GitHub release link. On those releases this switch is the recommended way to get a NetBird new enough for exit nodes, so it works again there.
+
+Reboot once after upgrading (or restart rpcd and the `luci-netbird-watchdog` service) so the updated backend and watchdog load.
+
 ## 0.1.0-r22 — 2026-09-17
 
 ### Fixed
