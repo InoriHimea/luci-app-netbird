@@ -73,6 +73,8 @@ check_backend() {
     NB_TEST_RUNNING=false NB_TEST_EXPECT_STATUS=service_stopped ucode /tmp/nb-timeout-check.uc
 }
 export NB_TEST_ROOT="$source_root"
+# 先删除再写:系统自带的 timeout 可能是指向 busybox 的链接,直接重定向会改写 busybox 本体。
+rm -f /usr/bin/timeout
 cat > /usr/bin/timeout <<'EOF'
 #!/bin/sh
 echo 'timeout: applet not found' >&2
@@ -86,6 +88,7 @@ rm /usr/bin/timeout
 echo '场景：timeout 不存在'
 check_backend
 check_watchdog
+rm -f /usr/bin/timeout
 cat > /usr/bin/timeout <<'EOF'
 #!/bin/sh
 case "$1" in
