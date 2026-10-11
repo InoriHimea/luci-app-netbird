@@ -2644,6 +2644,11 @@ function _do_delete_custom_binary(req) { return _binop_guard(_delete_custom_bina
 //   - 下载失败 / 本机无官方 release(mips 等)→ 静默保持现状(feed 兜底),配置仍记 release 待下次重试。
 // **绝不抛错、绝不阻断连接**:任何分支失败都直接 return,调用方继续用当前 active 二进制连接。
 // release 就位后即 no-op(后续连接零开销)。供 do_up 在连接前调用(因 ucode 不 hoist,定义在 do_up 之前)。
+// 自动下载失败后的退避标记:GitHub 不可达时每次连接都重试会让连接白等多段下载超时
+// (rpcd 单线程,期间整个 LuCI 停摆);失败后 30 分钟内不再自动下载,版本页手动下载不受影响。
+const _NB_AUTODL_FAILED = '/tmp/luci-netbird-autodownload.failed';
+const _NB_AUTODL_BACKOFF = 1800;
+
 function _ensure_configured_binary() {
     if (_uci_binary('binary_source', 'release') != 'release')
         return;                                       // 用户已手动切走 → 尊重,不覆盖
@@ -2655,9 +2660,17 @@ function _ensure_configured_binary() {
             return;                                   // 本机无官方 release(mips 等)→ feed 兜底
         // 有界下载(20s,用户拍板):正常网络 release ~20s 内下完;超时/慢链则回落 feed
         // (netbird-openwrt 源),release 留待下次连接重试。首连不久阻,避免连接转圈过长。
+        let fst = stat(_NB_AUTODL_FAILED);
+        if (fst != null && time() - fst.mtime < _NB_AUTODL_BACKOFF)
+            return;                                   // 近期自动下载失败过 → 本次直接用 feed 兜底
         let up = _do_update_binary({ dl_timeout: 20 }); // 下载 GitHub latest release(envelope)
-        if (type(up) != 'object' || up.ok != true)
+        if (type(up) != 'object' || up.ok != true) {
+            let fd = open(_NB_AUTODL_FAILED, 'w');
+            if (fd != null)
+                fd.close();
             return;                                   // 下载失败/超时 → feed 兜底(daemon 未被牵连)
+        }
+        unlink(_NB_AUTODL_FAILED);
     }
     _do_set_binary_source({ source: 'release' });     // 切到 release(失败也不阻断;daemon 仍可连)
 }
@@ -2836,9 +2849,11 @@ function _do_up(req) {
         _persist_mgmt_url(arg_url);
 
     // 首连兜底:配置来源=release(默认)但 release 未就位时,先下载并切到 release
-    // (用户拍板:首连自动下 release;失败则用 feed 兜底,绝不阻断本次连接)。release
-    // 就位后 no-op。注:首次会增加 ~数十秒下载耗时(前端 do_up 已是长调用,见上轮询说明)。
-    _ensure_configured_binary();
+    // (失败则用 feed 兜底,绝不阻断本次连接)。release 就位后 no-op。注:首次会增加
+    // ~数十秒下载耗时(前端 do_up 已是长调用,见上轮询说明)。watchdog 的周期重连只恢复
+    // 已有连接、不做下载:rpcd 单线程,重连里的下载会让整个 LuCI 周期性停摆。
+    if (!(type(a.caller) == 'string' && a.caller == 'watchdog'))
+        _ensure_configured_binary();
 
     let bin = resolve_netbird_bin();
     if (bin == null)

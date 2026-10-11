@@ -192,12 +192,14 @@ while :; do
 		continue
 	fi
 
-	[ "$want" = "1" ] || {
+	# 服务在设置里被关闭(netbird-settings 已 down+stop+disable)时不重连;不改写期望连接位,
+	# 重新启用服务后自动恢复。
+	if [ "$want" != "1" ] || [ "$(uci -q get netbird.settings.service_enabled)" = "0" ]; then
 		_reset_backoff
 		attempt_wait=0
 		_sleep "$INTERVAL"
 		continue
-	}
+	fi
 
 	if _is_auth_fatal "$raw"; then
 		_set_desired 0
