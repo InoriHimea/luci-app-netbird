@@ -3,14 +3,32 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
-## 0.1.0-r24 — 2026-10-11
+## 0.1.0-r25 — 2026-10-12
 
 ### Fixed
 
+- Saving NetBird settings on a router that is not logged in yet could stall every other configuration change on the router — firewall, network, wireless and DHCP changes from LuCI were no longer applied until the next reboot. Applying settings runs `netbird up`, which on a device without a login waits for a browser sign-in indefinitely, and OpenWrt applies configuration changes one at a time, so everything else queued behind it. Settings saved before the first login are now stored and applied right after the next successful login, and applying settings never waits longer than a fixed limit.
+- Connecting from the Login tab failed on OpenWrt 22.03 and 23.05 when NetBird from the system package feed is in use (for example on architectures without an official NetBird release, when GitHub is unreachable, or when the package-feed build was chosen on purpose). The app always passed `--no-browser`, which NetBird 0.17 and 0.24 do not know, and the failure surfaced only as a generic "did not become connected before the timeout". The option is now passed only when the installed NetBird supports it, and when NetBird rejects a command or its service is not running, the real reason is shown right away instead of after a long wait.
+- Stock OpenWrt BusyBox has no `timeout` command, so the 5-second limits the app puts on NetBird status, version and service commands never applied there. If the NetBird service stopped responding, LuCI pages (not only this app's) and automatic reconnect could hang with it. The app now enforces these limits itself when `timeout` is unavailable; reading version information from GitHub also has an overall time limit.
+- Long-running actions block all of LuCI while they run. Automatic reconnect no longer downloads the official NetBird release as part of each retry — on networks where GitHub is slow or blocked every retry used to wait for the download to time out — and after a failed automatic download the app does not try again for 30 minutes. Downloads from the Versions tab are not affected.
+- Turning the NetBird service off in Settings now also stops automatic reconnect; it resumes when the service is turned back on.
+- Saving an unrelated page in LuCI could briefly disconnect NetBird. The app keeps connection state, the selected exit node and similar values in its configuration, and OpenWrt reapplies a package whose configuration changed since the last apply. Settings are now reapplied only when the options passed to NetBird actually change.
+- On some preinstalled firmware images the settings and automatic-reconnect services were never enabled, so saving settings and automatic reconnect silently did nothing until the app was updated once. They are now enabled when the NetBird service is enabled or a connection is started.
+- Backups for keep-settings firmware upgrades included every downloaded NetBird binary (tens of MB, built in RAM) and copied this app's own scripts over the newer ones in the new firmware. They now keep only the configuration; the NetBird identity is kept as before. After such an upgrade the system-feed NetBird is used again and the official release can be downloaded from the Versions tab.
+- If the background download of a NetBird binary was killed (for example by the out-of-memory killer), the Versions tab kept showing it as running and every binary action reported "another operation is in progress" until a reboot. The app now notices the stopped download, releases the lock, and the page stops waiting after about 30 seconds without a reply from the router.
+- Updating a NetBird binary uses less temporary memory, refuses to touch the current binary when it cannot be backed up completely, and only reports "restored the previous one" when the restored binary actually runs. A custom download link whose file name is exactly `netbird` no longer fails.
 - On apk-based systems (OpenWrt / ImmortalWrt 25+), `apk upgrade` and LuCI's Software page stopped upgrading the app after it had been updated from the Versions tab. The in-app updater installs the downloaded package files directly, and apk records a package installed from a file in `/etc/apk/world` as pinned to that exact file (`luci-app-netbird><Q1…`), so later upgrades from the package feed skip it without any message. Installing the package now turns such pins for the app and its translation packages back into plain package names right after the install finishes; the installed version does not change. This also clears pins left by earlier in-app updates and by manually installing a downloaded `.apk` file, and it applies already to the update that installs this version.
 - Stopping or restarting the automatic-reconnect watchdog (including at reboot) no longer waits for the service manager to kill it. The watchdog was meant to exit as soon as it is asked to stop, but the shell only handles that request after its current 30-second pause has finished, so procd gave up after 5 seconds, killed it, and left the pause process behind. The pause can now be interrupted.
+- Logging out locally now waits for the NetBird service to stop before removing its identity.
+- The Logs tab now shows logs when the service is not running or not logged in, which is when they are most useful.
+- After a reboot on opkg-based releases the Versions tab no longer claims that the package feed does not provide NetBird; the package lists are cleared on reboot, and the tab now says so.
+- Installing the WireGuard or TUN kernel module from the Status tab keeps the package manager's signature check on apk-based systems.
+- Downloaded binaries are now also checked for the device's word size and byte order, not only its CPU type.
+- The installer no longer stops on firmware without `/etc/opkg/customfeeds.conf`, and it stops with a clear message when the feed script itself cannot be downloaded.
+- NetBird 0.80's "pass --profile" error is recognized and reported directly.
+- Added `ucode`, `ucode-mod-fs` and `ucode-mod-uci` to the package dependencies; on 22.03 they were only present because firewall4 happened to install them.
 
-Reboot once after upgrading (or restart the `luci-netbird-watchdog` service) so the updated watchdog loads.
+Reboot once after upgrading (or restart rpcd, `netbird-settings` and `luci-netbird-watchdog`) so the updated backend and services load.
 
 ## 0.1.0-r23 — 2026-10-11
 

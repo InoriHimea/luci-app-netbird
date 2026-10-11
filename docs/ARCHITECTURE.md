@@ -249,6 +249,23 @@ self-heal, so a router managed over the mesh could hard-lock. Instead:
   runs as `( exec cmd )` in the background with its output in a temp file, and a timer subshell `kill -9`s it
   when time is up (exit 124). The watchdog and `netbird-settings` source the same logic from
   `/usr/share/netbird/nb-run-bounded.sh`. Durations are plain seconds (no `s` suffix).
+- **Settings apply never blocks procd.** procd runs config-change triggers one at a time, so a hung
+  `netbird-settings` reload stalls every other config apply on the router. When the daemon reports
+  `NeedsLogin`, the reload only writes `/etc/netbird-settings.pending` (no `netbird up`, which would wait for an
+  SSO login forever); `do_up`/`do_login` re-run the reload in the background after a successful login.
+  `down`/`up` are bounded (10 s / 45 s).
+- **Unchanged settings do not reconnect.** Runtime fields (connection state, exit node, setup-key hint,
+  management URL) live in `/etc/config/netbird`, so `reload_config` from any unrelated LuCI apply fires
+  `config.change` for it. `netbird-settings` stores an md5 of the rendered `up` arguments in
+  `/var/run/netbird-settings.applied` and skips `down`/`up` when it matches; logout, the post-login pending apply
+  and disabling the service delete it.
+- **Helper services self-heal.** Some preinstalled firmware images are built without running package scripts, so
+  `netbird-settings` and `luci-netbird-watchdog` are never enabled. `do_enable_and_start` and `do_up` enable and
+  start them when `/etc/init.d/<svc> enabled` fails.
+- **Binary-operation lock and download worker are recoverable.** `/tmp/nb-binop.lock/owner` records the holder
+  (`$PPID` of the popen shell: rpcd or the `ucode` worker); a lock whose holder is gone is reclaimed. The async
+  download worker's PID is in `/tmp/luci-netbird-binary-download.pid`; `get_binary_update_progress` turns a
+  stuck in-progress phase into `failed`/`canceled` when that process is gone.
 - **ACL ↔ method table** must stay strictly 1:1 for UI-callable methods (13 read + 17 write = 30
   of the 31 registered methods; the one exception is `restore_exit_node`, which is watchdog-only
   and deliberately kept out of the session ACL).
