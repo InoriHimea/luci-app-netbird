@@ -24,7 +24,7 @@
 // 路径走 NBLIB env override（默认 /usr/share/rpcd/ucode/lib）。
 // shebang 与 'use strict' 在 module 模式下都不允许，已删除。
 
-import { popen, access, open, unlink, lsdir } from 'fs';
+import { popen, access, open, unlink, lsdir, stat } from 'fs';
 import * as uci from 'uci';
 
 const _LIB = getenv('NBLIB') || '/usr/share/rpcd/ucode/lib';
@@ -367,19 +367,62 @@ function _resolve_display_mgmt_url() {
     return _mgmt_url_from_config();
 }
 
+// _cli_has_flag(bin, verb, flag) → bool：该二进制的 `<verb> --help` 是否列出 flag。
+// 旧版 netbird（软件源的 0.17 / 0.24）的 up/login 没有 --no-browser，带上即 unknown flag。
+// 结果按「二进制实际文件的 mtime + 大小」缓存，切换来源或升级后自动重新探测。
+let _cli_flag_cache = {};
+function _cli_has_flag(bin, verb, flag) {
+    let st = stat(bin);
+    let key = sprintf('%s|%s|%s|%s|%s', bin, st ? st.mtime : '', st ? st.size : '', verb, flag);
+    if (_cli_flag_cache[key] == null) {
+        let fd = popen(_to(shell_quote(bin) + ' ' + verb + ' --help 2>&1'), 'r'); // shell-audit-ok: bin 经 shell_quote，verb 字面
+        let help = (fd != null) ? (fd.read('all') || '') : '';
+        if (fd != null)
+            fd.close();
+        _cli_flag_cache[key] = (index(help, ' ' + flag + ' ') >= 0 || index(help, ' ' + flag + '\n') >= 0);
+    }
+    return _cli_flag_cache[key];
+}
+
 // _build_auth_cmd(bin, verb, mgmt_url, setup_key) → 拼好的命令字符串
-// verb ∈ {'up','login'}。一律加 --no-browser（避免等 SSO 浏览器挂死）。
+// verb ∈ {'up','login'}。二进制支持时加 --no-browser（避免等 SSO 浏览器挂死；旧版无此 flag，
+// headless 环境下省略效果相同）。
 // 所有动态参数（mgmt_url / setup_key）经 shell_quote（防注入）。
 // bin 来自 resolve_netbird_bin（运行时探测），同样 shell_quote。
 // 长命令不加 5s timeout（业务层自己轮询控时）；2>&1 合并便于回传错误。
 function _build_auth_cmd(bin, verb, mgmt_url, setup_key) {
-    let cmd = shell_quote(bin) + ' ' + verb + ' --no-browser';
+    let cmd = shell_quote(bin) + ' ' + verb;
+    if (_cli_has_flag(bin, verb, '--no-browser'))
+        cmd += ' --no-browser';
     if (mgmt_url != null && length(mgmt_url) > 0)
         cmd += ' --management-url ' + shell_quote(mgmt_url);
     if (setup_key != null && length(setup_key) > 0)
         cmd += ' --setup-key ' + shell_quote(setup_key);
     cmd += ' 2>&1';
     return cmd;
+}
+
+// _cli_immediate_error(r) → { message, hint } | null：认证 CLI 自行返回（未被墙钟杀掉）且属于
+// 轮询也无法改变的失败——参数用法错误、连不上本机 NetBird 服务——时给出原因；其余返回 null
+// 交给原有的轮询与归因。hint 带 CLI 原话首行，便于定位版本差异。
+function _cli_immediate_error(r) {
+    let out = r.stdout || '';
+    if (r.code == 0 || match(out, /netbird command timed out after/))
+        return null;
+    let first = '';
+    for (let ln in split(out, '\n')) {
+        ln = trim(ln);
+        if (length(ln) > 0 && (match(ln, /^Error:/) || length(first) == 0))
+            first = ln;
+    }
+    first = substr(first, 0, 200);
+    if (match(out, /unknown (shorthand )?flag|unknown command|flag needs an argument|invalid argument/))
+        return { message: 'The NetBird client rejected the command; it may be too old for this action.',
+                 hint: 'NetBird: ' + first };
+    if (match(out, /failed to connect to daemon|dial unix [^ ]*: connect: (no such file or directory|connection refused)/))
+        return { message: 'The NetBird service is not running or not responding. Start it, then try again.',
+                 hint: 'NetBird: ' + first };
+    return null;
 }
 
 // _exec_long(cmd, max_bytes?) → { code, stdout }
@@ -2858,6 +2901,14 @@ function _do_up(req) {
         }
     }
 
+    // CLI 立即失败且轮询无法改变结果（用法错误/服务未运行）：直接返回原因，不再空等。
+    let immediate = _cli_immediate_error(r);
+    if (immediate != null) {
+        setup_key = '';
+        _persist_runtime_error(immediate.message);
+        return err(CODE.CONNECT_FAILED, immediate.message, immediate.hint);
+    }
+
     // exec 后同步轮询确认（不信任 up 退出码本身）
     let poll = _poll_connected(bin, from_watchdog ? 3 : 6);
     if (poll.connected) {
@@ -3231,6 +3282,11 @@ return {
                     return ok({ logged_in: true });
                 }
                 setup_key = '';  // 失败分支同样清零瞬时密钥（密钥绝不入 UCI）
+                let immediate = _cli_immediate_error(r);
+                if (immediate != null) {
+                    _persist_runtime_error(immediate.message);
+                    return err(CODE.CONNECT_FAILED, immediate.message, immediate.hint);
+                }
                 let auth = _auth_failure_from_attempt(r.stdout || '', auth_log_before);
                 if (auth != null) {
                     _exec_short_verb(bin, 'down');

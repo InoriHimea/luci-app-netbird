@@ -1631,3 +1631,9 @@ msgstr ""
 
 msgid "Login failed before NetBird accepted the setup key."
 msgstr ""
+
+msgid "The NetBird client rejected the command; it may be too old for this action."
+msgstr ""
+
+msgid "The NetBird service is not running or not responding. Start it, then try again."
+msgstr ""

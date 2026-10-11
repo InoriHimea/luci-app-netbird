@@ -1178,3 +1178,9 @@ msgstr "请查看“日志”页中的最后一条 NetBird 消息，然后重试
 
 msgid "Login failed before NetBird accepted the setup key."
 msgstr "NetBird 接受安装密钥前登录失败。"
+
+msgid "The NetBird client rejected the command; it may be too old for this action."
+msgstr "NetBird 客户端拒绝了该命令，可能版本太旧，不支持此操作。"
+
+msgid "The NetBird service is not running or not responding. Start it, then try again."
+msgstr "NetBird 服务未运行或无响应，请先启动后再试。"
