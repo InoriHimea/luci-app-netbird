@@ -1,0 +1,27 @@
+# luci-app-netbird
+
+> A LuCI web interface for managing the NetBird mesh-VPN client (WireGuard-based) on OpenWrt and ImmortalWrt routers: log in with a setup key, connect to NetBird cloud or a self-hosted management server, change every `netbird up` option, pick an exit node, manage the NetBird binary, and set up the router's firewall zone — without the command line. Free and open source (Apache-2.0).
+
+## Facts
+
+- Supported firmware: OpenWrt / ImmortalWrt 22.03, 23.05 and 24.10 (opkg, `.ipk` packages) and 25.12 and current snapshots (apk, `.apk` packages). 21.02 and older are not supported because they lack ucode.
+- The LuCI package is architecture-independent. The NetBird client comes from the firmware's package feed or from official NetBird releases (amd64, arm64, 386, armv6); other architectures use the package-feed build.
+- Works with NetBird cloud and self-hosted NetBird servers (set the Management URL before connecting).
+- Exit node selection is persisted and restored after a reboot.
+- Automatic reconnect keeps the router connected after network outages.
+- Packages are signed; the feed is served from https://luci-app-netbird.okk.sh/.
+
+## Install
+
+- English UI: `sh -c "$(curl -fsSL https://luci-app-netbird.okk.sh/install.sh)"` or `wget -O - https://luci-app-netbird.okk.sh/install.sh | sh`
+- With the Simplified Chinese language pack: `wget -O - https://luci-app-netbird.okk.sh/install-zh.sh | sh`
+- After installing, open LuCI → Services → NetBird.
+
+## Links
+
+- [Website (English)](https://luci-app-netbird.okk.sh/)
+- [Website (简体中文)](https://luci-app-netbird.okk.sh/zh-cn)
+- [Source code and issues (GitHub)](https://github.com/looong-cat/luci-app-netbird)
+- [Changelog](https://github.com/looong-cat/luci-app-netbird/blob/main/CHANGELOG.md)
+- [Architecture notes](https://github.com/looong-cat/luci-app-netbird/blob/main/docs/ARCHITECTURE.md)
+- [NetBird](https://netbird.io)

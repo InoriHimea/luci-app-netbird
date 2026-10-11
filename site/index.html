@@ -10,7 +10,9 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="canonical" href="https://luci-app-netbird.okk.sh/">
-  <link rel="alternate" hreflang="zh" href="https://luci-app-netbird.okk.sh/zh-cn">
+  <link rel="alternate" hreflang="en" href="https://luci-app-netbird.okk.sh/">
+  <link rel="alternate" hreflang="zh-Hans" href="https://luci-app-netbird.okk.sh/zh-cn">
+  <link rel="alternate" hreflang="x-default" href="https://luci-app-netbird.okk.sh/">
 
   <meta property="og:title" content="luci-app-netbird — NetBird Web UI &amp; Client Manager for OpenWrt / ImmortalWrt">
   <meta property="og:description" content="A LuCI web UI to install, configure and manage the NetBird mesh-VPN client on OpenWrt. Self-hosted server, WireGuard setup, firewall automation, exit node selection. One-click install.">
@@ -18,6 +20,8 @@
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://luci-app-netbird.okk.sh/og-card.png">
   <meta property="og:site_name" content="luci-app-netbird">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:locale:alternate" content="zh_CN">
 
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="luci-app-netbird — NetBird Web UI &amp; Client Manager for OpenWrt / ImmortalWrt">
@@ -25,17 +29,119 @@
   <meta name="twitter:image" content="https://luci-app-netbird.okk.sh/og-card.png">
 
   <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "SoftwareApplication",
-    "name": "luci-app-netbird",
-    "applicationCategory": "NetworkingApplication",
-    "operatingSystem": "OpenWrt, ImmortalWrt",
-    "description": "A LuCI web UI to install, configure and manage the NetBird mesh-VPN client on OpenWrt. Supports self-hosted server, WireGuard setup, firewall automation, exit node selection.",
-    "offers": { "@type": "Offer", "price": "0" },
-    "url": "https://github.com/looong-cat/luci-app-netbird",
-    "license": "https://spdx.org/licenses/Apache-2.0.html"
-  }
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "luci-app-netbird",
+  "applicationCategory": "NetworkingApplication",
+  "operatingSystem": "OpenWrt, ImmortalWrt",
+  "softwareRequirements": "OpenWrt or ImmortalWrt 22.03, 23.05, 24.10 (opkg) or 25.12 and snapshots (apk), with LuCI",
+  "description": "A LuCI web UI to install, configure and manage the NetBird mesh-VPN client on OpenWrt. Supports self-hosted server, WireGuard setup, firewall automation, exit node selection.",
+  "inLanguage": "en",
+  "isAccessibleForFree": true,
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  },
+  "url": "https://luci-app-netbird.okk.sh/",
+  "downloadUrl": "https://luci-app-netbird.okk.sh/#downloads",
+  "installUrl": "https://luci-app-netbird.okk.sh/install.sh",
+  "image": "https://luci-app-netbird.okk.sh/og-card.png",
+  "license": "https://spdx.org/licenses/Apache-2.0.html",
+  "author": {
+    "@type": "Person",
+    "name": "looong-cat",
+    "url": "https://github.com/looong-cat"
+  },
+  "sameAs": [
+    "https://github.com/looong-cat/luci-app-netbird"
+  ],
+  "featureList": [
+    "Connect with a setup key, cloud or self-hosted NetBird management server",
+    "Automatic reconnect",
+    "Switch between the package-feed, official release and custom NetBird binaries",
+    "Firewall zone and LAN forwarding automation",
+    "Full netbird up settings",
+    "Exit node selection that survives reboots",
+    "Peer status",
+    "Live logs"
+  ]
+}
+  </script>
+  <!-- FAQPage 结构化数据与下方 #faq 可见内容逐条对应;修改 FAQ 时同步更新 -->
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "inLanguage": "en",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "How do I install NetBird on OpenWrt without curl?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Use the wget command shown at the top of this page: wget -O - https://luci-app-netbird.okk.sh/install.sh | sh. Most OpenWrt builds include wget by default. If your router has neither curl nor wget, download the .ipk package from the Downloads section on another machine and transfer it to the router for manual installation."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does luci-app-netbird support self-hosted NetBird servers?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. In Services → NetBird → Authentication, fill in the Management URL with your self-hosted server's address before connecting. The LuCI app treats self-hosted and cloud setups identically — all features including peer status, firewall zones, and WireGuard configuration work the same way."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I set up the NetBird firewall on OpenWrt?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Go to the Network tab in the LuCI app, click Create Firewall Zone, then enable LAN → NetBird to let your local devices reach the mesh, or NetBird → LAN to let mesh peers reach your local network. You can toggle either direction independently. Removing a forwarding rule also closes connections that are already open, using the conntrack tool installed as a dependency."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I select a NetBird exit node on OpenWrt?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Go to the Network tab in the LuCI app. The Exit node section lists every exit node your NetBird management server has made available to this router. Pick one and click Apply exit node to route all internet traffic from the router (and devices using it as gateway) through that peer — the VPN exit node takes effect immediately, no save or restart needed. Selecting Off restores direct internet access. Exit nodes themselves are defined in the NetBird management console; the router can only choose among the nodes it was granted."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I use NetBird with WireGuard on OpenWrt?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes — NetBird uses WireGuard as its underlying tunnel protocol, and it coexists with your existing WireGuard tunnels. Because the interface (device) name and listen port are configurable under Services → NetBird → Settings — along with MTU and persistent keepalive — NetBird won't conflict with other WireGuard instances on the same router. You can also configure routes, DNS, IPv6, and Rosenpass (post-quantum resistant WireGuard) from the same tab."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Which architectures does the NetBird OpenWrt package support?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "The LuCI package itself is architecture-independent (PKGARCH:=all) and works on x86_64, arm64, 386 (32-bit x86), and armv6. The underlying netbird binary from the feed is architecture-specific and available for all major OpenWrt targets. x86_64 is the most tested platform; other architectures are supported but receive less testing."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I update the NetBird client on OpenWrt?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Use the Versions tab in the LuCI app (Services → NetBird → Versions). You can switch between the official release channel, the system package feed, or pin a specific version via custom URL, then download and switch with one click."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Will my settings survive an OpenWrt upgrade?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. /etc/config/netbird is a conffile and is kept by keep-settings firmware upgrades, so the Management URL, firewall settings and all other options survive both package and firmware upgrades, and the NetBird identity is kept as well. Setup keys are never stored. If you uninstall and reinstall the package, however, you may need to reconfigure."
+      }
+    }
+  ]
+}
   </script>
 
   <!-- privacy-friendly analytics (pageview.app) -->
@@ -546,8 +652,9 @@ opkg install luci-app-netbird</pre>
           <strong>Create Firewall Zone</strong>, then enable
           <code>LAN → NetBird</code> to let your local devices reach the mesh,
           or <code>NetBird → LAN</code> to let mesh peers reach your local network.
-          You can toggle either direction independently. The optional
-          <code>conntrack</code> package improves connection tracking for forwarded traffic.
+          You can toggle either direction independently. Removing a forwarding rule
+          also closes connections that are already open, using the <code>conntrack</code>
+          tool installed as a dependency.
         </p>
       </div>
 
@@ -603,10 +710,11 @@ opkg install luci-app-netbird</pre>
       <div class="faq-item">
         <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:6px">Will my settings survive an OpenWrt upgrade?</h3>
         <p style="font-size:.9rem;color:var(--text-muted)">
-          Yes. <code>/etc/config/netbird</code> is marked as a conffile, so your
-          authentication keys, Management URL, firewall settings, and all other
-          configuration are preserved across package upgrades. If you uninstall and
-          reinstall the package, however, you may need to reconfigure.
+          Yes. <code>/etc/config/netbird</code> is a conffile and is kept by keep-settings
+          firmware upgrades, so the Management URL, firewall settings and all other options
+          survive both package and firmware upgrades, and the NetBird identity is kept as well.
+          Setup keys are never stored. If you uninstall and reinstall the package, however,
+          you may need to reconfigure.
         </p>
       </div>
     </div>
