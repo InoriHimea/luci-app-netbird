@@ -405,10 +405,13 @@ function _build_auth_cmd(bin, verb, mgmt_url, setup_key) {
 // _apply_pending_settings() — 未登录时保存的设置（netbird-settings 留下待应用标记）在登录成功后
 // 补应用一次。后台执行、不阻塞本次 RPC；应用会 down→up，本次新建的连接随之短暂重连一次。
 const _NB_SETTINGS_PENDING = '/etc/netbird-settings.pending';
+// netbird-settings 记录的「上次成功应用的参数指纹」;身份被清除或需要强制重新应用时作废。
+const _NB_SETTINGS_APPLIED = '/var/run/netbird-settings.applied';
 function _apply_pending_settings() {
     if (!access(_NB_SETTINGS_PENDING, 'f'))
         return;
     unlink(_NB_SETTINGS_PENDING);
+    unlink(_NB_SETTINGS_APPLIED);
     system('( /etc/init.d/netbird-settings reload ) </dev/null >/dev/null 2>&1 &');
 }
 
@@ -3481,6 +3484,7 @@ return {
                     _run_init('stop');                     // 删配置前必须停 daemon(否则内存身份继续重连)
                     _wait_daemon_gone();                   // stop 是异步的,确认退出后再删,避免 daemon 退出时写回身份
                     let removed = _wipe_local_identity();
+                    unlink(_NB_SETTINGS_APPLIED);           // daemon 配置随身份删除,下次须重新应用设置
                     if (removed < 0) {
                         _run_init('start');
                         return err(CODE.CLI_ERROR, 'Failed to remove the local NetBird configuration files.');
@@ -3497,6 +3501,7 @@ return {
                 // 先 down（幂等，忽略非零）再 deregister
                 _exec_short_verb(bin, 'down');
                 let r = _exec_short_verb(bin, 'deregister');
+                unlink(_NB_SETTINGS_APPLIED);   // 注销后 daemon 配置可能被重置,下次须重新应用设置
                 if (r.code == -1)
                     return err(CODE.CLI_ERROR, r.stdout || 'netbird deregister failed');
                 // deregister 非零分两种，绝不一概当成功（否则真失败也误报「本地身份已删除」误导用户）：
