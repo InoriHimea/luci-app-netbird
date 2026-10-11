@@ -136,6 +136,20 @@ function _run_init(action) {
     return { code: exit_code, stdout: buf, stderr: msg };
 }
 
+// _ensure_helper_services() — 确保设置应用(netbird-settings)与自动重连(luci-netbird-watchdog)
+// 两个辅助服务已启用并在运行。正常安装由包脚本启用;但有些预装固件的构建流程不执行包脚本,
+// 这两个服务从未启用,设置的 Save&Apply 与自动重连都会静默失效,直到插件被更新一次。
+// 在用户启用服务或发起连接时补齐;服务名为字面常量。
+function _ensure_helper_services() {
+    for (let svc in ['netbird-settings', 'luci-netbird-watchdog']) {
+        let init = '/etc/init.d/' + svc;
+        if (!access(init, 'x') || system(_to(init + ' enabled >/dev/null 2>&1')) == 0)
+            continue;
+        system(_to(init + ' enable >/dev/null 2>&1'));
+        system(_to(init + ' start >/dev/null 2>&1'));
+    }
+}
+
 // ============================================================================
 // 认证辅助（do_up / do_down / do_login / do_logout）
 // ============================================================================
@@ -2980,6 +2994,8 @@ function _do_up(req) {
     if (!mr.ok)
         return err(CODE.INVALID_INPUT, mr.message);
 
+    _ensure_helper_services();
+
     // 仅当 caller 显式传入合法 url 才持久化（非机密）
     if (length(arg_url) > 0)
         _persist_mgmt_url(arg_url);
@@ -3540,6 +3556,7 @@ return {
             args: {},
             call: _safe(function() {
                 let st = probe_state();
+                _ensure_helper_services();
 
                 // step 1 — already running 或 needs_login 都短路（双 early-return）
                 if (st.status == 'running' || st.status == 'needs_login') {
