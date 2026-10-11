@@ -402,6 +402,16 @@ function _build_auth_cmd(bin, verb, mgmt_url, setup_key) {
     return cmd;
 }
 
+// _apply_pending_settings() — 未登录时保存的设置（netbird-settings 留下待应用标记）在登录成功后
+// 补应用一次。后台执行、不阻塞本次 RPC；应用会 down→up，本次新建的连接随之短暂重连一次。
+const _NB_SETTINGS_PENDING = '/etc/netbird-settings.pending';
+function _apply_pending_settings() {
+    if (!access(_NB_SETTINGS_PENDING, 'f'))
+        return;
+    unlink(_NB_SETTINGS_PENDING);
+    system('( /etc/init.d/netbird-settings reload ) </dev/null >/dev/null 2>&1 &');
+}
+
 // _cli_immediate_error(r) → { message, hint } | null：认证 CLI 自行返回（未被墙钟杀掉）且属于
 // 轮询也无法改变的失败——参数用法错误、连不上本机 NetBird 服务——时给出原因；其余返回 null
 // 交给原有的轮询与归因。hint 带 CLI 原话首行，便于定位版本差异。
@@ -2926,6 +2936,7 @@ function _do_up(req) {
         let mgmt = (poll.json != null && poll.json.management != null) ? poll.json.management : {};
         _set_desired_connected(true);
         _clear_runtime_error();
+        _apply_pending_settings();
         return ok({
             connected: true,
             management_url: mgmt.url || mr.url || '',
@@ -3282,6 +3293,7 @@ return {
                         _persist_setup_key_hint(setup_key);
                     setup_key = '';  // 立即清零瞬时密钥（密钥绝不入 UCI）
                     _clear_runtime_error();
+                    _apply_pending_settings();
                     return ok({ logged_in: true });
                 }
                 setup_key = '';  // 失败分支同样清零瞬时密钥（密钥绝不入 UCI）
