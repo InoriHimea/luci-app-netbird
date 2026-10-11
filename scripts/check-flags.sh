@@ -28,7 +28,7 @@ fi
 
 # ── 已知跳过清单(非设置项 / 有意不暴露)—— 改变决策时更新这里 ────────────────────
 # 操作/认证类 flag(不属于「设置」页范畴):
-SKIP_OPERATIONAL="--admin-url --anonymize --config --daemon-addr --foreground-mode --help --log-file --no-browser --profile --qr --service --setup-key --setup-key-file"
+SKIP_OPERATIONAL="--admin-url --anonymize --anonymize-level --config --daemon-addr --foreground-mode --help --log-file --no-browser --profile --qr --service --setup-key --setup-key-file"
 # 有意不暴露的设置 flag(评审后决定暂不做;若改主意,从此处移除并去 UI/init.d/i18n 添加):
 #   --mtu                                              错配致服务假死(脚枪),不暴露
 #   --external-ip-map --extra-dns-labels
@@ -40,7 +40,9 @@ SKIP_OPERATIONAL="--admin-url --anonymize --config --daemon-addr --foreground-mo
 #                                                      lazy connection 改由管理端 feature flag 驱动,
 #                                                      本地覆盖走 NB_LAZY_CONN 环境变量(on/off),
 #                                                      不再是 up flag;条目保留以兼容 ≤0.73 的 help
-SKIP_OMITTED="--mtu --external-ip-map --extra-dns-labels --extra-iface-blacklist --dns-router-interval --ssh-jwt-cache-ttl --network-monitor --disable-auto-connect --enable-lazy-connection --dns-resolver-address"
+#   --allow-remote-jobs                                0.78 起管理端远程收集诊断包需本机先开启;候选,待评估
+#   --enable-local-metrics --local-metrics-address     本机 metrics 端点,路由器场景价值低
+SKIP_OMITTED="--mtu --external-ip-map --extra-dns-labels --extra-iface-blacklist --dns-router-interval --ssh-jwt-cache-ttl --network-monitor --disable-auto-connect --enable-lazy-connection --dns-resolver-address --allow-remote-jobs --enable-local-metrics --local-metrics-address"
 SKIP=" $SKIP_OPERATIONAL $SKIP_OMITTED "
 
 # ── 取 `netbird up --help` 文本 ───────────────────────────────────────────────

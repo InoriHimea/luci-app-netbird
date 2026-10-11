@@ -43,6 +43,8 @@ if [ -x /bin/opkg ]; then
 	wget -O /tmp/netbird-key.pub "$REPO/key-build.pub"
 	opkg-key add /tmp/netbird-key.pub
 	rm -f /tmp/netbird-key.pub
+	# 部分厂商固件没有 customfeeds.conf;set -e 下 sed 对不存在的文件会直接中止安装。
+	touch /etc/opkg/customfeeds.conf
 	sed -i "\\#$REPO#d" /etc/opkg/customfeeds.conf
 	echo "src/gz $NAME $FEED" >> /etc/opkg/customfeeds.conf
 	# opkg update exits non-zero when any configured feed fails, including vendor

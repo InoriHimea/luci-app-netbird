@@ -394,6 +394,9 @@ return view.extend({
 			if (!op.copy_preserved && op.binary_available)
 				rows.push(E('p', { 'class': 'cbi-section-descr' },
 					_('No local %s binary copy is kept; switching will fetch it from the %s feed automatically (%s).').format(pkgMgr, pkgMgr, fetchCmd)));
+			else if (!op.binary_available && op.lists_loaded === false)
+				rows.push(E('p', { 'class': 'cbi-section-descr', 'style': 'color:#a00' },
+					_('The %s package lists are not loaded (they are cleared on reboot), so netbird cannot be looked up. Run "%s update", then reload this page.').format(pkgMgr, pkgMgr)));
 			else if (!op.binary_available)
 				rows.push(E('p', { 'class': 'cbi-section-descr', 'style': 'color:#a00' },
 					_('The %s feed does not provide netbird on this device, so switching is unavailable. Check your package sources.').format(pkgMgr)));

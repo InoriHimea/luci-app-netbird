@@ -429,6 +429,9 @@ function _cli_immediate_error(r) {
     if (match(out, /unknown (shorthand )?flag|unknown command|flag needs an argument|invalid argument/))
         return { message: 'The NetBird client rejected the command; it may be too old for this action.',
                  hint: 'NetBird: ' + first };
+    if (match(out, /pass --profile/))
+        return { message: 'NetBird could not determine the active profile. Restart the NetBird service, then try again.',
+                 hint: 'NetBird: ' + first };
     if (match(out, /failed to connect to daemon|dial unix [^ ]*: connect: (no such file or directory|connection refused)/))
         return { message: 'The NetBird service is not running or not responding. Start it, then try again.',
                  hint: 'NetBird: ' + first };
@@ -1503,6 +1506,19 @@ function _elf_machine(path) {
     return be ? ((b18 << 8) | b19) : ((b19 << 8) | b18);
 }
 
+// _elf_ident(path) → 'c<EI_CLASS>d<EI_DATA>'(字长 + 端序)|''(非 ELF/读失败)。e_machine 相同的
+// 32/64 位或大/小端二进制(如 mips/mipsel)只比 e_machine 区分不出,需一并比较这两个字节。
+function _elf_ident(path) {
+    let fd = open(path, 'r');
+    if (fd == null)
+        return '';
+    let buf = fd.read(6);
+    fd.close();
+    if (buf == null || length(buf) < 6 || ord(substr(buf, 0, 1)) != 0x7f || substr(buf, 1, 3) != 'ELF')
+        return '';
+    return sprintf('c%dd%d', ord(substr(buf, 4, 1)), ord(substr(buf, 5, 1)));
+}
+
 // _file_size_kb(path) → 文件大小 KB(向上取整);不存在/解析失败返 -1。
 function _file_size_kb(path) {
     if (path == null || !access(path, 'f'))
@@ -1909,6 +1925,16 @@ function _native_emachine() {
     return -1;
 }
 
+// _native_elf_ident() → 本机用户态 ELF 的字长 + 端序标识(同 _native_emachine 的取样文件);取不到返 ''。
+function _native_elf_ident() {
+    for (let ref in ['/bin/busybox', '/bin/sh', '/sbin/init', '/usr/bin/ucode']) {
+        let id = _elf_ident(ref);
+        if (length(id) > 0)
+            return id;
+    }
+    return '';
+}
+
 // _opkg_upgradable_netbird() → 系统软件源里 netbird 可升级到的版本 'X.Y.Z'|''(用缓存列表,不联网)。
 // 命令按 _pkg_mgr() 分流(opkg list-upgradable / apk version)。
 function _opkg_upgradable_netbird() {
@@ -1982,6 +2008,24 @@ function _overlay_free_kb() {
     return match(avail, /^[0-9]+$/) ? int(avail) : -1;
 }
 
+// _feed_lists_loaded() → 软件包列表是否已加载。opkg 的列表在 tmpfs(默认 /var/opkg-lists),重启后为空,
+// 此时「源里查不到 netbird」并不代表源不提供,前端据此提示先更新列表。apk 视为已加载。
+function _feed_lists_loaded() {
+    if (_pkg_mgr() == 'apk')
+        return true;
+    let dir = '/var/opkg-lists';
+    let fd = open('/etc/opkg.conf', 'r');
+    if (fd != null) {
+        let conf = fd.read('all') || '';
+        fd.close();
+        let m = match(conf, /(^|\n)lists_dir\s+\S+\s+(\S+)/);
+        if (m)
+            dir = m[2];
+    }
+    let ents = lsdir(dir);
+    return (ents != null && length(ents) > 0);
+}
+
 // _opkg_feed_has_netbird() → 系统软件源是否提供 netbird 包(本地缓存列表,不联网)。命令按 _pkg_mgr() 分流。
 function _opkg_feed_has_netbird() {
     if (_pkg_mgr() == 'apk') {
@@ -2045,6 +2089,11 @@ function _fetch_opkg_binary() {
     if (got_em < 0 || (want_em > 0 && got_em != want_em)) {
         cleanup();
         return { ok: false, err: sprintf('feed binary arch mismatch (host e_machine=%d, package e_machine=%d)', want_em, got_em), version: '' };
+    }
+    let host_id = _native_elf_ident();
+    if (length(host_id) > 0 && _elf_ident(extracted) != host_id) {
+        cleanup();
+        return { ok: false, err: 'feed binary word size or byte order differs from this device', version: '' };
     }
     let cv = _file_version(extracted);
     if (length(cv) == 0) {
@@ -2115,6 +2164,7 @@ function _do_get_binary_info(req) {
             // 能否切到 opkg:有副本 / 当前已是 opkg / feed 提供(可 opkg download 自动获取,V4)。
             binary_available: (opkg_copy || active == 'opkg' || _opkg_feed_has_netbird()),
             copy_preserved:   opkg_copy,
+            lists_loaded:     _feed_lists_loaded(),
         },
         custom: {
             versions:       custom_out,
@@ -2423,6 +2473,10 @@ function _update_binary_locked(req) {
     if (want_em > 0 && got_em != want_em)
         return fail_work(CODE.ARCH_MISMATCH,
                          sprintf('Downloaded package arch mismatch: host e_machine=%d, package e_machine=%d; installation aborted', want_em, got_em));
+    let host_id = _native_elf_ident();
+    if (length(host_id) > 0 && _elf_ident(new_bin) != host_id)
+        return fail_work(CODE.ARCH_MISMATCH,
+                         'The downloaded binary was built for a different word size or byte order than this device; installation aborted.');
 
     // step 7 — 解压件能执行 version(完整性兜底)
     if (_progress_canceled())
@@ -2727,7 +2781,7 @@ function _pkg_install_exact(name) {
     let mgr = _pkg_mgr();
     let cmd;
     if (mgr == 'apk')
-        cmd = 'apk add --allow-untrusted ' + name + ' 2>&1';
+        cmd = 'apk add ' + name + ' 2>&1';   // 从已配置的签名软件源按名安装,保留签名校验
     else
         cmd = 'opkg install ' + name + ' 2>&1';
     let r = _popen_simple(cmd); // shell-audit-ok: name 经严格白名单校验
@@ -3032,15 +3086,8 @@ return {
         get_logs: {
             args: { limit: 200, since_ts: 0 },
             call: _safe(function(req) {
+                // 不以 running 为前提:需要登录、服务停止或崩溃时恰恰最需要看日志。
                 let st = probe_state();
-                if (st.status != 'running') {
-                    return ok({
-                        lines: [],
-                        state: st.status,
-                        source: 'daemon',
-                        note: 'service not running, logs unavailable',
-                    });
-                }
 
                 // 参数取值兼容：rpcd 把 args 传入 req.args；防御性处理 null / 非数字
                 let a = (req != null && req.args != null) ? req.args : (req || {});
@@ -3059,9 +3106,9 @@ return {
                 if (total > limit)
                     lines = slice(lines, total - limit);
 
-                let data = { lines: lines, truncated: truncated, source: src.source };
+                let data = { lines: lines, truncated: truncated, source: src.source, state: st.status };
                 if (length(lines) == 0)
-                    data.note = 'no_logs_in_ring';
+                    data.note = (st.status == 'running') ? 'no_logs_in_ring' : 'service not running, logs unavailable';
                 return ok(data);
             }),
         },
@@ -3353,6 +3400,7 @@ return {
                     if (bin != null)
                         _exec_short_verb(bin, 'down');     // 幂等,断开在途连接,忽略非零
                     _run_init('stop');                     // 删配置前必须停 daemon(否则内存身份继续重连)
+                    _wait_daemon_gone();                   // stop 是异步的,确认退出后再删,避免 daemon 退出时写回身份
                     let removed = _wipe_local_identity();
                     if (removed < 0) {
                         _run_init('start');
