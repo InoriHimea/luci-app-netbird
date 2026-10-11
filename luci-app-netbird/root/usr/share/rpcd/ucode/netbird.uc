@@ -1252,6 +1252,45 @@ function _running_version(bin) {
 const _NB_DL_STATUS = '/tmp/luci-netbird-binary-download.status';
 const _NB_DL_CANCEL = '/tmp/luci-netbird-binary-download.cancel';
 const _NB_DL_WORKER_LOG = '/tmp/luci-netbird-binary-download.worker.log';
+// 后台下载 worker 的 PID。进度文件没有可靠的 pid 字段(各阶段写入时都会重写),单独存放;
+// worker 被 OOM/崩溃杀掉后,查询进度时据此发现并把卡住的中间态改为失败。
+const _NB_DL_WORKER_PID = '/tmp/luci-netbird-binary-download.pid';
+
+// _pid_runs(pid, needle) → bool:进程存在且命令行含 needle(防 PID 复用后误判/误杀)。
+function _pid_runs(pid, needle) {
+    if (!match(pid || '', /^[0-9]+$/))
+        return false;
+    let fd = open('/proc/' + pid + '/cmdline', 'r');
+    if (fd == null)
+        return false;
+    let cl = fd.read('all') || '';
+    fd.close();
+    return index(cl, needle) >= 0;
+}
+
+function _read_small_text(path) {
+    let fd = open(path, 'r');
+    if (fd == null)
+        return '';
+    let t = fd.read(64) || '';
+    fd.close();
+    return trim(t);
+}
+
+// 二进制操作互斥锁(mkdir 原子创建)。锁目录里记录持锁进程(popen 的 sh 的父进程,即 rpcd 或
+// 后台 worker)的 PID:持有者被 OOM/崩溃杀掉时锁不会释放,之后所有二进制操作都报"进行中"直到重启。
+const _NB_BINOP_LOCK = '/tmp/nb-binop.lock';
+
+// _binop_lock_stale() → bool:锁存在但持有者已不在。无持有者记录的旧锁(旧版本留下)超过 10 分钟视为残留。
+function _binop_lock_stale() {
+    let st = stat(_NB_BINOP_LOCK);
+    if (st == null)
+        return false;
+    let owner = _read_small_text(_NB_BINOP_LOCK + '/owner');
+    if (length(owner) > 0)
+        return !_pid_runs(owner, 'ucode') && !_pid_runs(owner, 'rpcd');
+    return time() - st.mtime > 600;
+}
 
 // _progress_download_cmd(fetcher,out,secs,total) — 包装实际下载器,每秒写状态文件并响应取消。
 // total 为 0/正数时写进度;null 表示仅复用原墙钟 watchdog,不污染当前下载进度状态。
@@ -1601,6 +1640,8 @@ function _progress_phase(phase, message, path, total) {
     let prev = _progress_status();
     let started = prev.started > 0 ? prev.started : now;
     let downloaded = (path != null && length(path) > 0) ? _file_size_bytes(path) : prev.downloaded;
+    if (downloaded < 0)
+        downloaded = prev.downloaded;   // 下载包已在解压后删除(省 /tmp),沿用最后一次读数
     let elapsed = (now > started) ? (now - started) : 0;
     let speed = (elapsed > 0 && downloaded > 0) ? int(downloaded / elapsed) : prev.speed;
     let t = (total != null && total > 0) ? total : prev.total;
@@ -1627,7 +1668,20 @@ function _progress_canceled() {
 }
 
 function _do_get_binary_update_progress(req) {
-    return ok(_progress_status());
+    let st = _progress_status();
+    if (st.active) {
+        let wpid = _read_small_text(_NB_DL_WORKER_PID);
+        if (length(wpid) > 0 && !_pid_runs(wpid, 'ucode')) {
+            // worker 已不在(OOM/崩溃/被停止):中间态永远不会再更新,改为终态让前端结束等待。
+            if (st.phase == 'stopping')
+                _progress_phase('canceled', 'Download stopped.', '', st.total);
+            else
+                _progress_phase('failed', 'The download worker stopped unexpectedly. Try again.', '', st.total);
+            unlink(_NB_DL_WORKER_PID);
+            st = _progress_status();
+        }
+    }
+    return ok(st);
 }
 
 function _do_cancel_binary_update(req) {
@@ -1635,15 +1689,17 @@ function _do_cancel_binary_update(req) {
     if (!st.active)
         return ok(st);
     _popen_simple('touch ' + shell_quote(_NB_DL_CANCEL) + ' 2>/dev/null');
-    if (match(st.pid || '', /^[0-9]+$/))
-        _popen_simple('kill -9 ' + st.pid + ' 2>/dev/null');
+    // worker 会在阶段之间检查取消标记;只在核实 PID 仍是下载 worker 时才强杀,避免误伤复用了该 PID 的进程。
+    let wpid = _read_small_text(_NB_DL_WORKER_PID);
+    if (_pid_runs(wpid, 'ucode'))
+        _popen_simple('kill -9 ' + wpid + ' 2>/dev/null');
     _progress_phase('stopping', 'Stopping download...', '', st.total);
     return ok(_progress_status());
 }
 
 function _do_start_binary_update(req) {
     let st = _progress_status();
-    if (st.active || access('/tmp/nb-binop.lock', 'f'))
+    if (st.active || (access(_NB_BINOP_LOCK, 'f') && !_binop_lock_stale()))
         return err(CODE.INSTALL_FAILED, 'Another binary operation is in progress; please wait and try again.');
 
     let a = (req != null && req.args != null) ? req.args : (req || {});
@@ -1667,6 +1723,11 @@ function _do_start_binary_update(req) {
     if (!match(pid, /^[0-9]+$/)) {
         _progress_phase('failed', 'Could not start the download worker.', '', 0);
         return err(CODE.INSTALL_FAILED, 'Could not start the download worker.');
+    }
+    let pfd = open(_NB_DL_WORKER_PID, 'w');
+    if (pfd != null) {
+        pfd.write(pid);
+        pfd.close();
     }
     return ok({ started: true, pid: int(pid) });
 }
@@ -2185,13 +2246,20 @@ function _do_get_binary_info(req) {
 // 二进制操作交错。原子 mkdir 锁让第二个操作快速失败,而非交错破坏(下载/换 symlink/重启 daemon)。
 // 锁目录在 /tmp(tmpfs):进程被硬杀残留也会随重启自然清除;_binop_guard 用 try/catch 保证异常
 // 路径也释放锁。ucode 不 hoist:这三个 helper 定义在所有二进制 _do_* 之前。
-const _NB_BINOP_LOCK = '/tmp/nb-binop.lock';
+// 取锁失败时核实持有者,已不在则回收(见 _binop_lock_stale)。
 function _binop_lock() {
-    let r = _popen_simple('mkdir ' + shell_quote(_NB_BINOP_LOCK) + ' 2>/dev/null && echo OK');
+    let q = shell_quote(_NB_BINOP_LOCK);
+    let r = _popen_simple('mkdir ' + q + ' 2>/dev/null && echo $PPID > ' + q + '/owner && echo OK');
+    if (trim(r.out) == 'OK')
+        return true;
+    if (!_binop_lock_stale())
+        return false;
+    _popen_simple('rm -rf ' + q + ' 2>/dev/null');
+    r = _popen_simple('mkdir ' + q + ' 2>/dev/null && echo $PPID > ' + q + '/owner && echo OK');
     return trim(r.out) == 'OK';
 }
 function _binop_unlock() {
-    _popen_simple('rmdir ' + shell_quote(_NB_BINOP_LOCK) + ' 2>/dev/null');
+    _popen_simple('rm -rf ' + shell_quote(_NB_BINOP_LOCK) + ' 2>/dev/null');
 }
 // _sweep_binary_junk() — 清理历次二进制操作残留,防止累积撑爆存储(尤其 overlay)。
 //   由 _binop_guard 在每次操作前调用(已持锁,无并发,安全)。删:
@@ -2321,7 +2389,9 @@ function _update_binary_locked(req) {
         work = '/tmp/nb-update';
         _popen_simple('rm -rf ' + shell_quote(work) + ' 2>/dev/null && mkdir -p ' + shell_quote(work));
     }
-    let tgz_path    = work + '/' + tarball;
+    // 本地文件名固定,不用远端文件名:直链 basename 恰为 netbird 时会与解压目标同路径,
+    // `cat X > X` 先截断再读,下载物自毁。远端名(tarball)只用于 checksum 匹配。
+    let tgz_path    = work + '/download.pkg';
     let sums_path   = work + '/checksums.txt';
     let extract_dir = work;
     let new_bin     = work + '/netbird';
@@ -2453,6 +2523,8 @@ function _update_binary_locked(req) {
         if (untar.code != 0 || !access(new_bin, 'f'))
             return fail_work(CODE.INSTALL_FAILED, 'Could not extract netbird (the download is neither an ELF binary nor a tar.gz containing a netbird member): ' + substr(untar.out, 0, 300));
     }
+    // 下载包已用完(校验和在解压前已核对):立即删除,压低 /tmp(内存)峰值。
+    unlink(tgz_path);
     // 解压/直链保存后再次检查大小:tar 可能生成截断成员,ELF 魔数也可能出现在不完整直链里。
     let new_kb = _file_size_kb(new_bin);
     if (new_kb < 1024)
@@ -2505,8 +2577,15 @@ function _update_binary_locked(req) {
         return cancel_work();
     let active_bin = _active_binary_path();
     let need_stop = (target_path == active_bin);
-    if (access(target_path, 'f'))
-        _popen_simple('cat ' + shell_quote(target_path) + ' > ' + shell_quote(bak_path) + ' 2>/dev/null');
+    if (access(target_path, 'f')) {
+        // 备份必须完整才能动目标:/tmp 不足时半截备份会在失败回滚时被写回,反而毁掉可用的旧版本。
+        let bk = _popen_simple('cat ' + shell_quote(target_path) + ' > ' + shell_quote(bak_path) + ' 2>&1');
+        if (bk.code != 0 || _file_size_bytes(bak_path) != _file_size_bytes(target_path)) {
+            _popen_simple('rm -f ' + shell_quote(bak_path) + ' 2>/dev/null');
+            return fail_work(CODE.INSUFFICIENT_SPACE,
+                             'Not enough temporary space to back up the current binary; nothing was changed.');
+        }
+    }
     let stopped = false;
     if (need_stop) {
         _popen_simple('/etc/init.d/netbird stop 2>&1');
@@ -2540,7 +2619,7 @@ function _update_binary_locked(req) {
         if (access(bak_path, 'f')) {
             _popen_simple('cat ' + shell_quote(bak_path) + ' > ' + shell_quote(target_path) +
                           ' && chmod 0755 ' + shell_quote(target_path) + ' 2>/dev/null');
-            restored = true;
+            restored = (length(_file_version(target_path)) > 0);   // 只有旧版本确实能运行才算已还原
         } else {
             _popen_simple('rm -f ' + shell_quote(target_path) + ' 2>/dev/null');
         }

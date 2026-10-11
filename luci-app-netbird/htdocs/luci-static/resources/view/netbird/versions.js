@@ -328,13 +328,25 @@ return view.extend({
 	_waitDownloadCompletion: function (token) {
 		var self = this;
 		return new Promise(function (resolve) {
+			// 连续查询失败(路由器重启、rpcd 重启、经 NetBird 管理时隧道中断)时不无限转圈:
+			// 约 30 秒后结束等待并提示刷新查看结果;后台下载本身不受影响。
+			var failures = 0;
 			var poll = function () {
 				if (self._downloadToken !== token) {
 					resolve({ phase: 'canceled', message: '' });
 					return;
 				}
 				L.resolveDefault(callBinaryProgress(), { ok: false }).then(function (res) {
-					var p = (res && res.ok) ? (res.data || {}) : {};
+					if (!res || !res.ok) {
+						if (++failures >= 30) {
+							resolve({ phase: 'failed', message: _('Lost contact with the router while waiting for the download. Reload the page to see the result.') });
+							return;
+						}
+						window.setTimeout(poll, 1000);
+						return;
+					}
+					failures = 0;
+					var p = res.data || {};
 					var phase = p.phase || 'idle';
 					self._renderDownloadProgress(p);
 					if (phase === 'done' || phase === 'failed' || phase === 'canceled') {

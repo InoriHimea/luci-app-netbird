@@ -1646,3 +1646,12 @@ msgstr ""
 
 msgid "The downloaded binary was built for a different word size or byte order than this device; installation aborted."
 msgstr ""
+
+msgid "Lost contact with the router while waiting for the download. Reload the page to see the result."
+msgstr ""
+
+msgid "The download worker stopped unexpectedly. Try again."
+msgstr ""
+
+msgid "Not enough temporary space to back up the current binary; nothing was changed."
+msgstr ""

@@ -1193,3 +1193,12 @@ msgstr "NetBird 无法确定当前 profile，请重启 NetBird 服务后再试�
 
 msgid "The downloaded binary was built for a different word size or byte order than this device; installation aborted."
 msgstr "下载的二进制与本机的字长或字节序不符，已中止安装。"
+
+msgid "Lost contact with the router while waiting for the download. Reload the page to see the result."
+msgstr "等待下载时与路由器失去联系，请刷新页面查看结果。"
+
+msgid "The download worker stopped unexpectedly. Try again."
+msgstr "后台下载任务意外终止，请重试。"
+
+msgid "Not enough temporary space to back up the current binary; nothing was changed."
+msgstr "临时空间不足，无法备份当前二进制，未做任何更改。"
