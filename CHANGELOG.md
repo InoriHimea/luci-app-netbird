@@ -26,6 +26,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 - Downloaded binaries are now also checked for the device's word size and byte order, not only its CPU type.
 - The installer no longer stops on firmware without `/etc/opkg/customfeeds.conf`, and it stops with a clear message when the feed script itself cannot be downloaded.
 - NetBird 0.80's "pass --profile" error is recognized and reported directly.
+- Upgrades add newly introduced settings with their defaults again. The check relied on a comment at the top of `/etc/config/netbird`, which disappears the first time the configuration is saved, so the step was being skipped.
 - Added `ucode`, `ucode-mod-fs` and `ucode-mod-uci` to the package dependencies; on 22.03 they were only present because firewall4 happened to install them.
 
 Reboot once after upgrading (or restart rpcd, `netbird-settings` and `luci-netbird-watchdog`) so the updated backend and services load.

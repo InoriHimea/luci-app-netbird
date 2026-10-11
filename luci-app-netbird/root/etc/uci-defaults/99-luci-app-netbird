@@ -20,11 +20,13 @@ if [ ! -f "$CONFIG_FILE" ]; then
 	logger -t "$TAG" "首装：从模板拷贝 $DEFAULTS_TEMPLATE"
 	cp "$DEFAULTS_TEMPLATE" "$CONFIG_FILE"
 
-elif ! head -n1 "$CONFIG_FILE" | grep -qF 'schema v'; then
-	# 无 schema 注释 → 外部手动创建的文件，不动（安全退出）
-	logger -t "$TAG" "警告：$CONFIG_FILE 首行无 'schema v' 注释，跳过修改"
+elif ! head -n1 "$CONFIG_FILE" | grep -qF 'schema v' && [ "$(uci -q get netbird.settings)" != "netbird" ]; then
+	# 既无 schema 注释、也没有本插件的 settings 段 → 外部手动创建的文件，不动（安全退出）
+	logger -t "$TAG" "警告：$CONFIG_FILE 不是本插件的配置文件，跳过修改"
 
-elif head -n1 "$CONFIG_FILE" | grep -qF 'schema v1'; then
+elif head -n1 "$CONFIG_FILE" | grep -qF 'schema v1' || ! head -n1 "$CONFIG_FILE" | grep -qF 'schema v'; then
+	# 首行注释只在模板首次拷贝时存在:rpcd/watchdog 运行中的 uci commit 会重写文件、丢掉注释,
+	# 所以无注释但有本插件 settings 段的文件同样按 schema v1 处理,否则升级时永远补不上新字段。
 	# schema v1 分支：补缺失字段，不覆盖用户已改值（幂等升级）
 	# 此分支同时承载未来 schema 新字段的平滑追加
 	# 噪音抑制：仅当真的补了缺失字段时才 logger 一次（_MISSING_FILLED 标志位），
