@@ -243,9 +243,12 @@ self-heal, so a router managed over the mesh could hard-lock. Instead:
 - **ucode modules** load via `loadfile()` IIFE (the runtime build does not support `export`), and
   **do not hoist function declarations** — a helper must be defined textually before its callers.
 - **`timeout` is probed by running it**, never by checking that the path exists: a `timeout` symlink can point
-  at a BusyBox built without that applet (exits 127, `applet not found`). The backend wraps short commands via
-  `shell.with_timeout`, which runs `timeout 1 true` once at load and falls back to running the command
-  unwrapped; the watchdog script applies the same check at startup. Durations are plain seconds (no `s` suffix).
+  at a BusyBox built without that applet (exits 127, `applet not found`) — and stock OpenWrt BusyBox has no
+  `timeout` at all. The backend wraps short commands via `shell.with_timeout(cmd, secs)`, which runs
+  `timeout 1 true` once at load; without a working `timeout` it falls back to a portable bound: the command
+  runs as `( exec cmd )` in the background with its output in a temp file, and a timer subshell `kill -9`s it
+  when time is up (exit 124). The watchdog and `netbird-settings` source the same logic from
+  `/usr/share/netbird/nb-run-bounded.sh`. Durations are plain seconds (no `s` suffix).
 - **ACL ↔ method table** must stay strictly 1:1 for UI-callable methods (13 read + 17 write = 30
   of the 31 registered methods; the one exception is `restore_exit_node`, which is watchdog-only
   and deliberately kept out of the session ACL).

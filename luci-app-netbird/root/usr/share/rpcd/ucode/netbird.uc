@@ -1332,8 +1332,11 @@ function _dl_cmd(url, out, secs, progress_total, headers) {
         return fetcher;
     }
     let fetch_headers = _download_headers(headers, 'fetch');
+    // uclient-fetch 的 -T 只管连接/空闲超时，慢速持续输出时读 body 没有总时长，且它不响应
+    // SIGTERM；读 body 的调用整体套墙钟（超时 kill -9）。
     if (!to_file)
-        return tool + ' -q -T ' + (bounded ? secs : 20) + fetch_headers + ' -O - ' + q + ' 2>/dev/null';
+        return _to(tool + ' -q -T ' + (bounded ? secs : 20) + fetch_headers + ' -O - ' + q + ' 2>/dev/null',
+                   (bounded ? secs : 20) + 10);
     let fetcher = tool + ' -q -T ' + (bounded ? secs : 20) + fetch_headers + ' -O ' + shell_quote(out) + ' ' + q + ' 2>&1';
     if (progress_total != null)
         return _progress_download_cmd(fetcher, out, secs, progress_total);

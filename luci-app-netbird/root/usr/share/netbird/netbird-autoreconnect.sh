@@ -9,12 +9,8 @@
 
 TAG="luci-netbird-watchdog"
 INTERVAL="${NB_AUTORECONNECT_INTERVAL:-30}"
-# 路径存在不保证 BusyBox 编译了 timeout applet，启动时实际探测一次。
-if timeout 1 true >/dev/null 2>&1; then
-	HAS_TIMEOUT=1
-else
-	HAS_TIMEOUT=0
-fi
+# 有界执行(timeout 不可用时的可移植实现)与 netbird-settings 共用。
+. "${NB_LIBDIR:-/usr/share/netbird}/nb-run-bounded.sh"
 # 重连连续失败时指数退避(INTERVAL→2x→…→封顶 MAX_INTERVAL),连上即复位;
 # 避免长时间 outage 每 INTERVAL 秒一次高成本 do_up + 日志刷屏。
 MAX_INTERVAL="${NB_AUTORECONNECT_MAX_INTERVAL:-300}"
@@ -87,16 +83,11 @@ _clear_error() {
 	_runtime_set last_error "" >/dev/null 2>&1 || true
 }
 
-# 参数:bin 之后的其余参数原样传给 status(如 --json)。
-# timeout 用纯数字秒(BusyBox timeout 与 GNU 都接受;后缀形态并非处处支持)。
+# 参数:bin 之后的其余参数原样传给 status(如 --json)。daemon 卡住时 6 秒后放弃本轮采样。
 _with_timeout_status() {
 	bin="$1"
 	shift
-	if [ "$HAS_TIMEOUT" = 1 ]; then
-		timeout 6 "$bin" status "$@" 2>&1
-	else
-		"$bin" status "$@" 2>&1
-	fi
+	nb_run_bounded 6 "$bin" status "$@" 2>&1
 }
 
 # JSON 采样字段提取(sed 即可,不引入 jsonfilter 依赖)。

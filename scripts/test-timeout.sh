@@ -6,13 +6,14 @@ set -eu
 [ -f /.dockerenv ] || { echo '需要一次性容器环境' >&2; exit 1; }
 source_root="${1:-/src}"
 export NBLIB="$source_root/luci-app-netbird/root/usr/share/rpcd/ucode/lib"
+export NB_LIBDIR="$source_root/luci-app-netbird/root/usr/share/netbird"
 mkdir -p /tmp/nb-test-bin /usr/share/netbird/bin /etc/init.d
 export PATH="/tmp/nb-test-bin:/usr/sbin:/usr/bin:/sbin:/bin"
 cat > /usr/bin/netbird <<'EOF'
 #!/bin/sh
 case "$1" in
 version) echo 0.73.2 ;;
-status) echo '{"daemonVersion":"0.73.2","daemonStatus":"Connected","management":{"connected":true}}' ;;
+status) [ "${NB_TEST_HANG:-0}" = 1 ] && sleep 30; echo '{"daemonVersion":"0.73.2","daemonStatus":"Connected","management":{"connected":true}}' ;;
 *) exit 1 ;;
 esac
 EOF
@@ -64,6 +65,23 @@ if (system(shell.with_timeout('/tmp/nb-exit-nine')) != 9)
     die('命令失败退出码被吞掉');
 print('版本、落盘文件校验、服务状态通过\n');
 EOF
+cat > /tmp/nb-hang-check.uc <<'EOF'
+let cli = loadfile(getenv('NBLIB') + '/netbird_cli.uc')();
+let t0 = time();
+let r = cli.fetch_status_json('/usr/bin/netbird');
+let secs = time() - t0;
+if (r.ok || secs > 8)
+    die(sprintf('卡住的 status 未按时返回: %J，耗时 %d 秒', r, secs));
+print(sprintf('后端 status 卡住 %d 秒后返回: %s\n', secs, r.message));
+EOF
+check_hang() {
+    NB_TEST_HANG=1 ucode /tmp/nb-hang-check.uc
+    t0=$(date +%s)
+    NB_TEST_HANG=1 sh /tmp/nb-watchdog-functions.sh > /tmp/nb-watchdog-status || true
+    t=$(( $(date +%s) - t0 ))
+    [ "$t" -le 9 ] || { echo "watchdog 状态采样卡住 ${t} 秒" >&2; exit 1; }
+    echo "watchdog 状态采样 ${t} 秒后放弃"
+}
 check_watchdog() {
     sh /tmp/nb-watchdog-functions.sh > /tmp/nb-watchdog-status
     grep -F '"daemonStatus":"Connected"' /tmp/nb-watchdog-status
@@ -88,6 +106,8 @@ rm /usr/bin/timeout
 echo '场景：timeout 不存在'
 check_backend
 check_watchdog
+echo '场景：timeout 不存在且 netbird status 卡住，调用方仍须按时返回'
+check_hang
 rm -f /usr/bin/timeout
 cat > /usr/bin/timeout <<'EOF'
 #!/bin/sh
