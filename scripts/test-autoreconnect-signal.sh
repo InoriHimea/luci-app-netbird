@@ -6,6 +6,8 @@ set -u
 [ -f /.dockerenv ] || { echo '需要一次性容器环境' >&2; exit 1; }
 source_root="${1:-/src}"
 prog="$source_root/luci-app-netbird/root/usr/share/netbird/netbird-autoreconnect.sh"
+# 脚本引入的共用有界执行函数随包装在 /usr/share/netbird,此处指向源码目录
+export NB_LIBDIR="$source_root/luci-app-netbird/root/usr/share/netbird"
 # 用不常见的间隔值标识脚本自己派生的 sleep,避免与其他进程混淆
 export NB_AUTORECONNECT_INTERVAL=37
 fail=0

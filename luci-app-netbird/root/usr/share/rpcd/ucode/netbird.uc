@@ -2621,7 +2621,11 @@ function _update_binary_locked(req) {
     //   整组用 `{ …; } 2>&1` 收 stderr:原写法 `… cat > target && chmod … 2>&1` 的 `2>&1` 只绑定末尾
     //   chmod,`cat > target` 写失败(如 overlay 空间不足 ENOSPC)的报错落在未捕获的 stderr → 错误明细
     //   空白(已知 bug:UI 显示「Failed to write the binary:」后面什么都没有)。整组重定向后 wr.out 拿到真因。
-    let wr = _popen_simple('{ mkdir -p ' + shell_quote(_NB_REL_DIR) + ' && cat ' + shell_quote(new_bin) +
+    //   先删除再写:目标若仍被某个进程执行(停服务时恰在运行的 netbird CLI,如 status 采样或设置应用里的 up),
+    //   原地覆盖会报 Text file busy;删除正在执行的文件是允许的,已在运行的进程继续使用旧 inode。
+    //   无进程占用时空间峰值与原地写相同;失败时由下方备份还原。
+    let wr = _popen_simple('{ mkdir -p ' + shell_quote(_NB_REL_DIR) + ' && rm -f ' + shell_quote(target_path) +
+                           ' && cat ' + shell_quote(new_bin) +
                            ' > ' + shell_quote(target_path) + ' && chmod 0755 ' + shell_quote(target_path) + ' ; } 2>&1');
     let to = (wr.code == 0) ? _file_version(target_path) : '';
     if (wr.code != 0 || length(to) == 0) {
