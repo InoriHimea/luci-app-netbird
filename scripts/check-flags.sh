@@ -40,9 +40,8 @@ SKIP_OPERATIONAL="--admin-url --anonymize --anonymize-level --config --daemon-ad
 #                                                      lazy connection 改由管理端 feature flag 驱动,
 #                                                      本地覆盖走 NB_LAZY_CONN 环境变量(on/off),
 #                                                      不再是 up flag;条目保留以兼容 ≤0.73 的 help
-#   --allow-remote-jobs                                0.78 起管理端远程收集诊断包需本机先开启;候选,待评估
 #   --enable-local-metrics --local-metrics-address     本机 metrics 端点,路由器场景价值低
-SKIP_OMITTED="--mtu --external-ip-map --extra-dns-labels --extra-iface-blacklist --dns-router-interval --ssh-jwt-cache-ttl --network-monitor --disable-auto-connect --enable-lazy-connection --dns-resolver-address --allow-remote-jobs --enable-local-metrics --local-metrics-address"
+SKIP_OMITTED="--mtu --external-ip-map --extra-dns-labels --extra-iface-blacklist --dns-router-interval --ssh-jwt-cache-ttl --network-monitor --disable-auto-connect --enable-lazy-connection --dns-resolver-address --enable-local-metrics --local-metrics-address"
 SKIP=" $SKIP_OPERATIONAL $SKIP_OMITTED "
 
 # ── 取 `netbird up --help` 文本 ───────────────────────────────────────────────
