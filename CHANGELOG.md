@@ -3,6 +3,13 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## 0.1.0-r26 — 2026-10-12
+
+### Added
+
+- **Allow remote diagnostics** setting (Settings → Logging, off by default). Since NetBird 0.78 the client refuses remote jobs from the management server — currently collecting a debug bundle from the dashboard — unless the device allows them, so this stopped working for routers managed through the app. Turning it on passes `--allow-remote-jobs=true`; it is skipped automatically on NetBird versions that do not have the option.
+- The Versions tab warns when the running NetBird is older than 0.76.1. NetBird 0.76.0 and 0.76.1 fixed two security issues in the client's local service socket (a high-severity local privilege escalation, GHSA-qcpp-8vwj-hhwr, and a medium-severity arbitrary root file read, GHSA-28q5-j9qm-gx35). The NetBird packages in the OpenWrt 22.03, 23.05 and 24.10 feeds (0.17, 0.24 and 0.59) and in some 25.x builds (ImmortalWrt 25.12.2 ships 0.73) are older than that; switching to the official release on the same tab fixes it.
+
 ## 0.1.0-r25 — 2026-10-12
 
 ### Fixed
