@@ -44,3 +44,9 @@ Devices on r3 or older need one manual/bootstrap upgrade because their updater s
 the upstream hosted feed. Application updates include all package-owned UI, backend and
 scripts plus dependencies and already-installed translations, but not the separate NetBird
 binary. No scheduled unattended upgrade is installed.
+
+Since r5, the native install hooks archive legacy `netbird.uc.bak*` files outside
+`/usr/share/rpcd/ucode/` before the package manager reloads rpcd. The loader does not
+filter by extension, so backups in that directory can register an older object first.
+Use a directory outside the auto-loaded tree for manual backups. `rpcd reload` uses
+SIGHUP to re-execute the management process; do not add a NetBird daemon restart.

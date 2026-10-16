@@ -114,6 +114,11 @@ First connection can acquire a missing official binary, not upgrade an already u
   `luci-i18n-netbird-zh-cn` only when it is already installed. UI, RPC code, settings/watchdog
   scripts and migration hooks are therefore included; the NetBird binary and identity are not
   replaced by application updates. The installed app version must match the requested one.
+- Before the native post-install RPC reload, r5 archives legacy `netbird.uc.bak*`
+  files into unique, root-only `/root/netbird-rpcd-backup.*` directories. rpcd scans
+  every regular file in its script directory, regardless of suffix; an old backup
+  can register the same object first. Native SIGHUP reload re-executes rpcd, so no
+  extra management-service restart or NetBird daemon restart is needed.
 
 | OpenWrt series | Package manager | Manifest branch | Package filename |
 |---|---|---|---|

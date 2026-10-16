@@ -76,6 +76,7 @@ apk add --allow-untrusted luci-app-netbird-*.apk luci-i18n-netbird-zh-cn-*.apk
 - **NetBird 二进制更新**是另一项操作。官方版本激活时是 `/usr/bin/netbird` 真文件；custom 使用版本化 symlink。切到 custom 时保存官方版本，切回无需重下；更新停放的官方版本不打断正在运行的 custom daemon。
 - 两种更新均由用户操作触发，自动重连不等于无人值守升级。首次连接可以补齐缺失的官方二进制，但不会定时升级已有版本。
 - 从 **0.2.0-r4** 起，插件更新读取本 fork GitHub Release 的 `manifest.json`，按确定的版本 tag 下载资产，并使用已配置的 GitHub CDN 地址。**r3 及更早版本须先从本 fork Releases 手动升级一次**，旧入口仍查询上游软件源。
+- 从 **0.2.0-r5** 起，安装时会先将历史 `netbird.uc.bak*` 备份归档到私有的 `/root/netbird-rpcd-backup.*` 目录，再由系统原生重载 RPC 后端。手工备份必须放在 `/usr/share/rpcd/ucode/` 之外：rpcd 会加载其中所有普通文件，改成 `.bak` 后缀仍可能让旧后端抢先注册。
 
 ## 快速上手
 

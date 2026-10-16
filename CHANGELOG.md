@@ -3,6 +3,17 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## 0.2.0-r5 — 2026-10-17
+
+### Fixed
+
+- Archive legacy `netbird.uc.bak*` copies outside rpcd's auto-loaded script directory before the native post-install reload. rpcd loads all regular files regardless of extension; an old backup could register `luci.netbird` before the installed module and keep the old backend active even after a restart.
+- Preserve backup contents in a unique, root-only `/root/netbird-rpcd-backup.*` directory, including backups made as relative symbolic links. Do not overwrite prior archives, change other plugins, or restart the NetBird daemon.
+
+### Upgrade notes
+
+- The complete package update includes this migration. Native `rpcd reload` re-executes the management backend; no router reboot or extra rpcd restart is required. Keep manual RPC backups outside `/usr/share/rpcd/ucode/`, not merely under another suffix.
+
 ## 0.2.0-r4 — 2026-10-16
 
 ### Fixed

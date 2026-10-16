@@ -76,6 +76,7 @@ Add this repo to an OpenWrt / ImmortalWrt SDK or buildroot (under `package/` or 
 - **NetBird binary update** is separate. An active official release is a real `/usr/bin/netbird`; custom versions use a symlink. Switching to custom parks the official binary, so switching back does not require another download. Updating the parked official version does not interrupt the active custom daemon.
 - Both update actions require user interaction; automatic reconnect is not an unattended upgrader. Initial connection may acquire a missing official binary, but does not periodically upgrade an existing one.
 - Since **0.2.0-r4**, application updates read this fork's GitHub Release `manifest.json` and use version-pinned assets, honoring the configured GitHub CDN base. **r3 and older need a one-time manual upgrade** from this fork's Releases because their old updater queries the upstream feed.
+- Since **0.2.0-r5**, installation archives legacy `netbird.uc.bak*` copies to a private `/root/netbird-rpcd-backup.*` directory before the native RPC reload. Keep manual backups outside `/usr/share/rpcd/ucode/`: rpcd loads every regular file there, including `.bak` files, which can otherwise leave an older backend active.
 
 ## Setup / Quick start
 

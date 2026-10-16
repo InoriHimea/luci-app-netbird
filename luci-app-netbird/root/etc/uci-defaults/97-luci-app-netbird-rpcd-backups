@@ -1,0 +1,22 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# rpcd-mod-ucode loads every regular file in its script directory, including .bak files.
+# Preserve legacy copies outside that directory before the native post-install reload.
+[ -z "${IPKG_INSTROOT:-}" ] || exit 0
+
+archive=
+for file in /usr/share/rpcd/ucode/netbird.uc.bak*; do
+	[ -f "$file" ] || continue
+	if [ -z "$archive" ]; then
+		umask 077
+		archive=$(mktemp -d /root/netbird-rpcd-backup.XXXXXX) || exit 1
+	fi
+	if [ -L "$file" ]; then
+		# Preserve the contents of relative links as well as ordinary backup files.
+		cp -pL "$file" "$archive/${file##*/}" && rm "$file" || exit 1
+	else
+		mv "$file" "$archive/" || exit 1
+	fi
+done
+
+exit 0
