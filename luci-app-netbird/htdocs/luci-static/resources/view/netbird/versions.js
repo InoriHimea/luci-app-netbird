@@ -7,11 +7,10 @@
 'require dom';
 'require view.netbird.dom-helpers as nb';
 
-// 版本管理 Tab —— 三来源(NetBird-Release / NetBird-OpenWRT / 自定义下载链接)。
+// 版本管理:官方 release 真文件和按版本保存的 custom;LuCI 包更新为独立操作。
 // 后端:get_binary_info(check_remote) / update_binary(url) / set_binary_source(source,version) / delete_custom_binary(version)。
 //   - 进页只显本地信息(不联网);远端版本由「检测更新」按钮显式拉(避限流)。
 //   - Release:检测更新后若有新版,「立即更新」按钮紧挨「检测更新」。
-//   - OpenWRT:切换键非 active 即可点;无副本时后端非破坏性 opkg download 自动获取(免删 init.d)。
 //   - 自定义:仅此选项显 URL 框 + 下载;下载按真二进制版本号存多版本,可切换/删除。架构由后端 ELF 头校验。
 //   - 选中 active 来源不显示「此来源已生效」(隐藏切换键)。
 //   - 纯操作按钮,无 Save&Apply / form.Map;binary_source 由 set_binary_source rpc 直写 UCI。
@@ -41,17 +40,9 @@ function belowSecureVersion(v) {
 	return false;
 }
 
-function pkgMgrName(d) {
-	return (d && d.pkg_mgr === 'apk') ? 'apk' : 'opkg';
-}
-
-function pkgFetchCommand(d) {
-	return (pkgMgrName(d) === 'apk') ? 'apk fetch' : 'opkg download';
-}
 
 function srcLabel(src) {
 	if (src === 'release') return 'NetBird-Release';
-	if (src === 'opkg')    return 'NetBird-OpenWrt';
 	if (src === 'custom')  return _('Custom download');
 	return src || '';
 }
@@ -76,9 +67,7 @@ return view.extend({
 	render: function (res) {
 		var self = this;
 		self._bin = (res && res.ok && res.data) ? res.data : {};
-		// 下拉仅剩 release/custom(opkg 源已下线)。后端仍可能报 active_source='opkg'
-		// (历史真文件 /usr/bin/netbird),归约到 release,否则 select 视觉停在 release 而
-		// renderDetail 却渲染 opkg 分支 → 需手动切一下才对的 stale 表单。任何非白名单值同样兜底。
+		// 只接受当前支持的两个来源;未就绪时默认显示 release。
 		var _src = self._bin.active_source || 'release';
 		self._sel = (_src === 'release' || _src === 'custom') ? _src : 'release';
 		self._relLatest = null;                             // checkUpdate(release) 结果缓存
@@ -86,8 +75,7 @@ return view.extend({
 
 		var container = E('div', { 'class': 'cbi-map' }, [
 			E('h2', {}, _('NetBird') + ' — ' + _('Versions')),
-			E('div', { 'class': 'cbi-map-descr' },
-				_('The %s package is the fallback baseline; the latest official build has more complete features.').format(pkgMgrName(self._bin)))
+			E('div', { 'class': 'cbi-map-descr' }, _('Manage NetBird binaries separately from luci-app-netbird updates.'))
 		]);
 
 		// ── 当前状态块 ───────────────────────────────────────────────────────
@@ -176,7 +164,7 @@ return view.extend({
 					E('div', { 'class': 'nb-pair-value nb-pair-value-block' }, [
 						fmtVer(d.luci_app_version) || '-',
 						' ',
-						E('a', { 'href': 'https://github.com/looong-cat/luci-app-netbird', 'target': '_blank', 'rel': 'noopener noreferrer' }, 'GitHub'),
+						E('a', { 'href': 'https://github.com/InoriHimea/luci-app-netbird', 'target': '_blank', 'rel': 'noopener noreferrer' }, 'GitHub'),
 						E('div', { 'class': 'cbi-section-actions', 'style': 'margin-top:.4em' }, this._spaced(luActs)),
 						luMsg || E('span', {})
 					])
@@ -411,15 +399,13 @@ return view.extend({
 
 	renderDetail: function () {
 		var self = this, d = self._bin || {}, sel = self._sel;
-		var pkgMgr = pkgMgrName(d);
-		var fetchCmd = pkgFetchCommand(d);
 		var rows = [];
 
 		if (sel === 'release') {
 			var rel = d.release || {};
 			rows.push(E('p', { 'class': 'cbi-section-descr' }, _('This is the official NetBird Release build.')));
 			rows.push(nb.pair(_('Version'), rel.installed ? (fmtVer(rel.version) || '-') : _('Not installed')));
-			rows.push(nb.pair(_('Path'), rel.path || '/usr/share/netbird/bin/netbird-release'));
+			rows.push(nb.pair(_('Path'), rel.path || '/usr/bin/netbird'));
 			self._relCheck = E('div', { 'style': 'margin:.5em 0' });
 			rows.push(self._relCheck);
 			// GitHub 替换地址配置(api_base / cdn_base);留空=走官方直连。
@@ -463,30 +449,6 @@ return view.extend({
 			var sbR = self.switchButton('release', !!rel.installed);
 			if (sbR) acts.push(sbR);
 			rows.push(E('div', { 'class': 'cbi-section-actions' }, self._spaced(acts)));
-		}
-		else if (sel === 'opkg') {
-			var op = d.opkg || {};
-			rows.push(E('p', { 'class': 'cbi-section-descr' }, _('This is the OpenWrt package-repository build.')));
-			rows.push(nb.pair(_('Version'), op.version ? (fmtVer(op.version) || '-') : _('Not installed / not in %s database').format(pkgMgr)));
-			rows.push(nb.pair(_('Path'), op.path || '/usr/bin/netbird'));
-			// 提示:无副本但 feed 可用 → 切换时自动获取;feed 也无 → 红字
-			if (!op.copy_preserved && op.binary_available)
-				rows.push(E('p', { 'class': 'cbi-section-descr' },
-					_('No local %s binary copy is kept; switching will fetch it from the %s feed automatically (%s).').format(pkgMgr, pkgMgr, fetchCmd)));
-			else if (!op.binary_available && op.lists_loaded === false)
-				rows.push(E('p', { 'class': 'cbi-section-descr', 'style': 'color:#a00' },
-					_('The %s package lists are not loaded (they are cleared on reboot), so netbird cannot be looked up. Run "%s update", then reload this page.').format(pkgMgr, pkgMgr)));
-			else if (!op.binary_available)
-				rows.push(E('p', { 'class': 'cbi-section-descr', 'style': 'color:#a00' },
-					_('The %s feed does not provide netbird on this device, so switching is unavailable. Check your package sources.').format(pkgMgr)));
-			self._opkgCheck = E('div', { 'style': 'margin:.5em 0' });
-			rows.push(self._opkgCheck);
-			var acts2 = [
-				E('button', { 'class': 'btn cbi-button cbi-button-action', 'click': ui.createHandlerFn(self, 'checkUpdate') }, _('Check for updates'))
-			];
-			var sbO = self.switchButton('opkg', !!op.binary_available);
-			if (sbO) acts2.push(sbO);
-			rows.push(E('div', { 'class': 'cbi-section-actions' }, self._spaced(acts2)));
 		}
 		else {
 			// 自定义下载链接:仅此选项显 URL 框 + 下载 + 已下载版本列表
@@ -557,12 +519,10 @@ return view.extend({
 		dom.content(this._detailBox, E('div', {}, rows));
 	},
 
-	// 检测更新:get_binary_info(check_remote=true) → 刷新本地态 + 显示远端结果。
+	// 只在用户点击时查询官方客户端更新;不执行后台定时升级。
 	checkUpdate: function () {
 		var self = this;
-		var which = self._sel;
-		var target = (which === 'release') ? self._relCheck : self._opkgCheck;
-		if (target) dom.content(target, E('em', { 'style': 'color:#888' }, _('Checking…')));
+		if (self._relCheck) dom.content(self._relCheck, E('em', { 'style': 'color:#888' }, _('Checking…')));
 		return L.resolveDefault(callBinaryInfo(true), { ok: false }).then(function (res) {
 			if (!(res && res.ok && res.data)) {
 				ui.addNotification(null, E('p', {}, _('Check for updates failed.')), 'error');
@@ -570,28 +530,17 @@ return view.extend({
 			}
 			self._bin = res.data;
 			var d = res.data;
-			if (which === 'release')
-				self._relLatest = { latest: d.latest_version, update_available: d.update_available };
+			self._relLatest = { latest: d.latest_version, update_available: d.update_available };
 			self.renderStatus();
-			self.renderDetail();   // 重建 detail(release 详情会据 _relLatest 显示「立即更新」)
-			if (which === 'release') {
-				var msg;
-				if (!d.latest_version)
-					msg = E('p', { 'style': 'color:#888' }, _('Could not reach GitHub to check the latest version.'));
-				else if (d.update_available)
-					msg = E('span', { 'style': 'color:#080' }, _('Latest official: v%s').format(d.latest_version));
-				else
-					msg = E('p', { 'style': 'color:#080' }, _('Already on the latest official version (v%s).').format(d.latest_version));
-				if (self._relCheck) dom.content(self._relCheck, msg);
-			} else {
-				// 升级命令按系统包管理器分流(apk=OWRT25+ / opkg=24.10-);apk 机上「opkg upgrade」
-				// 是不存在的命令,故用 d.pkg_mgr(后端 binary_info 暴露)给对应系统的命令。
-				var upgradeCmd = (d.pkg_mgr === 'apk') ? 'apk upgrade netbird' : 'opkg upgrade netbird';
-				var m2 = d.opkg_upgradable
-					? E('p', { 'style': 'color:#080' }, _('Package upgrade available: v%s (run "%s").').format(d.opkg_upgradable, upgradeCmd))
-					: E('p', { 'style': 'color:#888' }, _('No package upgrade found in the cached package lists.'));
-				if (self._opkgCheck) dom.content(self._opkgCheck, m2);
-			}
+			self.renderDetail();
+			var msg;
+			if (!d.latest_version)
+				msg = E('p', { 'style': 'color:#888' }, _('Could not reach GitHub to check the latest version.'));
+			else if (d.update_available)
+				msg = E('span', { 'style': 'color:#080' }, _('Latest official: v%s').format(d.latest_version));
+			else
+				msg = E('p', { 'style': 'color:#080' }, _('Already on the latest official version (v%s).').format(d.latest_version));
+			if (self._relCheck) dom.content(self._relCheck, msg);
 		});
 	},
 
@@ -720,14 +669,9 @@ return view.extend({
 
 	_confirmSwitch: function (source, version) {
 		var self = this;
-		var pkgMgr = pkgMgrName(self._bin || {});
 		var label = (source === 'custom') ? (srcLabel('custom') + ' v' + version) : srcLabel(source);
-		var extra = (source === 'opkg')
-			? E('p', { 'class': 'cbi-section-descr' }, _('If no local copy is kept, it will be fetched from the %s feed first.').format(pkgMgr))
-			: E('span', {});
 		ui.showModal(_('Switch binary source'), [
 			E('p', {}, _('Switch the active NetBird binary to %s? The NetBird service will restart briefly.').format(label)),
-			extra,
 			E('div', { 'class': 'right' }, [
 				E('button', { 'class': 'btn', 'click': ui.hideModal }, _('Cancel')), ' ',
 				E('button', { 'class': 'btn cbi-button cbi-button-positive', 'click': function () { self._doSwitch(source, version); } }, _('Switch source'))

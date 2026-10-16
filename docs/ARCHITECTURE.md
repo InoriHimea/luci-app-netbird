@@ -55,32 +55,34 @@ the management URL) are display-only.
 
 The tab manages two different update planes and keeps them separate:
 
-1. **NetBird client binary source** — switched by repointing the `/usr/bin/netbird` symlink (the
-   path the upstream procd service hard-codes).
-2. **The LuCI app package itself** — checked and upgraded from this project's signed package feed.
+1. **NetBird client binary source** — an official file or a versioned custom symlink at
+   `/usr/bin/netbird`, the path the upstream procd service hard-codes.
+2. **The LuCI app package itself** — checked and upgraded from this fork's GitHub Releases.
 
 ### NetBird binary source management
 
-Three sources:
+Two sources:
 
 | Source | Active form | Provenance & validation |
 |---|---|---|
-| **release** | symlink → `/usr/share/netbird/bin/netbird-release` | GitHub latest release; **SHA-256 + ELF e_machine arch** validated; backup/restore on failure. |
-| **opkg** | real file at `/usr/bin/netbird` | OpenWRT package build; restored from a preserved copy, or fetched via `opkg download` + extract — **never** `opkg install --force-reinstall` (that would remove the daemon's `init.d`). |
-| **custom** | symlink → `/usr/share/netbird/bin/netbird-v<ver>` | mirror/accelerator URL; **version-named** so multiple versions coexist (switch / roll back / delete); arch verified from the downloaded binary's ELF header. An **optional user-supplied checksum** (md5/sha1/sha256/sha512, auto-detected by length) is hard-verified before the binary is ever run; an `http://` URL with no checksum warns first (sha256+ recommended; md5/sha1 only guard corruption). |
+| **release** | real `/usr/bin/netbird` | Official GitHub tarball, or an existing manually installed binary. Downloads validate checksums when available, ELF architecture and executable version. While custom runs, the official file is parked at `/usr/share/netbird/bin/netbird-release`. |
+| **custom** | symlink to `/usr/share/netbird/bin/netbird-v<ver>` | User-selected URL, kept by version for rollback. ELF identity and executable version are checked; optional supplied checksums are enforced. |
 
-Switching = stop daemon → poll until the process truly exits (avoid `ETXTBSY` when replacing a
-running binary) → flip the symlink / restore the file → start. The identity in `config.json` is
-preserved across switches.
+The same release-path resolver is used for local metadata and source selection. A manually
+installed canonical binary is recognized without package-manager ownership. Selecting the
+already-active source does not stop the daemon. Explicit switches stop the daemon and wait
+until it exits, then move the official file to/from its parked slot or atomically replace the
+custom symlink. Selection is committed only after the target is verified; failed transitions
+or failed starts restore and verify the prior file/link and configuration. Existing legacy
+release symlinks remain usable and become canonical files on a custom/release round trip.
 
-**Package-manager dispatch (OpenWRT 24/25).** The "opkg" source is a *semantic* name for "the
-distro feed". The four feed touchpoints (`_pkg_mgr`, `_opkg_feed_has_netbird`,
-`_opkg_upgradable_netbird`, `_fetch_opkg_binary`, `get_opkg_versions`) dispatch at runtime by
-`_pkg_mgr()` (`apk` if `/usr/bin/apk` exists, else `opkg`). On apk the apk-safe fetch is
-`apk fetch` + `apk extract --allow-untrusted` (an OpenWRT `.apk` is apk-v3 ADB, unreadable by
-`tar`); **never** `apk add/del/fix` (would delete the daemon's `init.d`). Downloads use
-`_dl_cmd` (curl → uclient-fetch → BusyBox wget) so the release/custom paths work on minimal
-images without curl.
+An official download targets `/usr/bin/netbird` only when release is active; while custom runs
+it targets the parked slot and does not stop or overwrite custom. Package installation itself
+never adopts, copies or moves a NetBird binary, and does not replace its daemon init script.
+The retired distro-binary source is not offered. `opkg`/`apk` still manage this LuCI package and
+its runtime dependencies, but are never used to reinstall the separate NetBird daemon package.
+
+Downloads use `_dl_cmd` (curl → uclient-fetch → BusyBox wget), so minimal images need no curl.
 
 **Download durability and cleanup.** Binary downloads that create a new persistent file first run a
 best-effort overlay free-space preflight; low space fails early with `insufficient_space` instead of
@@ -91,39 +93,37 @@ available, ELF e_machine validation, and `netbird version` before they enter the
 binary operation sweeps old `/tmp/nb-update*` workdirs and stale non-working custom binaries; custom
 versions are listed only when the file is executable and can report a version.
 
-**Multi-arch.** The package is `PKGARCH:=all` (pure ucode/JS/shell) → one artifact for every CPU;
-no build matrix. Arch only matters at runtime for binary acquisition: the **feed path is
-arch-agnostic** (the distro serves the right binary; validated against the host's own ELF
-e_machine via `_native_emachine`, so it works on mips/riscv/etc.), while the **GitHub
-auto-pick** stays at netbird's unambiguous release arches (amd64/arm64/386/armv6 — mips float ABI
-can't be inferred from `uname -m`). Custom-URL is relaxed to any arch (host-ELF validated).
+**Multi-arch.** This LuCI package is architecture-independent (`PKGARCH:=all`). Official NetBird
+auto-selection supports amd64/arm64/386/armv6; other architectures require a matching manually
+installed binary or custom URL. Custom downloads are checked against the host's ELF machine,
+word size and byte order rather than the four official auto-download choices.
 
 ### luci-app-netbird package self-update
 
-The current `luci-app-netbird` version row has its own "check for updates" action. It does **not**
-touch the NetBird daemon or `/usr/bin/netbird`; it upgrades this LuCI package and its i18n package.
+The `luci-app-netbird` row has separate user-triggered check/update actions. There is no
+scheduled application or binary upgrade; the reconnect watchdog only restores connectivity.
+First connection can acquire a missing official binary, not upgrade an already usable one.
 
-Backend methods:
+- `check_luci_app_update` reads `/InoriHimea/luci-app-netbird/releases/latest/download/manifest.json`
+  from GitHub or the configured `cdn_base`, compares package revisions, and selects the
+  compatible branch's assets. It does not query the upstream hosted package index.
+- `update_luci_app` re-checks and pins downloads to `/releases/download/v<manifest.version>/`.
+  Manifest `files[].url` entries are hosted-feed paths and are not used for GitHub downloads.
+  Missing required packages or incorrect downloaded sizes fail before the native installer.
+- The native transaction installs the complete LuCI package and dependencies, and updates
+  `luci-i18n-netbird-zh-cn` only when it is already installed. UI, RPC code, settings/watchdog
+  scripts and migration hooks are therefore included; the NetBird binary and identity are not
+  replaced by application updates. The installed app version must match the requested one.
 
-- `check_luci_app_update` (read) — reads the package index and reports latest/local versions.
-- `update_luci_app` (write) — re-checks, downloads the package files into `/tmp/nb-luci-update*`,
-  installs them, and cleans the temporary directory on success or failure.
-
-Feed selection is by OpenWrt release series. 22.03 is the oldest supported series: it is the first
-one shipping `ucode` and `rpcd-mod-ucode`, which the whole backend is written in. 21.02 and older
-ship neither, so the backend cannot run there at all and `feed.sh` rejects them.
-
-| OpenWrt series | Package manager | Feed | Package filename |
+| OpenWrt series | Package manager | Manifest branch | Package filename |
 |---|---|---|---|
-| 22.03 | `opkg` | `https://luci-app-netbird.okk.sh/openwrt-24.10/all/netbird/` (shares the 24.10 feed — the package is `PKGARCH:=all`) | `luci-app-netbird_<ver>_all.ipk` |
-| 23.05 | `opkg` | `https://luci-app-netbird.okk.sh/openwrt-24.10/all/netbird/` (shares the 24.10 feed — the package is `PKGARCH:=all`) | `luci-app-netbird_<ver>_all.ipk` |
-| 24.10 | `opkg` | `https://luci-app-netbird.okk.sh/openwrt-24.10/all/netbird/` | `luci-app-netbird_<ver>_all.ipk` |
-| 25.12 | `apk` | `https://luci-app-netbird.okk.sh/openwrt-25.12/all/netbird/` | `luci-app-netbird-<ver>.apk` |
+| 22.03 / 23.05 / 24.10 | `opkg` | `openwrt-24.10` | `luci-app-netbird_<ver>_all.ipk` |
+| 25.12 / current APK snapshots | `apk` | `openwrt-25.12` | `luci-app-netbird-<ver>.apk` |
 
-Both the main package and `luci-i18n-netbird-zh-cn` are installed together. If either download fails
-or is incomplete, the update is rejected and temporary files are removed; the UI keeps the user on
-the current version and shows the error. When there is no newer version, `update_luci_app` returns
-`invalid_input` and does not create an install workdir.
+Older/same revisions are not installed. r3 and older still contain the upstream-feed updater,
+so a one-time manual/bootstrap upgrade to r4 is required before the corrected fork updater
+can discover subsequent revisions. APK trust still depends on configured signing keys; the
+existing `--allow-untrusted` policy is unchanged and does not establish repository-key trust.
 
 On apk systems, installing a package from a file records it in `/etc/apk/world` pinned to that file
 (`luci-app-netbird><Q1…`), which makes later `apk upgrade` runs skip it. The package therefore ships

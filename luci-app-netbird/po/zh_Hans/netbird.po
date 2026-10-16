@@ -1214,3 +1214,6 @@ msgstr "NetBird 0.76.1 之前的版本，本地服务 socket 存在安全问题�
 
 msgid "Details"
 msgstr "详情"
+
+msgid "Manage NetBird binaries separately from luci-app-netbird updates."
+msgstr "NetBird 二进制与 luci-app-netbird 插件分别管理、分别更新。"

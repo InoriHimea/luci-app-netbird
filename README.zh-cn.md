@@ -9,7 +9,7 @@
 **Fork 说明：** 本仓库保留手动安装二进制兼容及 GitHub API/CDN 镜像配置；二进制来源仅提供官方 release 与自定义 URL，不强制依赖系统 `netbird` 软件包。请从[本 fork 的 Releases](https://github.com/InoriHimea/luci-app-netbird/releases) 安装，或从源码构建。下方一键安装源分发的是上游版本，不是本 fork。
 
 > [!NOTE]
-> 上游作者说明：项目代码几乎都通过 vibe coding 写成，上游版本发布前会在不同版本的 OpenWrt 上做实机测试，作者有 10 台以上设备运行此应用。本 fork 本次同步已在隔离 OpenWrt 容器中完成冒烟验证，尚未部署至路由器。
+> 上游作者说明：项目代码几乎都通过 vibe coding 写成，上游版本发布前会在不同版本的 OpenWrt 上做实机测试，作者有 10 台以上设备运行此应用。本 fork 自己的验证与推广范围以 Release 说明为准。
 
 OpenWrt / ImmortalWrt 上管理 [NetBird](https://netbird.io) mesh-VPN 客户端的 LuCI 应用 —— 在路由器上使用 NetBird，无需命令行。
 同时兼容 OpenWrt / ImmortalWrt 22.03 / 23.05 / 24.x（`opkg`）和 25.x / 最新 snapshot（`apk`）。
@@ -69,6 +69,13 @@ apk add --allow-untrusted luci-app-netbird-*.apk luci-i18n-netbird-zh-cn-*.apk
 </details>
 
 **卸载:** `wget -O - https://luci-app-netbird.okk.sh/uninstall.sh | sh`
+
+## 更新范围
+
+- **插件更新**（版本页 `luci-app-netbird` 这一行）安装本 fork 的完整包，包括前端、RPC 后端、设置/watchdog 脚本、安装迁移及包管理器依赖。仅在中文包已安装时一并更新；保留 UCI 设置及 NetBird 身份，不升级独立的 NetBird 客户端二进制。
+- **NetBird 二进制更新**是另一项操作。官方版本激活时是 `/usr/bin/netbird` 真文件；custom 使用版本化 symlink。切到 custom 时保存官方版本，切回无需重下；更新停放的官方版本不打断正在运行的 custom daemon。
+- 两种更新均由用户操作触发，自动重连不等于无人值守升级。首次连接可以补齐缺失的官方二进制，但不会定时升级已有版本。
+- 从 **0.2.0-r4** 起，插件更新读取本 fork GitHub Release 的 `manifest.json`，按确定的版本 tag 下载资产，并使用已配置的 GitHub CDN 地址。**r3 及更早版本须先从本 fork Releases 手动升级一次**，旧入口仍查询上游软件源。
 
 ## 快速上手
 

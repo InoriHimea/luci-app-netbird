@@ -3,6 +3,21 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## 0.2.0-r4 — 2026-10-16
+
+### Fixed
+
+- Recognize manually installed official binaries at `/usr/bin/netbird`. Selecting the active release is a no-op; switching to custom parks the official file and switching back restores it. Failed switches and failed daemon starts restore the prior selection; updating an inactive official release does not overwrite or restart the active custom binary.
+- Preserve the configured DNS opt-out during authentication: `netbird up` receives `--disable-dns` when `enable_dns=0`; `login` does not receive this up-only flag. No router-local RPC patch is required after this revision.
+- Fetch application updates from this fork's GitHub Release `manifest.json`, honoring the configured CDN base, and pin all package downloads to the manifest's version tag. Validate required assets, downloaded sizes and the installed application version. The installed Chinese translation is upgraded together; it is not added when absent.
+- Stop adopting/reclassifying NetBird binaries during LuCI package installation. Remove the retired distro-binary source and its unreachable UI and helpers.
+
+### Upgrade notes
+
+- This updates the complete LuCI package (frontend, RPC backend, settings/watchdog scripts and install hooks), not the separate NetBird client binary. Updates remain user-triggered, not scheduled unattended upgrades.
+- r3 and older still query the upstream feed and cannot discover this fork's revisions: bootstrap this revision once from this fork's Release packages. Subsequent in-app checks use this fork.
+- APK signing trust is unchanged; the existing `--allow-untrusted` installation policy is not a substitute for configured signing keys.
+
 ## 0.2.0-r3 — 2026-10-16
 
 ### Changed

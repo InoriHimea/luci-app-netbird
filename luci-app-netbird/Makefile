@@ -27,12 +27,12 @@ LUCI_DEPENDS:=
 # 退化为只挡新流、已建流持续。列入依赖使该行为在所有部署一致可靠。
 LUCI_EXTRA_DEPENDS:=rpcd (>=0), rpcd-mod-ucode (>=0), ucode (>=0), ucode-mod-fs (>=0), ucode-mod-uci (>=0), luci-base (>=0), conntrack (>=0)
 LUCI_PKGARCH:=all
-LUCI_URL:=https://github.com/looong-cat/luci-app-netbird
+LUCI_URL:=https://github.com/InoriHimea/luci-app-netbird
 LUCI_MAINTAINER:=looong-cat <foxhis11@gmail.com>
 
 PKG_NAME:=luci-app-netbird
 PKG_VERSION:=0.2.0
-PKG_RELEASE:=3
+PKG_RELEASE:=4
 PKG_MAINTAINER:=looong-cat <foxhis11@gmail.com>
 PKG_LICENSE:=Apache-2.0
 PKG_LICENSE_FILES:=LICENSE

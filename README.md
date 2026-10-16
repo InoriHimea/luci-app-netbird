@@ -9,7 +9,7 @@
 **Fork:** this repository retains manual-binary support and configurable GitHub API/CDN mirrors. The binary-source selector offers official releases and custom URLs; the system `netbird` package is not a hard dependency. Install fork packages from [this fork's releases](https://github.com/InoriHimea/luci-app-netbird/releases), or build from source. The one-click feed below distributes the upstream variant, not this fork.
 
 > [!NOTE]
-> Upstream author's note: almost all of the code in this project was written through vibe coding. Upstream releases are tested on real devices running different OpenWrt versions, and the upstream author runs the app on more than 10 devices. This fork's current synchronization has been smoke-tested in an isolated OpenWrt container, not deployed to routers.
+> Upstream author's note: almost all of the code in this project was written through vibe coding. Upstream releases are tested on real devices running different OpenWrt versions, and the upstream author runs the app on more than 10 devices. This fork documents its own verification and rollout scope in the release notes.
 
 LuCI app for the [NetBird](https://netbird.io) mesh-VPN client on OpenWrt / ImmortalWrt — manage NetBird on OpenWrt from the router, no command line needed.
 Compatible with OpenWrt / ImmortalWrt 22.03 / 23.05 / 24.x (`opkg`) and 25.x / current snapshots (`apk`).
@@ -70,6 +70,13 @@ Add this repo to an OpenWrt / ImmortalWrt SDK or buildroot (under `package/` or 
 
 **Uninstall:** `wget -O - https://luci-app-netbird.okk.sh/uninstall.sh | sh`
 
+## Updates
+
+- **Application update** (the `luci-app-netbird` row on **Versions**) installs this fork's complete package: UI, RPC backend, settings/watchdog scripts, install hooks and package-manager dependencies. The Chinese package is updated only if already installed. UCI settings and NetBird identity are retained; the NetBird client binary is not upgraded by this action.
+- **NetBird binary update** is separate. An active official release is a real `/usr/bin/netbird`; custom versions use a symlink. Switching to custom parks the official binary, so switching back does not require another download. Updating the parked official version does not interrupt the active custom daemon.
+- Both update actions require user interaction; automatic reconnect is not an unattended upgrader. Initial connection may acquire a missing official binary, but does not periodically upgrade an existing one.
+- Since **0.2.0-r4**, application updates read this fork's GitHub Release `manifest.json` and use version-pinned assets, honoring the configured GitHub CDN base. **r3 and older need a one-time manual upgrade** from this fork's Releases because their old updater queries the upstream feed.
+
 ## Setup / Quick start
 
 1. Create a **setup key** in the [NetBird dashboard](https://app.netbird.io) (or your self-hosted panel).
@@ -81,7 +88,7 @@ Add this repo to an OpenWrt / ImmortalWrt SDK or buildroot (under `package/` or 
 - [Architecture](docs/ARCHITECTURE.md) — design, data flow, module boundaries
 - [Releasing](docs/RELEASING.md) — CI trigger rules, package-versioned releases
 - [Changelog](CHANGELOG.md) — version history
-- [GitHub](https://github.com/looong-cat/luci-app-netbird) — source code, issues, releases
+- [GitHub](https://github.com/InoriHimea/luci-app-netbird) — fork source code, issues, releases
 
 ## Notes
 

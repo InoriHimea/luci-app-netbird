@@ -1,6 +1,6 @@
 # Releasing
 
-The release workflow builds signed OpenWrt package-feed artifacts and publishes the installable packages and `manifest.json` to GitHub Releases. This fork does not deploy Cloudflare Pages.
+The release workflow builds OpenWrt package-feed artifacts and publishes the installable packages and `manifest.json` to GitHub Releases. This fork does not deploy Cloudflare Pages. Signatures are trusted by the checked-in public keys only when the matching `KEY_BUILD` / `PRIVATE_KEY` secrets are configured; a successful build alone does not prove that trust.
 
 ## Automatic trigger
 
@@ -38,3 +38,9 @@ The workflow verifies that the ipk and apk builds report the same version. It th
 
 Always bump `PKG_RELEASE` in `luci-app-netbird/Makefile` for a code change that
 should ship as a new package revision.
+
+Application self-update uses this fork's versioned Release assets starting at 0.2.0-r4.
+Devices on r3 or older need one manual/bootstrap upgrade because their updater still queries
+the upstream hosted feed. Application updates include all package-owned UI, backend and
+scripts plus dependencies and already-installed translations, but not the separate NetBird
+binary. No scheduled unattended upgrade is installed.

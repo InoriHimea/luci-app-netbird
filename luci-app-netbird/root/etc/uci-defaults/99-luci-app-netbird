@@ -217,63 +217,18 @@ if [ -f /etc/init.d/luci-netbird-watchdog ]; then
 		logger -t "$TAG" "警告：luci-netbird-watchdog start 失败"
 fi
 
-# ── 二进制来源管理:存储目录 + sysupgrade 保全 + 遗留态 adopt ─────────────────────
-# release 二进制存 /usr/share/netbird/bin/netbird-release;
-# /usr/bin/netbird 由 set_binary_source 切成 symlink(release)/opkg 真二进制本体。
-NB_REL_DIR=/usr/share/netbird/bin
-NB_REL_BIN="$NB_REL_DIR/netbird-release"
-NB_OPKG_BIN=/usr/bin/netbird
-mkdir -p "$NB_REL_DIR"
+# 二进制目录仅用于 custom 和未激活的官方版本;安装插件不改动现有二进制或链接。
+mkdir -p /usr/share/netbird/bin
 
-# sysupgrade 保全:只保留独立的 binary 配置,不保留二进制目录。
-# 保留 /usr/share/netbird/ 会把数十 MB 的二进制打进刷机备份(备份在内存中生成,小内存设备可能因此
-# 失败),还会把包内的 netbird-autoreconnect.sh 等旧文件带到新固件上覆盖新版。刷机后 /usr/bin/netbird
-# 是固件自带的软件包二进制,下面的 adopt 会按"系统软件源"处理并重新保存副本,保留的 release 二进制
-# 也用不上;需要时在版本页重新下载即可。旧版本写入的目录条目在此删除(幂等)。
+# 保留配置和身份,不把大二进制及旧版本脚本带入固件升级备份。
 sed -i '\#^/usr/share/netbird/$#d' /etc/sysupgrade.conf 2>/dev/null
 grep -qxF '/etc/config/netbird_bin' /etc/sysupgrade.conf 2>/dev/null || \
 	echo '/etc/config/netbird_bin' >> /etc/sysupgrade.conf
 
-# 遗留态 adopt(一次性,幂等):仅当 /usr/bin/netbird 是普通文件(非本应用建的 symlink)时,
-# 判定它是「系统软件源(包管理器)自带的二进制」还是「被旧版手动更新覆盖成的 release 二进制」。
-# 查询按运行时包管理器分流(apk = OpenWRT/ImmortalWrt 25+,opkg = 24.10 及更早;探测 /usr/bin/apk
-# 是否存在,与后端二进制来源管理一致):
-#   (b) 版本 == 软件源记录 → 软件源自带 → 保留一份副本 netbird-opkg(供切回「软件源」来源,免联网;
-#       绝不用 opkg --force-reinstall / apk add 这类会连带删除 /etc/init.d/netbird 的包生命周期操作),
-#       source=opkg(此处 opkg 为「系统软件源」语义,apk/opkg 通用)、不改写 /usr/bin/netbird;
-#   (c) 版本 != 软件源记录(= 被旧版手动更新覆盖成 release)→ 收编为 netbird-release + symlink、source=release。
-# 软件源记录查不到时(_pm_ver 为空)两个分支都不进 → 保守处理:不改写 /usr/bin/netbird,等用户在
-# 「版本」页显式选择来源。这避免 apk 机(无 opkg)误把软件源自带的二进制改写成 symlink、破坏 apk 文件归属。
-# 不影响正在运行的 daemon(持有旧 inode;symlink 指向等同内容,下次重启自然生效)。
-NB_OPKG_BAK="$NB_REL_DIR/netbird-opkg"
-if [ ! -L "$NB_OPKG_BIN" ] && [ -x "$NB_OPKG_BIN" ]; then
-	_cur_ver=$("$NB_OPKG_BIN" version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-	# 系统软件源记录的已装 netbird 版本:apk 机用 `apk list -I`,opkg 机用 `opkg list-installed`。
-	if [ -x /usr/bin/apk ]; then
-		_pm_ver=$(apk list -I netbird 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-	else
-		_pm_ver=$(opkg list-installed netbird 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-	fi
-	if [ -n "$_cur_ver" ] && [ -n "$_pm_ver" ] && [ "$_cur_ver" = "$_pm_ver" ]; then
-		# (b) 软件源自带二进制:保留副本 + source=opkg(=系统软件源语义)
-		if [ ! -e "$NB_OPKG_BAK" ]; then
-			cat "$NB_OPKG_BIN" > "$NB_OPKG_BAK" 2>/dev/null && chmod 0755 "$NB_OPKG_BAK"
-			logger -t "$TAG" "preserve feed binary($_cur_ver) -> netbird-opkg(供切回软件源来源兜底)"
-		fi
-		uci -q set netbird_bin.binary=netbird_bin 2>/dev/null
-		uci -q set netbird_bin.binary.binary_source=opkg 2>/dev/null
-		uci -q commit netbird_bin 2>/dev/null
-	elif [ -n "$_cur_ver" ] && [ -n "$_pm_ver" ] && [ "$_cur_ver" != "$_pm_ver" ] && [ ! -e "$NB_REL_BIN" ]; then
-		# (c) 孤儿二进制(版本 != 软件源记录 = 被旧版手动更新覆盖成 release):收编为 release + symlink。
-		#     apk/opkg 软件源自带的二进制版本必 == 记录 → 走 (b);只有被覆盖的才到这里。
-		if cat "$NB_OPKG_BIN" > "$NB_REL_BIN" 2>/dev/null && chmod 0755 "$NB_REL_BIN"; then
-			ln -sf "$NB_REL_BIN" "$NB_OPKG_BIN.tmp" && mv -f "$NB_OPKG_BIN.tmp" "$NB_OPKG_BIN"
-			uci -q set netbird_bin.binary=netbird_bin 2>/dev/null
-			uci -q set netbird_bin.binary.binary_source=release 2>/dev/null
-			uci -q commit netbird_bin 2>/dev/null
-			logger -t "$TAG" "adopt: /usr/bin/netbird($_cur_ver) 收编为 release(软件源记录 ${_pm_ver:-none})"
-		fi
-	fi
+# 历史软件源标签迁移为现有的 release 状态,仅改独立配置,不触发 daemon 重连。
+if [ "$(uci -q get netbird_bin.binary.binary_source 2>/dev/null)" = opkg ]; then
+	uci -q set netbird_bin.binary.binary_source=release
+	uci -q commit netbird_bin
 fi
 
 exit 0
