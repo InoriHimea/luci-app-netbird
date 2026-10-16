@@ -21,13 +21,46 @@ var callEnableStart = rpc.declare({ object: 'luci.netbird', method: 'do_enable_a
 var callDoUp        = rpc.declare({ object: 'luci.netbird', method: 'do_up',
 	params: [ 'management_url', 'setup_key' ] });
 var callDoDown      = rpc.declare({ object: 'luci.netbird', method: 'do_down' });
+var callDoReconnect = rpc.declare({ object: 'luci.netbird', method: 'do_reconnect' });
 var callDoLogout    = rpc.declare({ object: 'luci.netbird', method: 'do_logout',
 	params: [ 'local_only' ] });
 var callBinaryInfo  = rpc.declare({ object: 'luci.netbird', method: 'get_binary_info',
 	params: [ 'check_remote' ], expect: {} });
+var callInstallIfaceBackend = rpc.declare({
+	object: 'luci.netbird', method: 'install_iface_backend', expect: {}
+});
 
 function pkgMgrName(pkgMgr) {
 	return (pkgMgr === 'apk') ? 'apk' : 'opkg';
+}
+
+// iface_backend.ready === false：后端高置信「内核 WG 与 TUN 都不可用」。
+// 旧后端无此字段时不渲染（兼容旧 rpcd）。onInstall 有则显示一键安装按钮。
+function renderIfaceBackendWarning(ifaceBackend, pkgMgr, onInstall) {
+	if (!ifaceBackend || ifaceBackend.ready !== false)
+		return null;
+	var mgr = pkgMgrName(pkgMgr);
+	var kids = [
+		E('p', {}, [
+			E('strong', {}, _('WireGuard / TUN backend missing')),
+			E('br'),
+			_('NetBird needs either the WireGuard kernel module or a TUN device to create its interface. Neither is available on this device.')
+		])
+	];
+	if (onInstall) {
+		kids.push(E('p', {}, [
+			E('button', {
+				'class': 'btn cbi-button cbi-button-action',
+				'click': onInstall
+			}, _('Install WireGuard / TUN packages')),
+			' ',
+			E('span', { 'class': 'cbi-value-description' },
+				_('Installs the kernel packages required for NetBird interfaces. This may take a minute.'))
+		]));
+	}
+	kids.push(E('p', { 'class': 'cbi-value-description' },
+		_('Or install manually (for example: %s install kmod-wireguard), then reboot or start the service again.').format(mgr)));
+	return E('div', { 'class': 'alert-message warning' }, kids);
 }
 
 // 横幅视图模型：state 字面量 → { pill, label, hint }。
@@ -59,9 +92,9 @@ function bannerModel(state, connected) {
 	}
 }
 
-// runAction(btn, promise, okMsg, failMsg) — 统一动作按钮流转：转圈+禁用 →
+// runAction(btn, promise, okMsg, failMsg, timeoutMsg) — 统一动作按钮流转：转圈+禁用 →
 //   then(ok：通知 okMsg + 800ms 刷新 / 否则：通知 _(res.message)||failMsg + 复位)
-//   → catch：通知异常 + 复位。集中原 4 个 handler 的重复样板。
+//   → catch：通知异常(超时类用 timeoutMsg 替代默认友好文案，可省略) + 复位。集中原 4 个 handler 的重复样板。
 function responseMessage(res, fallback) {
 	var msg = (res && res.message) ? _(res.message) : fallback;
 	if (res && res.hint)
@@ -69,14 +102,12 @@ function responseMessage(res, fallback) {
 	return msg;
 }
 
-function exceptionMessage(e) {
-	var msg = String(e && e.message ? e.message : e);
-	if (/XHR request timed out/i.test(msg))
-		return _('The NetBird operation is still running or took too long. Check the Logs tab, then try again.');
-	return msg;
+function exceptionMessage(e, timeoutMsg) {
+	// 超时类(客户端 rpctimeout / uhttpd 60s 掐断)统一友好化,其余透传。
+	return nb.friendlyRpcError(e, timeoutMsg);
 }
 
-function runAction(btn, promise, okMsg, failMsg) {
+function runAction(btn, promise, okMsg, failMsg, timeoutMsg) {
 	btn.classList.add('spinning');
 	btn.disabled = true;
 	return promise.then(function (res) {
@@ -89,7 +120,7 @@ function runAction(btn, promise, okMsg, failMsg) {
 			btn.disabled = false;
 		}
 	}).catch(function (e) {
-		ui.addNotification(null, E('p', {}, exceptionMessage(e)), 'error');
+		ui.addNotification(null, E('p', {}, exceptionMessage(e, timeoutMsg)), 'error');
 		btn.classList.remove('spinning');
 		btn.disabled = false;
 	});
@@ -107,6 +138,7 @@ return view.extend({
 			var authRes = res[1];
 			var binRes = res[2];
 			var state = (statusRes && statusRes.ok && statusRes.data && statusRes.data.status) || 'unknown';
+			var ifaceBackend = (statusRes && statusRes.ok && statusRes.data && statusRes.data.iface_backend) || null;
 			var authData = (authRes && authRes.ok && authRes.data) ? authRes.data : {};
 			var binData = (binRes && binRes.ok && binRes.data) ? binRes.data : {};
 			var mgmtUrl = authData.management_url || '';
@@ -116,9 +148,9 @@ return view.extend({
 			// 仅 running 态拉 connection info 判 management.connected。
 			if (state === 'running')
 				return L.resolveDefault(callConnInfo(), { ok: false }).then(function (ci) {
-					return { state: state, connInfo: ci, mgmtUrl: mgmtUrl, keyHint: keyHint, lastAuthError: lastAuthError, pkgMgr: pkgMgr };
+					return { state: state, connInfo: ci, mgmtUrl: mgmtUrl, keyHint: keyHint, lastAuthError: lastAuthError, pkgMgr: pkgMgr, ifaceBackend: ifaceBackend };
 				});
-			return { state: state, connInfo: null, mgmtUrl: mgmtUrl, keyHint: keyHint, lastAuthError: lastAuthError, pkgMgr: pkgMgr };
+			return { state: state, connInfo: null, mgmtUrl: mgmtUrl, keyHint: keyHint, lastAuthError: lastAuthError, pkgMgr: pkgMgr, ifaceBackend: ifaceBackend };
 		});
 	},
 
@@ -146,6 +178,50 @@ return view.extend({
 			_('NetBird service enabled and started.'), _('Operation failed.'));
 	},
 
+	// 一键安装 WireGuard/TUN kmod：仅告警可见时渲染；后端再闸 ready。
+	// 包管理可能较慢（update+install），临时抬高 rpctimeout；失败弹窗展示真实 message/hint。
+	handleInstallIfaceBackend: function (ev) {
+		var self = this;
+		var btn = ev.currentTarget;
+		btn.classList.add('spinning');
+		btn.disabled = true;
+		ui.showModal(_('Installing WireGuard / TUN packages'), [
+			E('p', { 'class': 'spinning' },
+				_('Updating package lists and installing kernel modules…'))
+		]);
+		return L.resolveDefault(self._withRpcTimeout(180, function () {
+			return callInstallIfaceBackend();
+		}), { ok: false }).then(function (res) {
+			ui.hideModal();
+			if (res && res.ok && res.data && res.data.iface_backend &&
+				res.data.iface_backend.ready === true) {
+				ui.addNotification(null, E('p', {},
+					_('WireGuard / TUN packages installed. Reloading…')), 'info');
+				window.setTimeout(function () { location.reload(); }, 800);
+				return;
+			}
+			var body = [
+				E('p', {}, responseMessage(res,
+					_('Failed to install WireGuard / TUN packages.')))
+			];
+			if (res && res.message)
+				body.push(E('pre', {
+					'style': 'white-space:pre-wrap;word-break:break-word;max-height:16em;overflow:auto'
+				}, String(res.message)));
+			body.push(E('div', { 'class': 'right' }, [
+				E('button', { 'class': 'btn', 'click': ui.hideModal }, _('Close'))
+			]));
+			ui.showModal(_('Install failed'), body);
+			btn.classList.remove('spinning');
+			btn.disabled = false;
+		}, function (e) {
+			ui.hideModal();
+			ui.addNotification(null, E('p', {}, exceptionMessage(e)), 'error');
+			btn.classList.remove('spinning');
+			btn.disabled = false;
+		});
+	},
+
 	// 「连接」回调：读输入框值 → do_up({management_url, setup_key})。
 	// 安全：读取后立即清空 Setup Key 输入框 .value（前端不留存密钥）。
 	handleConnect: function (ev) {
@@ -154,6 +230,15 @@ return view.extend({
 		var keyEl = document.getElementById('nb-setup-key');
 		var mgmtUrl = urlEl ? String(urlEl.value || '').trim() : '';
 		var setupKey = keyEl ? String(keyEl.value || '') : '';
+
+		// needs_login 态(无本地身份)空 key 必败且要白等墙钟——就地拦截,
+		// 不发 RPC(后端另有同语义兜底,防状态漂移/竞态)。
+		if (this._nbAuthState === 'needs_login' && setupKey.length === 0) {
+			ui.addNotification(null, E('p', {},
+				_('A setup key is required to log in. Enter a key from the NetBird console first.')), 'warning');
+			if (keyEl) keyEl.focus();
+			return;
+		}
 
 		// 提交即清空 Setup Key 输入框（前端不留存瞬时密钥）
 		if (keyEl) keyEl.value = '';
@@ -173,17 +258,17 @@ return view.extend({
 			_('NetBird disconnected.'), _('Operation failed.'));
 	},
 
-	// 「重新连接」回调：do_down → do_up（空参=持久身份重连，无需密钥）。仅已连接态出现。
+	// 「重新连接」回调：单次 do_reconnect，由后端完成 down → up（持久身份重连，无需密钥）。仅已连接态出现。
+	// 不能在前端串联 do_down → do_up：经 NetBird 打开本页时，down 会切断承载第二个请求的通道，
+	// 且 do_down 清除「保持连接」意图，设备会停在断开态。
 	// do_up 内置 _flush_reconnect_conntrack（等路由恢复后定向冲在途 conntrack），故重连后转发流自愈。
 	// 用途：一键重连;或在 daemon 自发重连未覆盖的边角(WAN 抖动等)手动触发让转发流恢复。
 	handleReconnect: function (ev) {
 		var self = this;
-		// 空参 do_up → 持久身份重连(do_up 解析已存管理 URL)
 		return runAction(ev.currentTarget,
-				self._withRpcTimeout(90, function () {
-					return callDoDown().then(function () { return callDoUp('', ''); });
-				}),
-			_('NetBird reconnected.'), _('Operation failed.'));
+				self._withRpcTimeout(90, function () { return callDoReconnect(); }),
+			_('NetBird reconnected.'), _('Operation failed.'),
+			_('NetBird is still reconnecting, or the connection to this page was interrupted, which is expected when this page is opened over NetBird. The router finishes reconnecting on its own: reload this page in a few seconds, and check the Logs tab if it is still disconnected.'));
 	},
 
 	// 「注销/登出」回调：二次确认（警告会删本机身份）后 do_logout。
@@ -273,11 +358,17 @@ return view.extend({
 		if (state === 'not_installed')
 			return E('div', {});
 
-		// 已有本地身份（service 在跑或仅需登录）→ 提示留空即复用现有身份。
-		var loggedInHint = (state === 'running' || state === 'needs_login');
-		var keyPlaceholder = loggedInHint
-			? _('Logged in, leave blank to keep the current identity')
-			: _('Leave blank if already logged in');
+		// needs_login(注销后/全新设备,无本地身份)不能再提示「留空即可」——
+		// 该态下空 key 必败;只有 running(身份在)才提示留空复用。
+		var keyPlaceholder;
+		if (state === 'running')
+			keyPlaceholder = _('Logged in, leave blank to keep the current identity');
+		else if (state === 'needs_login')
+			keyPlaceholder = _('Enter a setup key to log in');
+		else
+			keyPlaceholder = _('Leave blank if already logged in');
+		// handleConnect 的空 key 前置校验需要知道渲染时的状态。
+		this._nbAuthState = state;
 
 		// Setup Key 输入框下方说明：基础说明 + 可选「上次使用：<hint>」。
 		var keyDescChildren = [
@@ -288,6 +379,12 @@ return view.extend({
 			// hint 作为 E() children 传入，浏览器当 Text node 处理（防 XSS）。
 			keyDescChildren.push(E('span', { 'class': 'nb-key-hint' },
 				_('Last used:') + ' ' + keyHint));
+			// 注销后打码 hint 仍显示,易被误读为「key 还在设备上」;补一句澄清。
+			if (state === 'needs_login') {
+				keyDescChildren.push(E('br'));
+				keyDescChildren.push(E('span', { 'class': 'cbi-value-description' },
+					_('Keys are not stored on the device; enter a key again to log in.')));
+			}
 		}
 
 		var rows = [ E('h3', {}, _('Authentication')) ];
@@ -395,6 +492,7 @@ return view.extend({
 		var keyHint = data.keyHint || '';
 		var lastAuthError = data.lastAuthError || '';
 		var pkgMgr = data.pkgMgr || '';
+		var ifaceBackend = data.ifaceBackend || null;
 		var connected = !!(data.connInfo && data.connInfo.ok && data.connInfo.data &&
 			data.connInfo.data.management && data.connInfo.data.management.connected);
 		var m = bannerModel(state, connected);
@@ -406,9 +504,13 @@ return view.extend({
 					nb.statusPill(m.pill, m.label),
 					E('span', { 'class': 'nb-banner-hint' }, ' ' + m.hint)
 				])
-			]),
-			this.renderGuidance(state, pkgMgr)
+			])
 		];
+		var backendWarn = renderIfaceBackendWarning(ifaceBackend, pkgMgr,
+			ui.createHandlerFn(this, 'handleInstallIfaceBackend'));
+		if (backendWarn)
+			children.push(backendWarn);
+		children.push(this.renderGuidance(state, pkgMgr));
 
 		// connected 时显示断开/注销控制；否则（且非 not_installed）显示认证表单。
 		if (connected)

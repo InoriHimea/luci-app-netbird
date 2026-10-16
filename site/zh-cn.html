@@ -11,6 +11,8 @@
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="canonical" href="https://luci-app-netbird.okk.sh/zh-cn">
   <link rel="alternate" hreflang="en" href="https://luci-app-netbird.okk.sh/">
+  <link rel="alternate" hreflang="zh-Hans" href="https://luci-app-netbird.okk.sh/zh-cn">
+  <link rel="alternate" hreflang="x-default" href="https://luci-app-netbird.okk.sh/">
 
   <meta property="og:title" content="luci-app-netbird — OpenWrt / ImmortalWrt 上的 NetBird 客户端 Web UI 管理界面">
   <meta property="og:description" content="在 OpenWrt 上安装、配置和管理 NetBird mesh-VPN 客户端的 LuCI Web UI（网页管理界面）。支持自托管服务器、WireGuard 设置、防火墙自动化、出口节点(Exit Node)选择。一键安装。">
@@ -18,6 +20,8 @@
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://luci-app-netbird.okk.sh/og-card.png">
   <meta property="og:site_name" content="luci-app-netbird">
+  <meta property="og:locale" content="zh_CN">
+  <meta property="og:locale:alternate" content="en_US">
 
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="luci-app-netbird — OpenWrt / ImmortalWrt 上的 NetBird 客户端 Web UI 管理界面">
@@ -25,17 +29,119 @@
   <meta name="twitter:image" content="https://luci-app-netbird.okk.sh/og-card.png">
 
   <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "SoftwareApplication",
-    "name": "luci-app-netbird",
-    "applicationCategory": "NetworkingApplication",
-    "operatingSystem": "OpenWrt, ImmortalWrt",
-    "description": "在 OpenWrt 上管理 NetBird mesh-VPN 客户端的 LuCI Web UI（网页管理界面）。支持自托管服务器、WireGuard 设置、防火墙自动化、出口节点(Exit Node)选择。",
-    "offers": { "@type": "Offer", "price": "0" },
-    "url": "https://github.com/looong-cat/luci-app-netbird",
-    "license": "https://spdx.org/licenses/Apache-2.0.html"
-  }
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "luci-app-netbird",
+  "applicationCategory": "NetworkingApplication",
+  "operatingSystem": "OpenWrt, ImmortalWrt",
+  "softwareRequirements": "OpenWrt or ImmortalWrt 22.03, 23.05, 24.10 (opkg) or 25.12 and snapshots (apk), with LuCI",
+  "description": "在 OpenWrt 上管理 NetBird mesh-VPN 客户端的 LuCI Web UI（网页管理界面）。支持自托管服务器、WireGuard 设置、防火墙自动化、出口节点(Exit Node)选择。",
+  "inLanguage": "zh-Hans",
+  "isAccessibleForFree": true,
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  },
+  "url": "https://luci-app-netbird.okk.sh/zh-cn",
+  "downloadUrl": "https://luci-app-netbird.okk.sh/#downloads",
+  "installUrl": "https://luci-app-netbird.okk.sh/install.sh",
+  "image": "https://luci-app-netbird.okk.sh/og-card.png",
+  "license": "https://spdx.org/licenses/Apache-2.0.html",
+  "author": {
+    "@type": "Person",
+    "name": "looong-cat",
+    "url": "https://github.com/looong-cat"
+  },
+  "sameAs": [
+    "https://github.com/looong-cat/luci-app-netbird"
+  ],
+  "featureList": [
+    "Connect with a setup key, cloud or self-hosted NetBird management server",
+    "Automatic reconnect",
+    "Switch between the package-feed, official release and custom NetBird binaries",
+    "Firewall zone and LAN forwarding automation",
+    "Full netbird up settings",
+    "Exit node selection that survives reboots",
+    "Peer status",
+    "Live logs"
+  ]
+}
+  </script>
+  <!-- FAQPage 结构化数据与下方 #faq 可见内容逐条对应;修改 FAQ 时同步更新 -->
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "inLanguage": "zh-Hans",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "没有 curl 怎么在 OpenWrt 上安装 NetBird?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "使用页面顶部的 wget 命令即可: wget -O - https://luci-app-netbird.okk.sh/install-zh.sh | sh。 大多数 OpenWrt 固件默认包含 wget。如果路由器既没有 curl 也没有 wget, 可以从下载区 下载 .ipk 软件包,传输到路由器后手动安装。"
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "luci-app-netbird 支持自托管 NetBird 服务器吗?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "支持。在 服务 → NetBird → 认证 中, 先在管理 URL 填入你的自托管服务器地址,再连接即可。 LuCI 界面对自托管和云端部署功能完全一致——对端状态、防火墙区域、 WireGuard 配置等全部正常工作。"
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "如何在 OpenWrt 上配置 NetBird 防火墙?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "进入 LuCI 应用的网络标签页,点击创建防火墙区域, 然后按需启用 LAN → NetBird(局域网访问 mesh 网络)或 NetBird → LAN(mesh 对端访问局域网)。两个方向可独立开关。 删除转发规则时,会借助作为依赖一并安装的 conntrack 工具立即断开已建立的连接。"
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "如何在 OpenWrt 上选择 NetBird 出口节点(Exit Node)?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "打开 LuCI 应用的网络标签页,Exit node 区会列出管理服务器授权给这台路由器的全部出口节点。选中一个并点击 Apply exit node,路由器(及以它为网关的设备)的全部互联网 流量就会改经该节点出口——VPN 出口节点即时生效,无需保存或 重启;选「关闭(直连互联网)」即恢复直连。出口节点本身需在 NetBird 管理控制台中定义,路由器只能在被授权的节点中选择。"
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "NetBird 能在 OpenWrt 上和 WireGuard 一起用吗?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "NetBird 底层使用的就是 WireGuard 隧道协议,而且 能与你已有的 WireGuard 隧道共存。在 服务 → NetBird → 设置 中,接口名(设备名)和监听端口都可自定义 (还有 MTU、持久 keepalive),因此 NetBird 不会和同一台路由器上的其他 WireGuard 实例冲突。同一页面还支持配置路由、DNS、IPv6 和 Rosenpass(抗量子 WireGuard)。"
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "NetBird OpenWrt 软件包支持哪些架构?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "LuCI 插件本身与架构无关(PKGARCH:=all),支持 x86_64、arm64、 386(32 位 x86)和 armv6。底层 netbird 二进制文件按架构编译, 覆盖所有主要 OpenWrt 目标平台。x86_64 经过最充分测试,其他架构支持但测试覆盖较少。"
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "如何在 OpenWrt 上更新 NetBird 客户端?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "使用 LuCI 应用中的版本标签页 (服务 → NetBird → 版本)。可以在官方 release 频道、 系统软件包源和自定义 URL 之间切换, 然后一键下载并切换到所选来源。"
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "升级 OpenWrt 后配置会丢失吗?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "不会。/etc/config/netbird 是 conffile,保留配置的固件升级也会保留它, 管理 URL、防火墙设置和其他所有配置在软件包升级和固件升级后都会保留,NetBird 身份同样保留。 安装密钥本身从不保存。但如果卸载后重新安装,可能需要重新配置。"
+      }
+    }
+  ]
+}
   </script>
 
   <!-- privacy-friendly analytics (pageview.app) -->
@@ -235,8 +341,9 @@
         <strong>NetBird</strong> mesh-VPN 客户端的 <strong>LuCI Web UI</strong>——
         在路由器后台使用 NetBird，无需命令行。
         <br>
-        同时兼容 <strong>OpenWrt / ImmortalWrt 24.x</strong>（<code>opkg</code>）
+        同时兼容 <strong>OpenWrt / ImmortalWrt 22.03 / 23.05 / 24.x</strong>（<code>opkg</code>）
         和 <strong>25.x / 最新 snapshot</strong>（<code>apk</code>）。
+        OpenWrt 21.02 及更早版本无法支持（官方源不含 <code>ucode</code> / <code>rpcd-mod-ucode</code>）。
       </p>
 
       <div class="install-block">
@@ -337,6 +444,13 @@
       <p class="section-desc">
         三步完成 <strong>NetBird 在 OpenWrt 上的配置</strong>。
         自托管用户请先填写管理 URL。
+      </p>
+      <p class="section-desc">
+        <strong>前置条件：</strong>NetBird 需要内核 WireGuard 模块或 TUN 设备二者之一。
+        官方 OpenWrt 镜像默认都不带，<code>netbird</code> 软件包也不依赖它们。
+        概览页与状态页会自动检测，并提供<strong>一键安装</strong>按钮替你装好所需的内核模块，
+        无需进命令行。若你的固件用的是定制内核，软件源里的模块可能不匹配，
+        此时界面会原样展示包管理器的输出，便于判断该装哪个版本。
       </p>
       <div class="steps">
         <div class="step">
@@ -519,7 +633,7 @@ opkg install luci-app-netbird luci-i18n-netbird-zh-cn</pre>
           进入 LuCI 应用的<strong>网络</strong>标签页,点击<strong>创建防火墙区域</strong>,
           然后按需启用 <code>LAN → NetBird</code>(局域网访问 mesh 网络)或
           <code>NetBird → LAN</code>(mesh 对端访问局域网)。两个方向可独立开关。
-          安装可选的 <code>conntrack</code> 包可以改善转发流量的连接追踪。
+          删除转发规则时,会借助作为依赖一并安装的 <code>conntrack</code> 工具立即断开已建立的连接。
         </p>
       </div>
 
@@ -569,9 +683,9 @@ opkg install luci-app-netbird luci-i18n-netbird-zh-cn</pre>
       <div class="faq-item">
         <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:6px">升级 OpenWrt 后配置会丢失吗?</h3>
         <p style="font-size:.9rem;color:var(--text-muted)">
-          不会。<code>/etc/config/netbird</code> 被标记为 conffile,
-          认证密钥、管理 URL、防火墙设置和所有其他配置在软件包升级后都会保留。
-          但如果卸载后重新安装,可能需要重新配置。
+          不会。<code>/etc/config/netbird</code> 是 conffile,保留配置的固件升级也会保留它,
+          管理 URL、防火墙设置和其他所有配置在软件包升级和固件升级后都会保留,NetBird 身份同样保留。
+          安装密钥本身从不保存。但如果卸载后重新安装,可能需要重新配置。
         </p>
       </div>
     </div>
@@ -582,14 +696,14 @@ opkg install luci-app-netbird luci-i18n-netbird-zh-cn</pre>
       <h2>下载</h2>
       <p class="section-desc">
         最新 <strong>NetBird OpenWrt 软件包</strong>——
-        与架构无关，提供 <code>.ipk</code>（24.10）和 <code>.apk</code>（25+）两种格式。
+        与架构无关，提供 <code>.ipk</code>（22.03 / 23.05 / 24.10）和 <code>.apk</code>（25+）两种格式。
       </p>
       <div class="downloads-wrap">
         <p class="signed-badge">🔒 已签名软件源 — opkg: <code>usign</code> · apk: <code>EC (prime256v1)</code></p>
         <noscript>
           <p class="nojs-warn">
             ⚠️ 下载列表需要 JavaScript。可用页面顶部的一键安装命令,或直接浏览软件源:
-            <a href="/openwrt-24.10/all/netbird/">24.10</a> · <a href="/openwrt-25.12/all/netbird/">25.12</a>。
+            <a href="/openwrt-24.10/all/netbird/">22.03 / 23.05 / 24.10</a> · <a href="/openwrt-25.12/all/netbird/">25.12</a>。
           </p>
         </noscript>
         <div id="downloads-app">
@@ -656,7 +770,7 @@ opkg install luci-app-netbird luci-i18n-netbird-zh-cn</pre>
         dl.innerHTML = html;
       })
       .catch(function(){
-        dl.innerHTML = '<p class="downloads-meta">下载列表暂不可用。可浏览软件源: <a href="/openwrt-24.10/all/netbird/">24.10</a> · <a href="/openwrt-25.12/all/netbird/">25.12</a>。</p>';
+        dl.innerHTML = '<p class="downloads-meta">下载列表暂不可用。可浏览软件源: <a href="/openwrt-24.10/all/netbird/">22.03 / 23.05 / 24.10</a> · <a href="/openwrt-25.12/all/netbird/">25.12</a>。</p>';
       });
   }
 

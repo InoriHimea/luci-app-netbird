@@ -6,8 +6,14 @@
 
 **English** | [简体中文](README.zh-cn.md)
 
+**Fork:** this repository retains manual-binary support and configurable GitHub API/CDN mirrors. The binary-source selector offers official releases and custom URLs; the system `netbird` package is not a hard dependency. Install fork packages from [this fork's releases](https://github.com/InoriHimea/luci-app-netbird/releases), or build from source. The one-click feed below distributes the upstream variant, not this fork.
+
+> [!NOTE]
+> Upstream author's note: almost all of the code in this project was written through vibe coding. Upstream releases are tested on real devices running different OpenWrt versions, and the upstream author runs the app on more than 10 devices. This fork's current synchronization has been smoke-tested in an isolated OpenWrt container, not deployed to routers.
+
 LuCI app for the [NetBird](https://netbird.io) mesh-VPN client on OpenWrt / ImmortalWrt — manage NetBird on OpenWrt from the router, no command line needed.
-Compatible with OpenWrt / ImmortalWrt 24.x (`opkg`) and 25.x / current snapshots (`apk`).
+Compatible with OpenWrt / ImmortalWrt 22.03 / 23.05 / 24.x (`opkg`) and 25.x / current snapshots (`apk`).
+OpenWrt 21.02 and older cannot be supported — their package feeds lack `ucode` / `rpcd-mod-ucode`, which the backend runs on.
 
 ## Features
 
@@ -15,7 +21,7 @@ Surfaces the NetBird client's capabilities in the LuCI UI:
 
 - Connect / reconnect / disconnect / deregister; self-hosted management
 - Automatic reconnect after transient outages — with clear authentication-failure reasons
-- Binary version management — official release, package feed, or custom URL
+- Binary version management — official release or custom URL, with configurable GitHub API/CDN mirrors
 - Firewall automation — NetBird zone and LAN ↔ mesh forwarding
 - Exit node selection — route all internet traffic through a mesh peer, switch or turn off in one click
 - Full `netbird up` settings — WireGuard, routes, DNS, SSH, IPv6, Rosenpass, log level
@@ -45,14 +51,14 @@ opkg install luci-app-netbird
 
 <details><summary><b>Install from package files</b></summary>
 
-Runtime deps (usually present): `rpcd`, `rpcd-mod-ucode`, `luci-base`, `netbird`, `conntrack`.
+Runtime deps (usually present): `rpcd`, `rpcd-mod-ucode`, `ucode`, `ucode-mod-fs`, `ucode-mod-uci`, `luci-base`, `conntrack`. An existing NetBird daemon service (`/etc/init.d/netbird`) is required; a manually installed binary is supported without the system `netbird` package.
 
 ```sh
-# OpenWrt / ImmortalWrt 24.10 (opkg)
-opkg install rpcd rpcd-mod-ucode luci-base netbird
+# OpenWrt / ImmortalWrt 22.03 / 23.05 / 24.10 (opkg)
+opkg install rpcd rpcd-mod-ucode ucode ucode-mod-fs ucode-mod-uci luci-base conntrack
 opkg install luci-app-netbird_*.ipk
 # OpenWrt / ImmortalWrt 25+ (apk)
-apk add rpcd rpcd-mod-ucode luci-base netbird
+apk add rpcd rpcd-mod-ucode ucode ucode-mod-fs ucode-mod-uci luci-base conntrack
 apk add --allow-untrusted luci-app-netbird-*.apk
 ```
 </details>
@@ -81,6 +87,12 @@ Add this repo to an OpenWrt / ImmortalWrt SDK or buildroot (under `package/` or 
 
 - Verified on x86_64; other architectures (arm64 / 386 / armv6) are supported but less tested.
 - SSH extensions (root login / SFTP / port forwarding) require netbird 0.72.x+.
+- Older package feeds ship an old netbird — 23.05 has 0.24.x, 22.03 has 0.17.x: connect / status / settings work, but exit-node selection needs netbird 0.35+ — switch the binary to the latest official release on the **Versions** tab after installing. On 22.03 this switch is strongly recommended.
+- NetBird needs either the kernel WireGuard module or a TUN device. Stock OpenWrt images ship
+  neither `kmod-wireguard` nor `kmod-tun` by default, and the `netbird` package does not depend on
+  them. The Overview and Status pages detect this and offer a one-click **Install** button that
+  pulls the right package; on firmware with a custom kernel the feed modules may not match, and the
+  app then shows the package manager's own output so you can install a matching build yourself.
 - `/etc/config/netbird` is a conffile — settings are kept across upgrades.
 
 ## License

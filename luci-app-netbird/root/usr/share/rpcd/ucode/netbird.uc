@@ -3,7 +3,7 @@
 // Canonical runtime path: /usr/share/rpcd/ucode/netbird.uc
 // Repo canonical source:  root/usr/share/rpcd/ucode/netbird.uc
 //
-// netbird.uc — rpcd 入口对象（注册 luci.netbird，28 methods = 13 read + 15 write）
+// netbird.uc — rpcd 入口对象（注册 luci.netbird，31 methods = 13 read + 18 write）
 // ACL 合约源：root/usr/share/rpcd/acl.d/luci-app-netbird.json
 // 方法名必须与 ACL 一字不差（双向 diff 是 CI 闸门）。
 //
@@ -14,7 +14,7 @@
 //
 // 设置应用无独立 apply RPC（曾有 apply_settings，已删）：走标准 Save&Apply
 // （form.Map → UCI commit → procd reload trigger，见 init.d/netbird-settings）。
-// 已实装：do_up / do_down / do_login / do_logout（认证 4 方法）；
+// 已实装：do_up / do_down / do_reconnect / do_login / do_logout（认证 5 方法）；
 // 已实装：do_enable_and_start + setup_firewall_zone/forwarding（zone 直接绑定 netbird 设备，不建 network 接口）。
 //
 // 硬约束：所有 read 方法禁直读 config.json 文件；一律 CLI / ubus / logread / opkg 透传。
@@ -24,7 +24,7 @@
 // 路径走 NBLIB env override（默认 /usr/share/rpcd/ucode/lib）。
 // shebang 与 'use strict' 在 module 模式下都不允许，已删除。
 
-import { popen, access, open, unlink, lsdir } from 'fs';
+import { popen, access, open, unlink, lsdir, stat } from 'fs';
 import * as uci from 'uci';
 
 const _LIB = getenv('NBLIB') || '/usr/share/rpcd/ucode/lib';
@@ -36,15 +36,18 @@ let _state    = loadfile(_LIB + '/state.uc')();
 let _cli      = loadfile(_LIB + '/netbird_cli.uc')();
 
 let shell_quote          = _shell.shell_quote;
+let _to                  = _shell.with_timeout;
 let resolve_netbird_bin  = _paths.resolve_netbird_bin;
 let ok                   = _envelope.ok;
 let err                  = _envelope.err;
 let CODE                 = _envelope.CODE;
 let sanitize_settings    = _sanitize.sanitize_settings;
 let probe_state          = _state.probe_state;
+let probe_iface_backend  = _state.probe_iface_backend;
 let fetch_status_json    = _cli.fetch_status_json;
 let get_opkg_versions    = _cli.get_opkg_versions;
 let probe_running_via_ubus = _cli.probe_running_via_ubus;
+let classify_status_text = _cli.classify_status_text;
 
 // ============================================================================
 // _safe(fn) — 异常网
@@ -102,24 +105,15 @@ function _require_running() {
 // 不变量（安全/性能）：
 //   - action 非枚举 → die()：防 caller 注入 `'; rm -rf /` 等恶意 action
 //   - /etc/init.d/netbird 字面命令；action 亦是字面常量，无需 shell_quote
-//   - 5s timeout 前缀包装：BusyBox 部分构建无 timeout applet，与 state.uc
-//     _HAS_TIMEOUT 模式一致 —— 降级透传；源码字面保留 'timeout 5s' 以满足
-//     源码字面保留以记录设计意图。
+//   - 5s timeout 前缀包装：共享 shell 模块实际探测能力，不可用则降级透传。
 const _INIT_ACTIONS = { enable: true, start: true, stop: true };
-const _RUN_INIT_HAS_TIMEOUT = access('/usr/bin/timeout', 'x') || access('/bin/timeout', 'x');
-
-// _to(cmd) — 给命令加 5s 墙钟前缀(timeout applet 在才加;缺失透传)。集中原 5 处重复的
-// `_RUN_INIT_HAS_TIMEOUT ? ('timeout 5s '+x) : x` 三元(ucode 不 hoist 函数,helper 定义在所有调用方之上)。
-function _to(cmd) {
-    return _RUN_INIT_HAS_TIMEOUT ? ('timeout 5s ' + cmd) : cmd;
-}
 
 function _run_init(action) {
     // 白名单 assert（防 caller 注入恶意 action）
     if (!_INIT_ACTIONS[action])
         die(sprintf('_run_init: illegal action "%s" (not in whitelist enable/start/stop)', action));
 
-    // 命令拼接：timeout 5s /etc/init.d/netbird <action>
+    // 命令拼接：timeout 5 /etc/init.d/netbird <action>
     // 注：action 经白名单 assert 后是字面常量，命令字面安全；2>&1 合并便于截 stderr。
     let base = '/etc/init.d/netbird ' + action + ' 2>&1';
     let cmd = _to(base);
@@ -140,6 +134,20 @@ function _run_init(action) {
         msg = 'timeout after 5s';
 
     return { code: exit_code, stdout: buf, stderr: msg };
+}
+
+// _ensure_helper_services() — 确保设置应用(netbird-settings)与自动重连(luci-netbird-watchdog)
+// 两个辅助服务已启用并在运行。正常安装由包脚本启用;但有些预装固件的构建流程不执行包脚本,
+// 这两个服务从未启用,设置的 Save&Apply 与自动重连都会静默失效,直到插件被更新一次。
+// 在用户启用服务或发起连接时补齐;服务名为字面常量。
+function _ensure_helper_services() {
+    for (let svc in ['netbird-settings', 'luci-netbird-watchdog']) {
+        let init = '/etc/init.d/' + svc;
+        if (!access(init, 'x') || system(_to(init + ' enabled >/dev/null 2>&1')) == 0)
+            continue;
+        system(_to(init + ' enable >/dev/null 2>&1'));
+        system(_to(init + ' start >/dev/null 2>&1'));
+    }
 }
 
 // ============================================================================
@@ -185,6 +193,31 @@ function _persist_mgmt_url(url) {
         c.set('netbird', 'settings', 'netbird');
     c.set('netbird', 'settings', 'management_url', url);
     c.commit('netbird');
+}
+
+// _norm_mgmt_url(u) → 管理 URL 归一化（仅比较用）：小写、去尾斜杠、无端口时补 scheme
+// 默认端口（https→443 / http→80），使「带/不带默认端口」两种写法等值。非常规形态
+// （带路径等）在小写、去尾斜杠后原样返回，比较退化为字符串相等，不会误判分叉。
+function _norm_mgmt_url(u) {
+    let s = lc(trim(u));
+    while (length(s) > 1 && substr(s, length(s) - 1) == '/')
+        s = substr(s, 0, length(s) - 1);
+    let m = match(s, /^(https?):\/\/([^\/:]+)$/);
+    if (m != null)
+        return m[1] + '://' + m[2] + ':' + ((m[1] == 'https') ? '443' : '80');
+    return s;
+}
+
+// _daemon_mgmt_url(bin) → daemon 当前持有的 management URL | null（status 非 JSON 态、
+// daemon 未运行、字段缺失）。status --json 的 management.url 是 daemon 当前配置的实时
+// 投影：status 请求处理时都会以持有配置刷新该字段，断连时不清空，故连不上管理端的
+// 故障态下依然可读。
+function _daemon_mgmt_url(bin) {
+    let js = fetch_status_json(bin);
+    if (!js.ok || js.data == null || js.data.management == null)
+        return null;
+    let u = js.data.management.url;
+    return (type(u) == 'string' && length(u) > 0) ? u : null;
 }
 
 // ============================================================================
@@ -348,19 +381,78 @@ function _resolve_display_mgmt_url() {
     return _mgmt_url_from_config();
 }
 
+// _cli_has_flag(bin, verb, flag) → bool：该二进制的 `<verb> --help` 是否列出 flag。
+// 旧版 netbird（软件源的 0.17 / 0.24）的 up/login 没有 --no-browser，带上即 unknown flag。
+// 结果按「二进制实际文件的 mtime + 大小」缓存，切换来源或升级后自动重新探测。
+let _cli_flag_cache = {};
+function _cli_has_flag(bin, verb, flag) {
+    let st = stat(bin);
+    let key = sprintf('%s|%s|%s|%s|%s', bin, st ? st.mtime : '', st ? st.size : '', verb, flag);
+    if (_cli_flag_cache[key] == null) {
+        let fd = popen(_to(shell_quote(bin) + ' ' + verb + ' --help 2>&1'), 'r'); // shell-audit-ok: bin 经 shell_quote，verb 字面
+        let help = (fd != null) ? (fd.read('all') || '') : '';
+        if (fd != null)
+            fd.close();
+        _cli_flag_cache[key] = (index(help, ' ' + flag + ' ') >= 0 || index(help, ' ' + flag + '\n') >= 0);
+    }
+    return _cli_flag_cache[key];
+}
+
 // _build_auth_cmd(bin, verb, mgmt_url, setup_key) → 拼好的命令字符串
-// verb ∈ {'up','login'}。一律加 --no-browser（避免等 SSO 浏览器挂死）。
+// verb ∈ {'up','login'}。二进制支持时加 --no-browser（避免等 SSO 浏览器挂死；旧版无此 flag，
+// headless 环境下省略效果相同）。
 // 所有动态参数（mgmt_url / setup_key）经 shell_quote（防注入）。
 // bin 来自 resolve_netbird_bin（运行时探测），同样 shell_quote。
 // 长命令不加 5s timeout（业务层自己轮询控时）；2>&1 合并便于回传错误。
 function _build_auth_cmd(bin, verb, mgmt_url, setup_key) {
-    let cmd = shell_quote(bin) + ' ' + verb + ' --no-browser';
+    let cmd = shell_quote(bin) + ' ' + verb;
+    if (_cli_has_flag(bin, verb, '--no-browser'))
+        cmd += ' --no-browser';
     if (mgmt_url != null && length(mgmt_url) > 0)
         cmd += ' --management-url ' + shell_quote(mgmt_url);
     if (setup_key != null && length(setup_key) > 0)
         cmd += ' --setup-key ' + shell_quote(setup_key);
     cmd += ' 2>&1';
     return cmd;
+}
+
+// _apply_pending_settings() — 未登录时保存的设置（netbird-settings 留下待应用标记）在登录成功后
+// 补应用一次。后台执行、不阻塞本次 RPC；应用会 down→up，本次新建的连接随之短暂重连一次。
+const _NB_SETTINGS_PENDING = '/etc/netbird-settings.pending';
+// netbird-settings 记录的「上次成功应用的参数指纹」;身份被清除或需要强制重新应用时作废。
+const _NB_SETTINGS_APPLIED = '/var/run/netbird-settings.applied';
+function _apply_pending_settings() {
+    if (!access(_NB_SETTINGS_PENDING, 'f'))
+        return;
+    unlink(_NB_SETTINGS_PENDING);
+    unlink(_NB_SETTINGS_APPLIED);
+    system('( /etc/init.d/netbird-settings reload ) </dev/null >/dev/null 2>&1 &');
+}
+
+// _cli_immediate_error(r) → { message, hint } | null：认证 CLI 自行返回（未被墙钟杀掉）且属于
+// 轮询也无法改变的失败——参数用法错误、连不上本机 NetBird 服务——时给出原因；其余返回 null
+// 交给原有的轮询与归因。hint 带 CLI 原话首行，便于定位版本差异。
+function _cli_immediate_error(r) {
+    let out = r.stdout || '';
+    if (r.code == 0 || match(out, /netbird command timed out after/))
+        return null;
+    let first = '';
+    for (let ln in split(out, '\n')) {
+        ln = trim(ln);
+        if (length(ln) > 0 && (match(ln, /^Error:/) || length(first) == 0))
+            first = ln;
+    }
+    first = substr(first, 0, 200);
+    if (match(out, /unknown (shorthand )?flag|unknown command|flag needs an argument|invalid argument/))
+        return { message: 'The NetBird client rejected the command; it may be too old for this action.',
+                 hint: 'NetBird: ' + first };
+    if (match(out, /pass --profile/))
+        return { message: 'NetBird could not determine the active profile. Restart the NetBird service, then try again.',
+                 hint: 'NetBird: ' + first };
+    if (match(out, /failed to connect to daemon|dial unix [^ ]*: connect: (no such file or directory|connection refused)/))
+        return { message: 'The NetBird service is not running or not responding. Start it, then try again.',
+                 hint: 'NetBird: ' + first };
+    return null;
 }
 
 // _exec_long(cmd, max_bytes?) → { code, stdout }
@@ -425,7 +517,7 @@ function _poll_connected(bin, rounds) {
 // _exec_short_verb(bin, verb) → { code, stdout }
 // 短认证命令（down / deregister）：5s timeout 包装（与 _run_init 同模式，BusyBox 无 timeout 降级）；
 // verb 是字面常量（调用方传 'down'/'deregister'），bin 经 shell_quote。
-// timeout applet 探测复用 _RUN_INIT_HAS_TIMEOUT（同值，避免重复定义）。
+// timeout 能力探测复用共享 shell 模块。
 function _exec_short_verb(bin, verb) {
     let base = shell_quote(bin) + ' ' + verb + ' 2>&1';
     let cmd = _to(base);
@@ -443,16 +535,25 @@ function _exec_short_verb(bin, verb) {
 // exit node 在客户端 = 管理端下发的 0.0.0.0/0（及配对 ::/0）网络路由；
 // `networks list/select/deselect` 是官方桌面/移动端同款机制（`routes` 为其别名，
 // 子命令自 0.35 起存在，覆盖 OpenWrt 24.10 官方源的 0.59.x 及以上）。
-// 选择状态由 daemon 持久化（重启保留），不进 UCI —— 避免第二事实源与管理端漂移。
+// 选择状态 daemon 侧存 state.json（/var/lib 下,OpenWrt 上为 tmpfs、重启即丢），
+// 故 LuCI 侧的选择另存 UCI 并在开机后由 watchdog 恢复（见 _persist_exit_node /
+// restore_exit_node）；恢复前必经当前列表白名单校验，不会与管理端漂移。
 
 // _exec_networks(bin, verb, ids, append) → { code, stdout, truncated }
 // verb ∈ {'list','select','deselect'} 由调用方传字面常量；ids 逐个 shell_quote,
 // 且以 ` -- ` 分隔（cobra 的 flag 终止符,实测可让 `-` 开头的 id 安全透传为位置参数）。
 // append=true 时 select 加 -a：附加式选择。不带 -a 的 select 会清空用户已选的
 // 全部其他网络路由（上游 CLI 语义是"替换整个选择集"），绝不能用于单节点切换。
-// 5s timeout 与 _exec_short_verb 同模式；输出上限 64KB,超限置 truncated（截断的
+// 5s timeout 与 _exec_short_verb 同模式；输出上限 1MiB,超限置 truncated（截断的
 // 列表解析会误判 selected/丢条目,调用方必须报错而不是拿残缺结果继续）。
-const _NETWORKS_OUT_MAX = 65536;
+// 容量按资源数估算:`networks list` 输出随管理端下发的 network resources 增长
+// （实测 ~97B/条,与 peer 数无关）,1MiB 约容 1 万条。fd.read('all') 本就全量
+// 驻留内存,提高上限只多一次更长字符串的解析,无管道风险。
+// 解析成本实测（x86 Celeron 3865U 1.8GHz,ucode 2025.07.18,合成列表）:
+// 82KB→0.38s/峰值 RSS 2.9MB,满 1MiB→4.45s/峰值 RSS 19MB,随字节数线性（无二次
+// 放大）;报告者 2218 条=215KB 的真实规模约 1s 量级。超限走 truncated 直接拒绝
+// （0.04s,不进解析）,故上限本身仍是撑爆内存的兜底。
+const _NETWORKS_OUT_MAX = 1048576;
 function _exec_networks(bin, verb, ids, append) {
     let base = shell_quote(bin) + ' networks ' + verb;
     if (append)
@@ -529,6 +630,22 @@ function _collect_exit_nodes(bin) {
             push(nodes, n);
     }
     return { ok: true, exit_nodes: nodes };
+}
+
+// _persist_exit_node(id) — 把 exit node 选择写入 UCI(id 空 = 清除)。
+// daemon 自己的选择态在 state.json,而该文件路径在 /var/lib(OpenWrt 上 /var→/tmp
+// 为 tmpfs)→ 重启必丢(GitHub #10)。UCI 记录用户经 LuCI 表达的选择,重启后由 watchdog 经
+// restore_exit_node 恢复一次;经 CLI/桌面端做的选择不进 UCI(LuCI 只对自己的
+// 操作负责,重启后以 LuCI 配置为准)。
+function _persist_exit_node(id) {
+    let c = uci.cursor();
+    if (c.get('netbird', 'settings') == null)
+        c.set('netbird', 'settings', 'netbird');
+    if (id != null && length(id) > 0)
+        c.set('netbird', 'settings', 'exit_node', id);
+    else
+        c.delete('netbird', 'settings', 'exit_node');
+    c.commit('netbird');
 }
 
 // ============================================================================
@@ -1152,6 +1269,45 @@ function _running_version(bin) {
 const _NB_DL_STATUS = '/tmp/luci-netbird-binary-download.status';
 const _NB_DL_CANCEL = '/tmp/luci-netbird-binary-download.cancel';
 const _NB_DL_WORKER_LOG = '/tmp/luci-netbird-binary-download.worker.log';
+// 后台下载 worker 的 PID。进度文件没有可靠的 pid 字段(各阶段写入时都会重写),单独存放;
+// worker 被 OOM/崩溃杀掉后,查询进度时据此发现并把卡住的中间态改为失败。
+const _NB_DL_WORKER_PID = '/tmp/luci-netbird-binary-download.pid';
+
+// _pid_runs(pid, needle) → bool:进程存在且命令行含 needle(防 PID 复用后误判/误杀)。
+function _pid_runs(pid, needle) {
+    if (!match(pid || '', /^[0-9]+$/))
+        return false;
+    let fd = open('/proc/' + pid + '/cmdline', 'r');
+    if (fd == null)
+        return false;
+    let cl = fd.read('all') || '';
+    fd.close();
+    return index(cl, needle) >= 0;
+}
+
+function _read_small_text(path) {
+    let fd = open(path, 'r');
+    if (fd == null)
+        return '';
+    let t = fd.read(64) || '';
+    fd.close();
+    return trim(t);
+}
+
+// 二进制操作互斥锁(mkdir 原子创建)。锁目录里记录持锁进程(popen 的 sh 的父进程,即 rpcd 或
+// 后台 worker)的 PID:持有者被 OOM/崩溃杀掉时锁不会释放,之后所有二进制操作都报"进行中"直到重启。
+const _NB_BINOP_LOCK = '/tmp/nb-binop.lock';
+
+// _binop_lock_stale() → bool:锁存在但持有者已不在。无持有者记录的旧锁(旧版本留下)超过 10 分钟视为残留。
+function _binop_lock_stale() {
+    let st = stat(_NB_BINOP_LOCK);
+    if (st == null)
+        return false;
+    let owner = _read_small_text(_NB_BINOP_LOCK + '/owner');
+    if (length(owner) > 0)
+        return !_pid_runs(owner, 'ucode') && !_pid_runs(owner, 'rpcd');
+    return time() - st.mtime > 600;
+}
 
 // _progress_download_cmd(fetcher,out,secs,total) — 包装实际下载器,每秒写状态文件并响应取消。
 // total 为 0/正数时写进度;null 表示仅复用原墙钟 watchdog,不污染当前下载进度状态。
@@ -1214,6 +1370,13 @@ function _download_headers(headers, kind) {
     return out;
 }
 
+// _dl_tool() → 'curl'|'uclient-fetch'|'wget':_dl_cmd 实际使用的下载器(同一优先级)。
+function _dl_tool() {
+    if (access('/usr/bin/curl', 'x') || access('/bin/curl', 'x'))
+        return 'curl';
+    return (access('/bin/uclient-fetch', 'x') || access('/usr/bin/uclient-fetch', 'x')) ? 'uclient-fetch' : 'wget';
+}
+
 // _dl_cmd(url, out, secs, progress_total, headers) → 拼下载命令(优先 curl,回落 uclient-fetch,再 BusyBox wget)。
 // out 空串=输出到 stdout(读 body 用);非空=写入该文件。url/out 经 shell_quote(注入防线)。
 // OWRT25 最小化镜像常无 curl,但有 uclient-fetch(HTTPS via libustream)——多下载器回落,
@@ -1226,7 +1389,8 @@ function _dl_cmd(url, out, secs, progress_total, headers) {
     let q = shell_quote(url);
     let to_file = (out != null && length(out) > 0);
     let bounded = (secs != null && secs > 0);
-    if (access('/usr/bin/curl', 'x') || access('/bin/curl', 'x')) {
+    let tool = _dl_tool();
+    if (tool == 'curl') {
         let curl_to = bounded ? (' --max-time ' + secs) : ' --connect-timeout 20';
         let curl_headers = _download_headers(headers, 'curl');
         if (!to_file)
@@ -1236,10 +1400,12 @@ function _dl_cmd(url, out, secs, progress_total, headers) {
             return _progress_download_cmd(fetcher, out, secs, progress_total);
         return fetcher;
     }
-    let tool = (access('/bin/uclient-fetch', 'x') || access('/usr/bin/uclient-fetch', 'x')) ? 'uclient-fetch' : 'wget';
     let fetch_headers = _download_headers(headers, 'fetch');
+    // uclient-fetch 的 -T 只管连接/空闲超时，慢速持续输出时读 body 没有总时长，且它不响应
+    // SIGTERM；读 body 的调用整体套墙钟（超时 kill -9）。
     if (!to_file)
-        return tool + ' -q -T ' + (bounded ? secs : 20) + fetch_headers + ' -O - ' + q + ' 2>/dev/null';
+        return _to(tool + ' -q -T ' + (bounded ? secs : 20) + fetch_headers + ' -O - ' + q + ' 2>/dev/null',
+                   (bounded ? secs : 20) + 10);
     let fetcher = tool + ' -q -T ' + (bounded ? secs : 20) + fetch_headers + ' -O ' + shell_quote(out) + ' ' + q + ' 2>&1';
     if (progress_total != null)
         return _progress_download_cmd(fetcher, out, secs, progress_total);
@@ -1304,8 +1470,22 @@ function _popen_simple(cmd) {
     return { code: (rc == null ? -1 : rc), out: raw };
 }
 
+// _dl_sends_headers() → 当前下载器能否附加请求头(API asset 下载必须带 Accept 头)。
+//   curl 恒可;uclient-fetch 到 24.10 才有 --header,22.03/23.05 自带版本遇到该参数会直接报用法错误、
+//   整条下载失败,故按 --help 实测。结果在本进程内缓存。
+let _dl_headers_ok = null;
+function _dl_sends_headers() {
+    if (_dl_headers_ok == null) {
+        let tool = _dl_tool();
+        _dl_headers_ok = (tool == 'curl') || index(_popen_simple(tool + ' --help 2>&1').out, '--header') >= 0;
+    }
+    return _dl_headers_ok;
+}
+
+// _github_asset_api_url(ver, filename) → 该 release 资产的 API 下载地址 | ''。
+//   下载器不能带请求头时返回 '',调用方回落 releases/download 直链。
 function _github_asset_api_url(ver, filename) {
-    if (!match(ver || '', _SEMVER_RE) || length(filename || '') == 0)
+    if (!match(ver || '', _SEMVER_RE) || length(filename || '') == 0 || !_dl_sends_headers())
         return '';
     let api_base = _uci_binary('api_base', 'https://api.github.com');
     let api = api_base + '/repos/netbirdio/netbird/releases/tags/v' + ver;
@@ -1395,6 +1575,19 @@ function _elf_machine(path) {
     return be ? ((b18 << 8) | b19) : ((b19 << 8) | b18);
 }
 
+// _elf_ident(path) → 'c<EI_CLASS>d<EI_DATA>'(字长 + 端序)|''(非 ELF/读失败)。e_machine 相同的
+// 32/64 位或大/小端二进制(如 mips/mipsel)只比 e_machine 区分不出,需一并比较这两个字节。
+function _elf_ident(path) {
+    let fd = open(path, 'r');
+    if (fd == null)
+        return '';
+    let buf = fd.read(6);
+    fd.close();
+    if (buf == null || length(buf) < 6 || ord(substr(buf, 0, 1)) != 0x7f || substr(buf, 1, 3) != 'ELF')
+        return '';
+    return sprintf('c%dd%d', ord(substr(buf, 4, 1)), ord(substr(buf, 5, 1)));
+}
+
 // _file_size_kb(path) → 文件大小 KB(向上取整);不存在/解析失败返 -1。
 function _file_size_kb(path) {
     if (path == null || !access(path, 'f'))
@@ -1477,6 +1670,8 @@ function _progress_phase(phase, message, path, total) {
     let prev = _progress_status();
     let started = prev.started > 0 ? prev.started : now;
     let downloaded = (path != null && length(path) > 0) ? _file_size_bytes(path) : prev.downloaded;
+    if (downloaded < 0)
+        downloaded = prev.downloaded;   // 下载包已在解压后删除(省 /tmp),沿用最后一次读数
     let elapsed = (now > started) ? (now - started) : 0;
     let speed = (elapsed > 0 && downloaded > 0) ? int(downloaded / elapsed) : prev.speed;
     let t = (total != null && total > 0) ? total : prev.total;
@@ -1503,7 +1698,20 @@ function _progress_canceled() {
 }
 
 function _do_get_binary_update_progress(req) {
-    return ok(_progress_status());
+    let st = _progress_status();
+    if (st.active) {
+        let wpid = _read_small_text(_NB_DL_WORKER_PID);
+        if (length(wpid) > 0 && !_pid_runs(wpid, 'ucode')) {
+            // worker 已不在(OOM/崩溃/被停止):中间态永远不会再更新,改为终态让前端结束等待。
+            if (st.phase == 'stopping')
+                _progress_phase('canceled', 'Download stopped.', '', st.total);
+            else
+                _progress_phase('failed', 'The download worker stopped unexpectedly. Try again.', '', st.total);
+            unlink(_NB_DL_WORKER_PID);
+            st = _progress_status();
+        }
+    }
+    return ok(st);
 }
 
 function _do_cancel_binary_update(req) {
@@ -1511,15 +1719,17 @@ function _do_cancel_binary_update(req) {
     if (!st.active)
         return ok(st);
     _popen_simple('touch ' + shell_quote(_NB_DL_CANCEL) + ' 2>/dev/null');
-    if (match(st.pid || '', /^[0-9]+$/))
-        _popen_simple('kill -9 ' + st.pid + ' 2>/dev/null');
+    // worker 会在阶段之间检查取消标记;只在核实 PID 仍是下载 worker 时才强杀,避免误伤复用了该 PID 的进程。
+    let wpid = _read_small_text(_NB_DL_WORKER_PID);
+    if (_pid_runs(wpid, 'ucode'))
+        _popen_simple('kill -9 ' + wpid + ' 2>/dev/null');
     _progress_phase('stopping', 'Stopping download...', '', st.total);
     return ok(_progress_status());
 }
 
 function _do_start_binary_update(req) {
     let st = _progress_status();
-    if (st.active || access('/tmp/nb-binop.lock', 'f'))
+    if (st.active || (access(_NB_BINOP_LOCK, 'f') && !_binop_lock_stale()))
         return err(CODE.INSTALL_FAILED, 'Another binary operation is in progress; please wait and try again.');
 
     let a = (req != null && req.args != null) ? req.args : (req || {});
@@ -1543,6 +1753,11 @@ function _do_start_binary_update(req) {
     if (!match(pid, /^[0-9]+$/)) {
         _progress_phase('failed', 'Could not start the download worker.', '', 0);
         return err(CODE.INSTALL_FAILED, 'Could not start the download worker.');
+    }
+    let pfd = open(_NB_DL_WORKER_PID, 'w');
+    if (pfd != null) {
+        pfd.write(pid);
+        pfd.close();
     }
     return ok({ started: true, pid: int(pid) });
 }
@@ -1597,10 +1812,27 @@ function _openwrt_release_string() {
 
 function _openwrt_series() {
     let rel = _openwrt_release_string();
-    if (match(rel, /^24\.10(\.|$)/))
-        return '24.10';
-    if (match(rel, /^25\.12(\.|$)/))
-        return '25.12';
+    // 22.03 / 23.05(均 opkg)与 24.10 共用 ipk 软件源:包 PKGARCH:=all 且运行依赖
+    // (rpcd-mod-ucode/ucode/conntrack/netbird)在两者官方源齐备,直接映射同系列。
+    // 22.03 是能运行本应用的最老系列——它是第一个带 ucode / rpcd-mod-ucode 的版本。
+    // 注意旧系列官方源的 netbird 较旧(23.05 为 0.24.x、22.03 为 0.17.x,无 networks 子命令):
+    // 基础连接/状态可用,exit node 需在「版本」页切换到官方 release 二进制(≥0.35)。
+    // 版本串只取 `NN.MM` 前缀映射系列,后缀一概不管:分支 snapshot(如 GL.iNet 4.x
+    // 固件自报的 `23.05-SNAPSHOT`)、rc 与正式版同分支同依赖,按同系列处理。
+    // 安装脚本 feed.sh 的子串匹配本就接受这些形态,此处与其对齐。
+    let m = match(rel, /^([0-9]+\.[0-9]+)/);
+    if (m) {
+        let series = m[1];
+        if (series == '22.03' || series == '23.05' || series == '24.10')
+            return '24.10';
+        if (series == '25.12')
+            return '25.12';
+        return '';
+    }
+    // 主干 SNAPSHOT(无数字前缀):apk 系与 25.12 源同构,可用;opkg 系主干 snapshot
+    // 属远古形态,依赖面未知,保持不支持(与 feed.sh 行为一致)。
+    if (match(rel, /SNAPSHOT/))
+        return _pkg_mgr() == 'apk' ? '25.12' : '';
     if (length(rel) == 0)
         return _pkg_mgr() == 'apk' ? '25.12' : '24.10';
     return '';
@@ -1646,6 +1878,20 @@ function _luci_pkg_filename(pkg, ver, ext) {
     return '';
 }
 
+// _luci_i18n_installed() → 系统是否已装 luci-i18n-netbird-zh-cn(中文语言包)。
+// 更新器据此决定是否连带升级语言包:已装才升(i18n 子包版本跟随主包,升级刷新 .lmo),
+// 未装绝不引入——语言包装不装是用户在安装入口的选择(install.sh 不带 / install-zh.sh 带),
+// 更新不得改变它;无条件安装会把中文重新注册进 LuCI 语言列表(zh 包 uci-defaults),#3。
+// 查询只读本地包数据库,不联网;查询失败按未装处理(宁可跳过 i18n 升级,不误引入)。
+function _luci_i18n_installed() {
+    if (_pkg_mgr() == 'apk') {
+        let r = _popen_simple('apk list --installed luci-i18n-netbird-zh-cn 2>/dev/null');
+        return match(r.out || '', /(^|\n)luci-i18n-netbird-zh-cn-[0-9]/) != null;
+    }
+    let r = _popen_simple('opkg list-installed luci-i18n-netbird-zh-cn 2>/dev/null');
+    return match(r.out || '', /(^|\n)luci-i18n-netbird-zh-cn\s+-\s+/) != null;
+}
+
 function _luci_app_update_info() {
     let spec = _luci_feed_spec();
     let local = get_opkg_versions().luci_app_netbird || '';
@@ -1682,7 +1928,7 @@ function _luci_app_update_info() {
     base.latest_version = latest;
     base.update_available = (_pkgver_cmp(local, latest) < 0);
     base.main_package = _luci_pkg_filename('luci-app-netbird', latest, spec.pkg_ext);
-    base.i18n_package = match(i18n || '', _PKGVER_RE) ? _luci_pkg_filename('luci-i18n-netbird-zh-cn', i18n, spec.pkg_ext) : '';
+    base.i18n_package = (_luci_i18n_installed() && match(i18n || '', _PKGVER_RE)) ? _luci_pkg_filename('luci-i18n-netbird-zh-cn', i18n, spec.pkg_ext) : '';
     return { ok: true, data: base };
 }
 
@@ -1765,6 +2011,16 @@ function _native_emachine() {
     return -1;
 }
 
+// _native_elf_ident() → 本机用户态 ELF 的字长 + 端序标识(同 _native_emachine 的取样文件);取不到返 ''。
+function _native_elf_ident() {
+    for (let ref in ['/bin/busybox', '/bin/sh', '/sbin/init', '/usr/bin/ucode']) {
+        let id = _elf_ident(ref);
+        if (length(id) > 0)
+            return id;
+    }
+    return '';
+}
+
 // _opkg_upgradable_netbird() → 系统软件源里 netbird 可升级到的版本 'X.Y.Z'|''(用缓存列表,不联网)。
 // 命令按 _pkg_mgr() 分流(opkg list-upgradable / apk version)。
 function _opkg_upgradable_netbird() {
@@ -1838,6 +2094,24 @@ function _overlay_free_kb() {
     return match(avail, /^[0-9]+$/) ? int(avail) : -1;
 }
 
+// _feed_lists_loaded() → 软件包列表是否已加载。opkg 的列表在 tmpfs(默认 /var/opkg-lists),重启后为空,
+// 此时「源里查不到 netbird」并不代表源不提供,前端据此提示先更新列表。apk 视为已加载。
+function _feed_lists_loaded() {
+    if (_pkg_mgr() == 'apk')
+        return true;
+    let dir = '/var/opkg-lists';
+    let fd = open('/etc/opkg.conf', 'r');
+    if (fd != null) {
+        let conf = fd.read('all') || '';
+        fd.close();
+        let m = match(conf, /(^|\n)lists_dir\s+\S+\s+(\S+)/);
+        if (m)
+            dir = m[2];
+    }
+    let ents = lsdir(dir);
+    return (ents != null && length(ents) > 0);
+}
+
 // _opkg_feed_has_netbird() → 系统软件源是否提供 netbird 包(本地缓存列表,不联网)。命令按 _pkg_mgr() 分流。
 function _opkg_feed_has_netbird() {
     if (_pkg_mgr() == 'apk') {
@@ -1901,6 +2175,11 @@ function _fetch_opkg_binary() {
     if (got_em < 0 || (want_em > 0 && got_em != want_em)) {
         cleanup();
         return { ok: false, err: sprintf('feed binary arch mismatch (host e_machine=%d, package e_machine=%d)', want_em, got_em), version: '' };
+    }
+    let host_id = _native_elf_ident();
+    if (length(host_id) > 0 && _elf_ident(extracted) != host_id) {
+        cleanup();
+        return { ok: false, err: 'feed binary word size or byte order differs from this device', version: '' };
     }
     let cv = _file_version(extracted);
     if (length(cv) == 0) {
@@ -1966,6 +2245,8 @@ function _do_get_binary_info(req) {
         latest_version:   latest,
         pkg_mgr:          _pkg_mgr(),
         update_available: update_available,
+        release_url:      _uci_binary('release_url', ''),
+        luci_app_version: get_opkg_versions().luci_app_netbird || '',
     });
 }
 
@@ -1975,13 +2256,20 @@ function _do_get_binary_info(req) {
 // 二进制操作交错。原子 mkdir 锁让第二个操作快速失败,而非交错破坏(下载/换 symlink/重启 daemon)。
 // 锁目录在 /tmp(tmpfs):进程被硬杀残留也会随重启自然清除;_binop_guard 用 try/catch 保证异常
 // 路径也释放锁。ucode 不 hoist:这三个 helper 定义在所有二进制 _do_* 之前。
-const _NB_BINOP_LOCK = '/tmp/nb-binop.lock';
+// 取锁失败时核实持有者,已不在则回收(见 _binop_lock_stale)。
 function _binop_lock() {
-    let r = _popen_simple('mkdir ' + shell_quote(_NB_BINOP_LOCK) + ' 2>/dev/null && echo OK');
+    let q = shell_quote(_NB_BINOP_LOCK);
+    let r = _popen_simple('mkdir ' + q + ' 2>/dev/null && echo $PPID > ' + q + '/owner && echo OK');
+    if (trim(r.out) == 'OK')
+        return true;
+    if (!_binop_lock_stale())
+        return false;
+    _popen_simple('rm -rf ' + q + ' 2>/dev/null');
+    r = _popen_simple('mkdir ' + q + ' 2>/dev/null && echo $PPID > ' + q + '/owner && echo OK');
     return trim(r.out) == 'OK';
 }
 function _binop_unlock() {
-    _popen_simple('rmdir ' + shell_quote(_NB_BINOP_LOCK) + ' 2>/dev/null');
+    _popen_simple('rm -rf ' + shell_quote(_NB_BINOP_LOCK) + ' 2>/dev/null');
 }
 // _sweep_binary_junk() — 清理历次二进制操作残留,防止累积撑爆存储(尤其 overlay)。
 //   由 _binop_guard 在每次操作前调用(已持锁,无并发,安全)。删:
@@ -2112,7 +2400,9 @@ function _update_binary_locked(req) {
         work = '/tmp/nb-update';
         _popen_simple('rm -rf ' + shell_quote(work) + ' 2>/dev/null && mkdir -p ' + shell_quote(work));
     }
-    let tgz_path    = work + '/' + tarball;
+    // 本地文件名固定,不用远端文件名:直链 basename 恰为 netbird 时会与解压目标同路径,
+    // `cat X > X` 先截断再读,下载物自毁。远端名(tarball)只用于 checksum 匹配。
+    let tgz_path    = work + '/download.pkg';
     let sums_path   = work + '/checksums.txt';
     let extract_dir = work;
     let new_bin     = work + '/netbird';
@@ -2245,6 +2535,8 @@ function _update_binary_locked(req) {
         if (untar.code != 0 || !access(new_bin, 'f'))
             return fail_work(CODE.INSTALL_FAILED, 'Could not extract netbird (the download is neither an ELF binary nor a tar.gz containing a netbird member): ' + substr(untar.out, 0, 300));
     }
+    // 下载包已用完(校验和在解压前已核对):立即删除,压低 /tmp(内存)峰值。
+    unlink(tgz_path);
     // 解压/直链保存后再次检查大小:tar 可能生成截断成员,ELF 魔数也可能出现在不完整直链里。
     let new_kb = _file_size_kb(new_bin);
     if (new_kb < 1024)
@@ -2265,6 +2557,10 @@ function _update_binary_locked(req) {
     if (want_em > 0 && got_em != want_em)
         return fail_work(CODE.ARCH_MISMATCH,
                          sprintf('Downloaded package arch mismatch: host e_machine=%d, package e_machine=%d; installation aborted', want_em, got_em));
+    let host_id = _native_elf_ident();
+    if (length(host_id) > 0 && _elf_ident(new_bin) != host_id)
+        return fail_work(CODE.ARCH_MISMATCH,
+                         'The downloaded binary was built for a different word size or byte order than this device; installation aborted.');
 
     // step 7 — 解压件能执行 version(完整性兜底)
     if (_progress_canceled())
@@ -2283,7 +2579,9 @@ function _update_binary_locked(req) {
             return fail_work(CODE.INSTALL_FAILED, 'Could not parse a valid version from the binary (' + substr(new_ver, 0, 40) + '); refusing to save it by name.');
         target_path = _custom_version_path(sv);  // custom 按版本号存多份
     }
-    let from = access(target_path, 'x') ? _file_version(target_path) : '';
+    // 变量名避开 `from`:它在较早的 ucode 里是保留字(import ... from ...),
+    // 用作标识符会让整个文件解析失败。返回体的 `from` 键名不变。
+    let from_ver = access(target_path, 'x') ? _file_version(target_path) : '';
 
     // step 8 — 备份目标(若存在);仅当目标正是当前运行的二进制时才停 daemon(避 ETXTBSY,所有 sibling 分支一致)
     _progress_phase('installing', 'Installing binary...', tgz_path, progress_total);
@@ -2291,11 +2589,16 @@ function _update_binary_locked(req) {
         return cancel_work();
     let active_bin = _active_binary_path();
     let need_stop = (target_path == _NB_OPKG_BIN) || (target_path == active_bin);
-    // _NB_OPKG_BIN 是 daemon 规范路径,procd 硬编码 exec 此文件;任何覆盖此路径的写操作
-    // 都需先停 daemon(避 ETXTBSY)。加 _NB_OPKG_BIN 直接比较是因为 _active_binary_path()
-    // 在某些系统(readlink 行为差异)可能返回空串或非预期值,导致 need_stop 漏判。
-    if (access(target_path, 'f'))
-        _popen_simple('cat ' + shell_quote(target_path) + ' > ' + shell_quote(bak_path) + ' 2>/dev/null');
+    // /usr/bin/netbird 是 daemon 的规范路径,不能仅依赖各系统 readlink 的返回值判断是否停服务。
+    if (access(target_path, 'f')) {
+        // 备份必须完整才能动目标,避免空间不足时用半截备份覆盖可用的旧版本。
+        let bk = _popen_simple('cat ' + shell_quote(target_path) + ' > ' + shell_quote(bak_path) + ' 2>&1');
+        if (bk.code != 0 || _file_size_bytes(bak_path) != _file_size_bytes(target_path)) {
+            _popen_simple('rm -f ' + shell_quote(bak_path) + ' 2>/dev/null');
+            return fail_work(CODE.INSUFFICIENT_SPACE,
+                             'Not enough temporary space to back up the current binary; nothing was changed.');
+        }
+    }
     let stopped = false;
     if (need_stop) {
         _popen_simple('/etc/init.d/netbird stop 2>&1');
@@ -2314,10 +2617,17 @@ function _update_binary_locked(req) {
     //   整组用 `{ …; } 2>&1` 收 stderr:原写法 `… cat > target && chmod … 2>&1` 的 `2>&1` 只绑定末尾
     //   chmod,`cat > target` 写失败(如 overlay 空间不足 ENOSPC)的报错落在未捕获的 stderr → 错误明细
     //   空白(已知 bug:UI 显示「Failed to write the binary:」后面什么都没有)。整组重定向后 wr.out 拿到真因。
-    let wr = _popen_simple('{ mkdir -p ' + shell_quote(_NB_REL_DIR) + ' && cat ' + shell_quote(new_bin) +
+    //   先删除再写:目标若仍被某个进程执行(停服务时恰在运行的 netbird CLI,如 status 采样或设置应用里的 up),
+    //   原地覆盖会报 Text file busy;删除正在执行的文件是允许的,已在运行的进程继续使用旧 inode。
+    //   无进程占用时空间峰值与原地写相同;失败时由下方备份还原。
+    let wr = _popen_simple('{ mkdir -p ' + shell_quote(_NB_REL_DIR) + ' && rm -f ' + shell_quote(target_path) +
+                           ' && cat ' + shell_quote(new_bin) +
                            ' > ' + shell_quote(target_path) + ' && chmod 0755 ' + shell_quote(target_path) + ' ; } 2>&1');
     let to = (wr.code == 0) ? _file_version(target_path) : '';
     if (wr.code != 0 || length(to) == 0) {
+        // 写入成功却读不到版本:回滚前用同一命令再跑一次并保留 stderr,让错误明细带上真实退出码与输出
+        //   (例如包装命令本身不可用时的 127),而不是一律归为文件损坏。
+        let ver_diag = (wr.code == 0) ? _popen_simple(_to(shell_quote(target_path) + ' version 2>&1')) : null;
         // 失败兜底:有备份(=target 原已存在)则还原旧二进制;无备份(=本就是新文件)则删掉**半成品**——
         //   `cat > target` 即便写失败也已 create/truncate 出 target,且因 `&&` 短路 chmod 没跑 → 残片为
         //   非可执行的 0644;若不删,会被 _list_custom_versions 当成「已下载版本」列出(幽灵版本),切换时
@@ -2326,7 +2636,7 @@ function _update_binary_locked(req) {
         if (access(bak_path, 'f')) {
             _popen_simple('cat ' + shell_quote(bak_path) + ' > ' + shell_quote(target_path) +
                           ' && chmod 0755 ' + shell_quote(target_path) + ' 2>/dev/null');
-            restored = true;
+            restored = (length(_file_version(target_path)) > 0);   // 只有旧版本确实能运行才算已还原
         } else {
             _popen_simple('rm -f ' + shell_quote(target_path) + ' 2>/dev/null');
         }
@@ -2347,8 +2657,11 @@ function _update_binary_locked(req) {
             detail = substr(raw, 0, 200);
         else if (wr.code != 0)
             detail = sprintf('write command exited %d with no output (storage may be full or read-only)', wr.code);
-        else
-            detail = 'the written file could not report its version (truncated or corrupt)';
+        else {
+            let diag_out = substr(trim(ver_diag.out), 0, 160);
+            detail = sprintf('the written file could not report its version (exit %d%s)', ver_diag.code,
+                             length(diag_out) > 0 ? ': ' + diag_out : ', no output; truncated or corrupt');
+        }
         let write_msg = 'Failed to write the binary' + (restored ? '; restored the previous one' : '') + ': ' + detail;
         _progress_phase('failed', write_msg, tgz_path, progress_total);
         return err(CODE.INSTALL_FAILED, write_msg);
@@ -2361,7 +2674,7 @@ function _update_binary_locked(req) {
     cleanup();
     _popen_simple('rm -f ' + shell_quote(bak_path) + ' 2>/dev/null');
 
-    return ok({ from: from, to: to, active_source: _active_source(), checksum_note: checksum_note, path: target_path, custom: is_custom });
+    return ok({ from: from_ver, to: to, active_source: _active_source(), checksum_note: checksum_note, path: target_path, custom: is_custom });
 }
 // _do_update_binary(req) — _update_binary_locked 的互斥包装(二进制操作串行,见 _binop_guard)。
 function _do_update_binary(req) { return _binop_guard(_update_binary_locked, req); }
@@ -2431,6 +2744,7 @@ function _set_binary_source_locked(req) {
     _popen_simple('/etc/init.d/netbird start 2>&1');
     return ok({ source: source, active_source: now, running_version: _running_version(_NB_OPKG_BIN) });
 }
+function _do_set_binary_source(req) { return _binop_guard(_set_binary_source_locked, req); }
 
 // _delete_custom_binary_locked(req) — 删除一个非 active 的自定义下载版本 netbird-v<ver>(多版本盘面清理)。
 // 拒删正在使用的版本(防把 active 删掉致 daemon 跑空)。经 _do_delete_custom_binary 包 _binop_guard 互斥。
@@ -2459,6 +2773,11 @@ function _do_delete_custom_binary(req) { return _binop_guard(_delete_custom_bina
 //   - 下载失败 / 本机无官方 release(mips 等)→ 静默保持现状(feed 兜底),配置仍记 release 待下次重试。
 // **绝不抛错、绝不阻断连接**:任何分支失败都直接 return,调用方继续用当前 active 二进制连接。
 // release 就位后即 no-op(后续连接零开销)。供 do_up 在连接前调用(因 ucode 不 hoist,定义在 do_up 之前)。
+// 自动下载失败后的退避标记:GitHub 不可达时每次连接都重试会让连接白等多段下载超时
+// (rpcd 单线程,期间整个 LuCI 停摆);失败后 30 分钟内不再自动下载,版本页手动下载不受影响。
+const _NB_AUTODL_FAILED = '/tmp/luci-netbird-autodownload.failed';
+const _NB_AUTODL_BACKOFF = 1800;
+
 function _ensure_configured_binary() {
     if (_uci_binary('binary_source', 'release') != 'release')
         return;                                       // 用户已手动切走 → 尊重,不覆盖
@@ -2470,11 +2789,356 @@ function _ensure_configured_binary() {
             return;                                   // 本机无官方 release(mips 等)→ feed 兜底
         // 有界下载(20s,用户拍板):正常网络 release ~20s 内下完;超时/慢链则回落 feed
         // (netbird-openwrt 源),release 留待下次连接重试。首连不久阻,避免连接转圈过长。
+        let fst = stat(_NB_AUTODL_FAILED);
+        if (fst != null && time() - fst.mtime < _NB_AUTODL_BACKOFF)
+            return;                                   // 近期自动下载失败过 → 本次直接用 feed 兜底
         let up = _do_update_binary({ dl_timeout: 20 }); // 下载 GitHub latest release(envelope)
-        if (type(up) != 'object' || up.ok != true)
+        if (type(up) != 'object' || up.ok != true) {
+            let fd = open(_NB_AUTODL_FAILED, 'w');
+            if (fd != null)
+                fd.close();
             return;                                   // 下载失败/超时 → feed 兜底(daemon 未被牵连)
+        }
+        unlink(_NB_AUTODL_FAILED);
     }
     _do_set_binary_source({ source: 'release' });     // 切到 release(失败也不阻断;daemon 仍可连)
+}
+
+// ============================================================================
+// install_iface_backend — 一键安装 WireGuard / TUN 内核后端
+// ============================================================================
+// 前端仅在 get_status.iface_backend.ready === false（高置信双缺）时显示按钮。
+// 后端同样以 ready 为闸：已 ready 则幂等 no-op，避免健康机多此一举。
+// 装什么由后端决定（绝不让前端硬编码包名）：
+//   1) 优先 kmod-wireguard（NetBird 首选内核 WG 路径）
+//   2) WG 装失败或装完复验仍缺 → 再试 kmod-tun（userspace wireguard-go 路径）
+// 绝不触碰 netbird 包本身（remove / --force-reinstall / apk fix 红线）。
+// 失败时原样截断回传包管理器输出，并按内核哈希失配 / 网络 / 源 分类 message+hint。
+
+const _IFACE_INSTALL_LOCK = '/tmp/nb-iface-backend-install.lock';
+
+// _classify_pkg_install_error(raw) → { message, hint }
+// 把 opkg/apk 原始输出分成可行动类别；raw 始终由调用方另附，本函数只产摘要。
+function _classify_pkg_install_error(raw) {
+    let t = lc(raw || '');
+    // 内核哈希锁定：kmod 依赖 kernel (= <ver>-<hash>)，厂商自编内核必然对不上。
+    if (match(t, /satisfy_dependencies|cannot satisfy|unsatisfiable|broken packages|kernel\s*\(=\s*|depends on kernel|has no candidates for|conflicts with kernel/))
+        return {
+            message: 'Package install failed: kernel modules from the package feeds do not match this device kernel (common on vendor firmware with a custom kernel).',
+            hint: 'Use kmod packages that match your running kernel (vendor firmware image), or flash stock OpenWrt/ImmortalWrt whose kernel matches the configured feeds.'
+        };
+    if (match(t, /failed to download|download failed|wget returned|network is unreachable|temporary failure resolving|connection refused|connection timed out|ssl[_\s]?error|could not resolve|no route to host|apk.*error.*fetch|unreachable/))
+        return {
+            message: 'Package install failed: could not reach the package feeds (network or DNS).',
+            hint: 'Check WAN/DNS connectivity, then retry. You may need to run the package manager update manually first.'
+        };
+    if (match(t, /unknown package|no such package|has no candidates|not found in|package not found|error 404|404 not found/))
+        return {
+            message: 'Package install failed: the required package is not available in the configured feeds.',
+            hint: 'Check /etc/opkg/distfeeds.conf or apk repositories, run a package list update, and ensure the release matches this image.'
+        };
+    if (match(t, /lock|locked|another instance|could not lock|failed to lock/))
+        return {
+            message: 'Package install failed: another package manager instance is already running.',
+            hint: 'Wait for the other install/update to finish, then try again.'
+        };
+    return {
+        message: 'Package install failed.',
+        hint: 'See the package manager output below for the exact error.'
+    };
+}
+
+// _pkg_install_exact(name) → { code, out, cmd }：精确包名安装（禁 glob）；复用 _pkg_mgr 分流。
+// name 仅允许 [A-Za-z0-9._+-]，防注入；输出截到 2KiB。
+function _pkg_install_exact(name) {
+    if (!match(name || '', /^[A-Za-z0-9._+-]+$/))
+        return { code: -1, out: 'refusing invalid package name', cmd: '' };
+    let mgr = _pkg_mgr();
+    let cmd;
+    if (mgr == 'apk')
+        cmd = 'apk add ' + name + ' 2>&1';   // 从已配置的签名软件源按名安装,保留签名校验
+    else
+        cmd = 'opkg install ' + name + ' 2>&1';
+    let r = _popen_simple(cmd); // shell-audit-ok: name 经严格白名单校验
+    return { code: r.code, out: substr(r.out || '', 0, 2048), cmd: cmd };
+}
+
+// _pkg_update_lists() → { code, out }：刷新索引；失败不阻断后续 install（可能本地缓存仍可用）。
+function _pkg_update_lists() {
+    let cmd = (_pkg_mgr() == 'apk') ? 'apk update 2>&1' : 'opkg update 2>&1';
+    let r = _popen_simple(cmd); // shell-audit-ok: 纯字面常量
+    return { code: r.code, out: substr(r.out || '', 0, 1024) };
+}
+
+// _iface_install_lock() → true 拿到锁 / false 已有并发安装。
+function _iface_install_lock() {
+    // mkdir 原子占位；成功=拿到锁。
+    let r = _popen_simple('mkdir ' + shell_quote(_IFACE_INSTALL_LOCK) + ' 2>/dev/null');
+    return r.code == 0;
+}
+
+function _iface_install_unlock() {
+    _popen_simple('rmdir ' + shell_quote(_IFACE_INSTALL_LOCK) + ' 2>/dev/null');
+}
+
+// _do_install_iface_backend() — 写方法主体。
+// 注意：不用 try/finally（22.03 ucode 无 finally）；所有 return 前显式 unlock。
+function _do_install_iface_backend(req) {
+    let before = probe_iface_backend();
+    let mgr = _pkg_mgr();
+
+    // 幂等：已有 WG 或 TUN 正证据 → 不跑包管理器。
+    if (before.ready) {
+        return ok({
+            already: true,
+            packages: [],
+            pkg_mgr: mgr,
+            iface_backend: before,
+            output: ''
+        });
+    }
+
+    if (!_iface_install_lock()) {
+        return err(CODE.INSTALL_FAILED,
+            'Another WireGuard/TUN package install is already in progress.',
+            'Wait for it to finish, then retry if the warning is still shown.');
+    }
+
+    let installed = [];
+    let outputs = [];
+    let last_fail = null;
+
+    // 刷新软件源索引（失败只记日志，仍尝试 install——缓存可能够用）。
+    let upd = _pkg_update_lists();
+    if (length(upd.out) > 0)
+        push(outputs, 'update:\n' + upd.out);
+
+    // 优先内核 WireGuard；NetBird 主路径。
+    let wg = _pkg_install_exact('kmod-wireguard');
+    push(outputs, wg.cmd + '\n' + wg.out);
+    if (wg.code == 0)
+        push(installed, 'kmod-wireguard');
+    else
+        last_fail = wg;
+
+    let mid = probe_iface_backend();
+    // WG 已就绪则不必再动 TUN；否则退而装 kmod-tun（userspace 路径）。
+    if (!mid.ready) {
+        let tun = _pkg_install_exact('kmod-tun');
+        push(outputs, tun.cmd + '\n' + tun.out);
+        if (tun.code == 0)
+            push(installed, 'kmod-tun');
+        else if (last_fail == null || wg.code == 0)
+            last_fail = tun;
+    }
+
+    let after = probe_iface_backend();
+    let raw = substr(join('\n---\n', outputs), 0, 2400);
+
+    if (after.ready) {
+        _iface_install_unlock();
+        return ok({
+            already: false,
+            packages: installed,
+            pkg_mgr: mgr,
+            iface_backend: after,
+            output: raw
+        });
+    }
+
+    // 包管理器都失败，或装上了但复验仍双缺（错版本 kmod / 需重启等）。
+    if (length(installed) == 0 && last_fail != null) {
+        let cls = _classify_pkg_install_error(last_fail.out);
+        _iface_install_unlock();
+        return err(CODE.INSTALL_FAILED,
+            cls.message + ' Output: ' + substr(trim(last_fail.out), 0, 900),
+            cls.hint);
+    }
+
+    let pkgs_txt = (length(installed) > 0) ? join(', ', installed) : '(none)';
+    _iface_install_unlock();
+    return err(CODE.INSTALL_FAILED,
+        'Packages were processed but WireGuard/TUN is still unavailable after re-probe. Installed: ' +
+        pkgs_txt + '. Output: ' + substr(trim(raw), 0, 900),
+        'If packages installed successfully, reboot the device and check again. Vendor kernels may still lack a matching module.');
+}
+
+// _do_up(req) — do_up 方法主体（流程见方法表 do_up 注释）；do_reconnect 复用。
+function _do_up(req) {
+    let a = (req != null && req.args != null) ? req.args : (req || {});
+    let arg_url = (type(a.management_url) == 'string') ? a.management_url : '';
+    let setup_key = (type(a.setup_key) == 'string') ? a.setup_key : '';  // 瞬时
+
+    let mr = _resolve_mgmt_url(arg_url);
+    if (!mr.ok)
+        return err(CODE.INVALID_INPUT, mr.message);
+
+    _ensure_helper_services();
+
+    // 仅当 caller 显式传入合法 url 才持久化（非机密）
+    if (length(arg_url) > 0)
+        _persist_mgmt_url(arg_url);
+
+    // 首连兜底:配置来源=release(默认)但 release 未就位时,先下载并切到 release
+    // (失败则用 feed 兜底,绝不阻断本次连接)。release 就位后 no-op。注:首次会增加
+    // ~数十秒下载耗时(前端 do_up 已是长调用,见上轮询说明)。watchdog 的周期重连只恢复
+    // 已有连接、不做下载:rpcd 单线程,重连里的下载会让整个 LuCI 周期性停摆。
+    if (!(type(a.caller) == 'string' && a.caller == 'watchdog'))
+        _ensure_configured_binary();
+
+    let bin = resolve_netbird_bin();
+    if (bin == null)
+        return err(CODE.NOT_INSTALLED, 'The netbird binary is not installed.');
+
+    // 分叉自愈：daemon 持有的 management URL 与本次期望不一致时，up 前先 down。
+    // daemon 启动时可能从磁盘读入过期/默认 ManagementURL（如旧版本包写下的遗留
+    // 默认值，或配置目录落在 tmpfs、重启后被持久的旧文件重新播种），随后
+    // auto-connect 引擎对旧地址持续重试；引擎忙时 Login 请求推不进，
+    // `up --management-url` 在有界墙钟内写不进新 URL。down 停掉引擎后，同样的
+    // up 数秒内即可把新 URL 写进 daemon 配置（写入先于登录完成，不依赖登录
+    // 成功）。仅在确认分叉时 down：URL 一致的瞬时断连不能无差别 down——
+    // 管理面断连期间 P2P 数据面可能仍在工作。
+    if (mr.url != null) {
+        let held = _daemon_mgmt_url(bin);
+        if (held != null && _norm_mgmt_url(held) != _norm_mgmt_url(mr.url))
+            _exec_short_verb(bin, 'down');
+    }
+
+    let reconnect_with_existing_identity = (length(setup_key) == 0);
+    // 注销后/全新设备(daemon NeedsLogin = 无本地身份)上的空 key 连接
+    // 注定失败——daemon 只会反复 "no peer auth method provided",25s 墙钟耗尽
+    // 后才能归因,期间 desired 还被置 1 引来 watchdog 叠加重试。识别到该态
+    // 立即返回明确错误(不置 desired、不跑墙钟)。判定复用 classify_status_text:
+    // 只锚定 NeedsLogin——LoginFailed/Idle 等**有身份**形态的空 key 重连是
+    // 合法恢复路径,不拦;老版本 daemon 注销后文本形态不同(不报 NeedsLogin)
+    // 则识别不出,按原路径走,无回归。
+    if (reconnect_with_existing_identity) {
+        let stx = _exec_short_verb(bin, 'status');
+        if (classify_status_text(stx.stdout) == 'needs_login') {
+            _persist_runtime_error('A setup key is required to log in: this device has no stored NetBird identity.');
+            return err(CODE.CONNECT_FAILED,
+                'A setup key is required to log in: this device has no stored NetBird identity.',
+                'Enter a setup key from the NetBird console and click Connect. Keys are never stored on this device; "Last used" is only a masked hint.');
+        }
+    }
+    // watchdog 发起的重连只是"执行已有意图",不应改写 desired_connected;只有用户发起的
+    // 连接才预置 desired=1(表达意图,即便本次超时也让 watchdog 续连)。否则 watchdog 会反复
+    // 把刚被认证 fatal/key 超时刻意清成 0 的 desired 重新写回 1,使刻意的停止无法生效。
+    let from_watchdog = (type(a.caller) == 'string' && a.caller == 'watchdog');
+    if (reconnect_with_existing_identity && !from_watchdog)
+        _set_desired_connected(true);
+
+    let auth_log_before = _recent_auth_log_text().text;
+    let cmd = _build_auth_cmd(bin, 'up', mr.url, setup_key);
+    // watchdog 的周期重连用短墙钟 + 短确认轮询:管理端不可达时 netbird up 内部
+    // backoff 不返回,每次尝试都会跑满墙钟;同脚本 RPC 串行使状态页在此期间排队,
+    // 长尝试 = 页面长时间假死。健康恢复场景 up 几秒即返回,10s 足够;真不可达时
+    // 缩短的只是「注定失败的等待」,下一轮尝试与 30s 状态巡检兜底恢复。
+    // 用户点击的连接保持 25s/6 轮:错误归因需要让 CLI/daemon 日志有时间沉淀。
+    let r = _exec_auth_cmd(cmd, 4096, from_watchdog ? 10 : 25); // shell-audit-ok: bin/url/key 均经 shell_quote，verb 字面
+    // 安全加固：若 CLI 把 setup_key 回显进 stdout，先脱敏再用于任何错误回传。
+    if (length(setup_key) > 0 && r.stdout != null)
+        r.stdout = replace(r.stdout, setup_key, '***');
+
+    // 认证 fatal 早退：CLI 被墙钟杀掉（stdout 带 wrapper 的 timed out 标记）
+    // 且日志已沉淀可归因的认证错误（如 setup key 被拒）时，_poll_connected
+    // 纯属白等——daemon 对无效/过期 key 无限 backoff，绝不会自行连上；而
+    // uhttpd 对浏览器 /ubus 调用有 60s 硬上限（script_timeout 默认值），多等的轮询会
+    // 把总墙钟推过掐断线，前端只能收到裸 -32003 而非下面的归因文案。
+    // 门槛必须含"CLI 是被杀的"：有效 key 的成功登录 CLI 会在墙钟内自行
+    // 返回（不带标记），不会进此分支——成功路径中 daemon 早期也可能落
+    // PermissionDenied/no peer auth method 之类瞬时行，仅凭日志归因会误杀。
+    let cli_timed_out = !!match(r.stdout || '', /netbird command timed out after/);
+    if (cli_timed_out) {
+        let early_auth = _auth_failure_from_attempt(r.stdout || '', auth_log_before);
+        if (early_auth != null) {
+            setup_key = '';
+            _exec_short_verb(bin, 'down');
+            _set_desired_connected(false);
+            _persist_runtime_error(early_auth.message);
+            return err(CODE.CONNECT_FAILED, early_auth.message, early_auth.hint);
+        }
+    }
+
+    // CLI 立即失败且轮询无法改变结果（用法错误/服务未运行）：直接返回原因，不再空等。
+    let immediate = _cli_immediate_error(r);
+    if (immediate != null) {
+        setup_key = '';
+        _persist_runtime_error(immediate.message);
+        return err(CODE.CONNECT_FAILED, immediate.message, immediate.hint);
+    }
+
+    // exec 后同步轮询确认（不信任 up 退出码本身）
+    let poll = _poll_connected(bin, from_watchdog ? 3 : 6);
+    if (poll.connected) {
+        // 认证成功：把本次 setup_key 算成打码 hint 存 UCI（只存打码串，原始 key 用完即弃）。
+        if (length(setup_key) > 0)
+            _persist_setup_key_hint(setup_key);
+        setup_key = '';  // 立即清零瞬时密钥（密钥绝不入 UCI）
+        // 重连后定向 flush 经 netbird 设备路由的在途 conntrack:断开期间被钉在错误路由
+        // (br-lan)的持续转发流(LAN 主机 ping -t 对端子网)不会自愈,flush 后即恢复
+        // (断开期间被钉错路由的流不自愈,flush 后恢复)。只 flush wtX-routed 目的,绝不全表(安全红线)。
+        _flush_reconnect_conntrack();
+        let mgmt = (poll.json != null && poll.json.management != null) ? poll.json.management : {};
+        _set_desired_connected(true);
+        _clear_runtime_error();
+        _apply_pending_settings();
+        return ok({
+            connected: true,
+            management_url: mgmt.url || mr.url || '',
+            netbirdIp: (poll.json != null) ? (poll.json.netbirdIp || '') : '',
+        });
+    }
+    setup_key = '';  // 超时分支同样清零瞬时密钥（密钥绝不入 UCI）
+    let auth = _auth_failure_from_attempt(r.stdout || '', auth_log_before);
+    if (auth != null) {
+        _exec_short_verb(bin, 'down');
+        _set_desired_connected(false);
+        _persist_runtime_error(auth.message);
+        return err(CODE.CONNECT_FAILED, auth.message, auth.hint);
+    }
+    // 先分类 transient(管理端不可达/DNS/连接拒绝/超时),拿到比泛化超时更可定位的原因;
+    // 两条路径都复用它,带 key 路径不再丢失具体原因。
+    let transient = _classify_transient_connect_failure((r.stdout || '') + '\n' + _recent_log_text(80));
+    if (!reconnect_with_existing_identity) {
+        // 带 setup key 的首连超时(非 fatal):netbird daemon 仍会在后台用该 key 续试注册,
+        // 前端已判失败 → 显式 down 停住后台续试,并清 desired_connected:该位可能早被之前的
+        // 成功连接/watchdog adopt 置 1,若不清,watchdog 下一轮会用空 key 把连接拉回、抵消
+        // 这里的 down。停止后需用户重新点击连接。
+        _exec_short_verb(bin, 'down');
+        _set_desired_connected(false);
+        let msg = (transient != null) ? transient.message
+            : 'NetBird did not become connected before the timeout.';
+        _persist_runtime_error(msg);
+        return err(CODE.CONNECT_FAILED, msg,
+            'Check the Logs tab for the last NetBird message, then try again.');
+    }
+    // 空 key 重连超时:desired_connected=1,交 watchdog 继续重连(transient 提示会持续重连)。
+    if (transient != null) {
+        _persist_runtime_error(transient.message);
+        return err(CODE.CONNECT_FAILED, transient.message, transient.hint);
+    }
+    _persist_runtime_error('NetBird did not become connected before the timeout.');
+    return err(CODE.CONNECT_FAILED,
+        'NetBird did not become connected before the timeout.',
+        'Check the Logs tab for the last NetBird message, then try again.');
+}
+
+// _do_reconnect() — 在一次 RPC 内完成 down → up（空 key，沿用已有身份）。
+// 不能由前端串联 do_down + do_up：经 NetBird 隧道访问 LuCI 时，down 会切断承载后续请求的
+// 通道，第二个 RPC 到不了路由器；且 do_down 会把 desired_connected 清 0，watchdog 也不会恢复，
+// 设备停在断开态。在后端一次做完则不依赖浏览器连接：客户端断开或 uhttpd 超时掐断后，
+// rpcd 仍会把方法执行完。down 之前先置 desired_connected=1，本调用中途异常时由 watchdog 连回。
+function _do_reconnect(req) {
+    let bin = resolve_netbird_bin();
+    if (bin == null)
+        return err(CODE.NOT_INSTALLED, 'The netbird binary is not installed.');
+    _set_desired_connected(true);
+    let r = _exec_short_verb(bin, 'down');
+    // 与 do_down 一致：down 因「本就断开」非零退出视为成功；仅 popen 失败(-1)透传。
+    if (r.code == -1)
+        return err(CODE.CLI_ERROR, r.stdout || 'netbird down failed');
+    return _do_up({ args: { management_url: '', setup_key: '', caller: '' } });
 }
 
 return {
@@ -2499,15 +3163,8 @@ return {
         get_logs: {
             args: { limit: 200, since_ts: 0 },
             call: _safe(function(req) {
+                // 不以 running 为前提:需要登录、服务停止或崩溃时恰恰最需要看日志。
                 let st = probe_state();
-                if (st.status != 'running') {
-                    return ok({
-                        lines: [],
-                        state: st.status,
-                        source: 'daemon',
-                        note: 'service not running, logs unavailable',
-                    });
-                }
 
                 // 参数取值兼容：rpcd 把 args 传入 req.args；防御性处理 null / 非数字
                 let a = (req != null && req.args != null) ? req.args : (req || {});
@@ -2526,9 +3183,9 @@ return {
                 if (total > limit)
                     lines = slice(lines, total - limit);
 
-                let data = { lines: lines, truncated: truncated, source: src.source };
+                let data = { lines: lines, truncated: truncated, source: src.source, state: st.status };
                 if (length(lines) == 0)
-                    data.note = 'no_logs_in_ring';
+                    data.note = (st.status == 'running') ? 'no_logs_in_ring' : 'service not running, logs unavailable';
                 return ok(data);
             }),
         },
@@ -2702,7 +3359,7 @@ return {
             call: _safe(_do_check_luci_app_update),
         },
 
-        // ==== 15 write ====（ACL write.ubus.luci.netbird 对齐）— zone 设备直绑设计已移除 setup_network
+        // ==== 17 write ====（ACL write.ubus.luci.netbird 对齐）— zone 设备直绑设计已移除 setup_network
 
         // do_up — 连接（拉起 WireGuard + 连管理端 + 建 P2P）。
         // args { management_url, setup_key } 均瞬时（setup_key 绝不入 UCI/backup）。
@@ -2715,102 +3372,7 @@ return {
         //   6. setup_key 局部变量用完置空；超时 → connect_failed。
         do_up: {
             args: { management_url: '', setup_key: '', caller: '' },
-            call: _safe(function(req) {
-                let a = (req != null && req.args != null) ? req.args : (req || {});
-                let arg_url = (type(a.management_url) == 'string') ? a.management_url : '';
-                let setup_key = (type(a.setup_key) == 'string') ? a.setup_key : '';  // 瞬时
-
-                let mr = _resolve_mgmt_url(arg_url);
-                if (!mr.ok)
-                    return err(CODE.INVALID_INPUT, mr.message);
-
-                // 仅当 caller 显式传入合法 url 才持久化（非机密）
-                if (length(arg_url) > 0)
-                    _persist_mgmt_url(arg_url);
-
-                // 首连兜底:配置来源=release(默认)但 release 未就位时,先下载并切到 release
-                // (用户拍板:首连自动下 release;失败则用 feed 兜底,绝不阻断本次连接)。release
-                // 就位后 no-op。注:首次会增加 ~数十秒下载耗时(前端 do_up 已是长调用,见上轮询说明)。
-                _ensure_configured_binary();
-
-                let bin = resolve_netbird_bin();
-                if (bin == null)
-                    return err(CODE.NOT_INSTALLED, 'The netbird binary is not installed.');
-
-                let reconnect_with_existing_identity = (length(setup_key) == 0);
-                // watchdog 发起的重连只是"执行已有意图",不应改写 desired_connected;只有用户发起的
-                // 连接才预置 desired=1(表达意图,即便本次超时也让 watchdog 续连)。否则 watchdog 会反复
-                // 把刚被认证 fatal/key 超时刻意清成 0 的 desired 重新写回 1,使刻意的停止无法生效。
-                let from_watchdog = (type(a.caller) == 'string' && a.caller == 'watchdog');
-                if (reconnect_with_existing_identity && !from_watchdog)
-                    _set_desired_connected(true);
-
-                let auth_log_before = _recent_auth_log_text().text;
-                let cmd = _build_auth_cmd(bin, 'up', mr.url, setup_key);
-                // watchdog 的周期重连用短墙钟 + 短确认轮询:管理端不可达时 netbird up 内部
-                // backoff 不返回,每次尝试都会跑满墙钟;同脚本 RPC 串行使状态页在此期间排队,
-                // 长尝试 = 页面长时间假死。健康恢复场景 up 几秒即返回,10s 足够;真不可达时
-                // 缩短的只是「注定失败的等待」,下一轮尝试与 30s 状态巡检兜底恢复。
-                // 用户点击的连接保持 25s/6 轮:错误归因需要让 CLI/daemon 日志有时间沉淀。
-                let r = _exec_auth_cmd(cmd, 4096, from_watchdog ? 10 : 25); // shell-audit-ok: bin/url/key 均经 shell_quote，verb 字面
-                // 安全加固：若 CLI 把 setup_key 回显进 stdout，先脱敏再用于任何错误回传。
-                if (length(setup_key) > 0 && r.stdout != null)
-                    r.stdout = replace(r.stdout, setup_key, '***');
-
-                // exec 后同步轮询确认（不信任 up 退出码本身）
-                let poll = _poll_connected(bin, from_watchdog ? 3 : 6);
-                if (poll.connected) {
-                    // 认证成功：把本次 setup_key 算成打码 hint 存 UCI（只存打码串，原始 key 用完即弃）。
-                    if (length(setup_key) > 0)
-                        _persist_setup_key_hint(setup_key);
-                    setup_key = '';  // 立即清零瞬时密钥（密钥绝不入 UCI）
-                    // 重连后定向 flush 经 netbird 设备路由的在途 conntrack:断开期间被钉在错误路由
-                    // (br-lan)的持续转发流(LAN 主机 ping -t 对端子网)不会自愈,flush 后即恢复
-                    // (断开期间被钉错路由的流不自愈,flush 后恢复)。只 flush wtX-routed 目的,绝不全表(安全红线)。
-                    _flush_reconnect_conntrack();
-                    let mgmt = (poll.json != null && poll.json.management != null) ? poll.json.management : {};
-                    _set_desired_connected(true);
-                    _clear_runtime_error();
-                    return ok({
-                        connected: true,
-                        management_url: mgmt.url || mr.url || '',
-                        netbirdIp: (poll.json != null) ? (poll.json.netbirdIp || '') : '',
-                    });
-                }
-                setup_key = '';  // 超时分支同样清零瞬时密钥（密钥绝不入 UCI）
-                let auth = _auth_failure_from_attempt(r.stdout || '', auth_log_before);
-                if (auth != null) {
-                    _exec_short_verb(bin, 'down');
-                    _set_desired_connected(false);
-                    _persist_runtime_error(auth.message);
-                    return err(CODE.CONNECT_FAILED, auth.message, auth.hint);
-                }
-                // 先分类 transient(管理端不可达/DNS/连接拒绝/超时),拿到比泛化超时更可定位的原因;
-                // 两条路径都复用它,带 key 路径不再丢失具体原因。
-                let transient = _classify_transient_connect_failure((r.stdout || '') + '\n' + _recent_log_text(80));
-                if (!reconnect_with_existing_identity) {
-                    // 带 setup key 的首连超时(非 fatal):netbird daemon 仍会在后台用该 key 续试注册,
-                    // 前端已判失败 → 显式 down 停住后台续试,并清 desired_connected:该位可能早被之前的
-                    // 成功连接/watchdog adopt 置 1,若不清,watchdog 下一轮会用空 key 把连接拉回、抵消
-                    // 这里的 down。停止后需用户重新点击连接。
-                    _exec_short_verb(bin, 'down');
-                    _set_desired_connected(false);
-                    let msg = (transient != null) ? transient.message
-                        : 'NetBird did not become connected before the timeout.';
-                    _persist_runtime_error(msg);
-                    return err(CODE.CONNECT_FAILED, msg,
-                        'Check the Logs tab for the last NetBird message, then try again.');
-                }
-                // 空 key 重连超时:desired_connected=1,交 watchdog 继续重连(transient 提示会持续重连)。
-                if (transient != null) {
-                    _persist_runtime_error(transient.message);
-                    return err(CODE.CONNECT_FAILED, transient.message, transient.hint);
-                }
-                _persist_runtime_error('NetBird did not become connected before the timeout.');
-                return err(CODE.CONNECT_FAILED,
-                    'NetBird did not become connected before the timeout.',
-                    'Check the Logs tab for the last NetBird message, then try again.');
-            }),
+            call: _safe(_do_up),
         },
 
         // do_down — 仅断开当前会话，保留认证（与 do_logout 语义区别）。
@@ -2829,6 +3391,13 @@ return {
                 _clear_runtime_error();
                 return ok({ connected: false });
             }),
+        },
+
+        // do_reconnect — 重新连接（down → up，沿用已有身份）；返回值同 do_up。
+        // 与 do_down 不同：全程保持 desired_connected=1（「重连」表达的是保持连接的意图）。
+        do_reconnect: {
+            args: {},
+            call: _safe(_do_reconnect),
         },
 
         // do_login — 仅认证不拉起连接（与 do_up 区别）。
@@ -2863,9 +3432,15 @@ return {
                         _persist_setup_key_hint(setup_key);
                     setup_key = '';  // 立即清零瞬时密钥（密钥绝不入 UCI）
                     _clear_runtime_error();
+                    _apply_pending_settings();
                     return ok({ logged_in: true });
                 }
                 setup_key = '';  // 失败分支同样清零瞬时密钥（密钥绝不入 UCI）
+                let immediate = _cli_immediate_error(r);
+                if (immediate != null) {
+                    _persist_runtime_error(immediate.message);
+                    return err(CODE.CONNECT_FAILED, immediate.message, immediate.hint);
+                }
                 let auth = _auth_failure_from_attempt(r.stdout || '', auth_log_before);
                 if (auth != null) {
                     _exec_short_verb(bin, 'down');
@@ -2902,7 +3477,9 @@ return {
                     if (bin != null)
                         _exec_short_verb(bin, 'down');     // 幂等,断开在途连接,忽略非零
                     _run_init('stop');                     // 删配置前必须停 daemon(否则内存身份继续重连)
+                    _wait_daemon_gone();                   // stop 是异步的,确认退出后再删,避免 daemon 退出时写回身份
                     let removed = _wipe_local_identity();
+                    unlink(_NB_SETTINGS_APPLIED);           // daemon 配置随身份删除,下次须重新应用设置
                     if (removed < 0) {
                         _run_init('start');
                         return err(CODE.CLI_ERROR, 'Failed to remove the local NetBird configuration files.');
@@ -2919,6 +3496,7 @@ return {
                 // 先 down（幂等，忽略非零）再 deregister
                 _exec_short_verb(bin, 'down');
                 let r = _exec_short_verb(bin, 'deregister');
+                unlink(_NB_SETTINGS_APPLIED);   // 注销后 daemon 配置可能被重置,下次须重新应用设置
                 if (r.code == -1)
                     return err(CODE.CLI_ERROR, r.stdout || 'netbird deregister failed');
                 // deregister 非零分两种，绝不一概当成功（否则真失败也误报「本地身份已删除」误导用户）：
@@ -2957,6 +3535,7 @@ return {
             args: {},
             call: _safe(function() {
                 let st = probe_state();
+                _ensure_helper_services();
 
                 // step 1 — already running 或 needs_login 都短路（双 early-return）
                 if (st.status == 'running' || st.status == 'needs_login') {
@@ -3018,6 +3597,10 @@ return {
         // ACL: 方法名已加入 write.ubus.luci.netbird（一字不差）。
         update_luci_app:       { args: {}, call: _safe(_do_update_luci_app) },
 
+        // install_iface_backend — 高置信缺 WG+TUN 时一键装 kmod-wireguard（优先）/ kmod-tun。
+        // 装完复验 probe_iface_backend；失败原样回传包管理器输出。ACL: write 段已同步。
+        install_iface_backend: { args: {}, call: _safe(_do_install_iface_backend) },
+
         // select_exit_node — 切换/关闭 exit node。args.id：目标 exit node ID，'' = 关闭。
         // 流程：白名单校验（目标必须在当前 list 的 exit node 集内，任意字符串到不了 CLI）
         //   → 先 deselect 其余全部 exit node → 再 select -a 目标 → 回读最终态返回。
@@ -3073,11 +3656,88 @@ return {
                             ' (other exit nodes may already be deselected; check the current state)');
                 }
 
+                // 选择已在 daemon 生效 → 持久化到 UCI(id 空=清除),供重启后恢复。
+                // 放在回读之前:回读只影响返回值,失败不该丢掉已生效选择的持久化。
+                _persist_exit_node(id);
+
                 // 回读 daemon 实际状态返回（不回显期望值），前端据此原地刷新。
                 let after = _collect_exit_nodes(bin);
                 if (!after.ok)
                     return err(CODE.CLI_ERROR, after.message);
                 return ok({ exit_nodes: after.exit_nodes });
+            }),
+        },
+
+        // restore_exit_node — 恢复 UCI 持久化的 exit node 选择(watchdog 专用,UI 不调,
+        // 不进 acl.d——watchdog 以 root 走本机 ubus,不经 rpcd session ACL)。
+        // 幂等;所有业务结果都走 ok 信封的 result 字段(shell 侧 case 好解析):
+        //   not-configured   UCI 无选择(终态)
+        //   not-connected    daemon 未运行/未连上管理端(调用方下轮重试)
+        //   already-selected 目标已选中且无其他 exit node 选中(终态)
+        //   restored         本次恢复成功(终态)
+        //   not-found        目标不在当前 exit node 列表(管理端已删该路由;终态,
+        //                    绝不选择列表外 id——白名单口径与 select_exit_node 一致)
+        //   error            list/deselect/select 失败(message 带原因;调用方下轮重试)
+        restore_exit_node: {
+            args: {},
+            call: _safe(function() {
+                let c = uci.cursor();
+                let want = c.get('netbird', 'settings', 'exit_node');
+                want = (type(want) == 'string') ? trim(want) : '';
+                if (length(want) == 0)
+                    return ok({ result: 'not-configured' });
+                // 防御同 select_exit_node:超长/控制字符/CLI 保留字 'all' 不进 CLI。
+                if (length(want) > 256 || index(want, '\n') >= 0 || index(want, '\r') >= 0 || want == 'all')
+                    return ok({ result: 'not-found', exit_node: want });
+
+                let g = _require_running();
+                if (g._gate)
+                    return ok({ result: 'not-connected' });
+                let js = g._json;
+                if (!(js != null && js.management != null && js.management.connected))
+                    return ok({ result: 'not-connected' });
+
+                let bin = g._state.bin_path;
+                let res = _collect_exit_nodes(bin);
+                if (!res.ok)
+                    return ok({ result: 'error', message: res.message });
+
+                let target = null;
+                let others = [];
+                let others_selected = false;
+                for (let n in res.exit_nodes) {
+                    if (n.id == want) {
+                        target = n;
+                    } else {
+                        push(others, n.id);
+                        if (n.selected)
+                            others_selected = true;
+                    }
+                }
+                if (target == null)
+                    return ok({ result: 'not-found', exit_node: want });
+                if (target.selected && !others_selected)
+                    return ok({ result: 'already-selected', exit_node: want });
+
+                // 与 select_exit_node 同序:先显式 deselect 其余(压住管理端 auto-apply),
+                // 再 select -a 目标,最后回读确认。
+                if (length(others) > 0) {
+                    let rd = _exec_networks(bin, 'deselect', others, false);
+                    if (rd.code != 0)
+                        return ok({ result: 'error', message: trim(rd.stdout) || 'netbird networks deselect failed' });
+                }
+                let rs = _exec_networks(bin, 'select', [ want ], true);
+                if (rs.code != 0)
+                    return ok({ result: 'error', message: trim(rs.stdout) || 'netbird networks select failed' });
+
+                let after = _collect_exit_nodes(bin);
+                if (after.ok) {
+                    for (let n in after.exit_nodes) {
+                        if (n.id == want && n.selected)
+                            return ok({ result: 'restored', exit_node: want });
+                    }
+                }
+                return ok({ result: 'error', message: 'exit node selection did not take effect' });
             }),
         },
     },

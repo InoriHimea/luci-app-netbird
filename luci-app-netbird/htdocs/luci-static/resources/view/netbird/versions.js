@@ -28,6 +28,19 @@ var callLuciAppUpdate = rpc.declare({ object: 'luci.netbird', method: 'update_lu
 
 function fmtVer(v) { return (v && v.length) ? ('v' + v) : null; }
 
+// NetBird 0.76.0 / 0.76.1 修复了本地服务 socket 的两个安全问题(本地提权、读取 root 文件)。
+// 运行版本低于 0.76.1 时在版本页提示升级;版本号解析不出时不提示。
+function belowSecureVersion(v) {
+	var m = /^(\d+)\.(\d+)\.(\d+)/.exec(v || '');
+	if (!m)
+		return false;
+	var a = [ +m[1], +m[2], +m[3] ], b = [ 0, 76, 1 ];
+	for (var i = 0; i < 3; i++)
+		if (a[i] !== b[i])
+			return a[i] < b[i];
+	return false;
+}
+
 function pkgMgrName(d) {
 	return (d && d.pkg_mgr === 'apk') ? 'apk' : 'opkg';
 }
@@ -145,7 +158,19 @@ return view.extend({
 						nb.statusPill('connected', srcLabel(d.active_source || 'release'))
 					])
 				]),
-				nb.pair(_('Running version'), fmtVer(d.running_version) || '-'),
+				E('div', { 'class': 'nb-pair' }, [
+					E('span', { 'class': 'nb-pair-label' }, _('Running version')),
+					E('div', { 'class': 'nb-pair-value nb-pair-value-block' }, [
+						fmtVer(d.running_version) || '-',
+						belowSecureVersion(d.running_version)
+							? E('div', { 'class': 'cbi-section-descr', 'style': 'color:#a00;margin-top:.3em' }, [
+								_('NetBird versions before 0.76.1 have security issues in the local service socket (local privilege escalation and reading root-owned files). Switch to or update the official release below.'),
+								' ',
+								E('a', { 'href': 'https://github.com/netbirdio/netbird/security/advisories', 'target': '_blank', 'rel': 'noopener noreferrer' }, _('Details'))
+							])
+							: E('span', {})
+					])
+				]),
 				E('div', { 'class': 'nb-pair' }, [
 					E('span', { 'class': 'nb-pair-label' }, _('luci-app-netbird')),
 					E('div', { 'class': 'nb-pair-value nb-pair-value-block' }, [
@@ -338,13 +363,25 @@ return view.extend({
 	_waitDownloadCompletion: function (token) {
 		var self = this;
 		return new Promise(function (resolve) {
+			// 连续查询失败(路由器重启、rpcd 重启、经 NetBird 管理时隧道中断)时不无限转圈:
+			// 约 30 秒后结束等待并提示刷新查看结果;后台下载本身不受影响。
+			var failures = 0;
 			var poll = function () {
 				if (self._downloadToken !== token) {
 					resolve({ phase: 'canceled', message: '' });
 					return;
 				}
 				L.resolveDefault(callBinaryProgress(), { ok: false }).then(function (res) {
-					var p = (res && res.ok) ? (res.data || {}) : {};
+					if (!res || !res.ok) {
+						if (++failures >= 30) {
+							resolve({ phase: 'failed', message: _('Lost contact with the router while waiting for the download. Reload the page to see the result.') });
+							return;
+						}
+						window.setTimeout(poll, 1000);
+						return;
+					}
+					failures = 0;
+					var p = res.data || {};
 					var phase = p.phase || 'idle';
 					self._renderDownloadProgress(p);
 					if (phase === 'done' || phase === 'failed' || phase === 'canceled') {
@@ -436,6 +473,9 @@ return view.extend({
 			if (!op.copy_preserved && op.binary_available)
 				rows.push(E('p', { 'class': 'cbi-section-descr' },
 					_('No local %s binary copy is kept; switching will fetch it from the %s feed automatically (%s).').format(pkgMgr, pkgMgr, fetchCmd)));
+			else if (!op.binary_available && op.lists_loaded === false)
+				rows.push(E('p', { 'class': 'cbi-section-descr', 'style': 'color:#a00' },
+					_('The %s package lists are not loaded (they are cleared on reboot), so netbird cannot be looked up. Run "%s update", then reload this page.').format(pkgMgr, pkgMgr)));
 			else if (!op.binary_available)
 				rows.push(E('p', { 'class': 'cbi-section-descr', 'style': 'color:#a00' },
 					_('The %s feed does not provide netbird on this device, so switching is unavailable. Check your package sources.').format(pkgMgr)));
@@ -598,7 +638,8 @@ return view.extend({
 			ui.addNotification(null, E('p', {}, _('luci-app-netbird update failed: %s').format((res && res.message) || _('unknown error'))), 'error');
 		}, function (err) {
 			ui.hideModal();
-			ui.addNotification(null, E('p', {}, _('luci-app-netbird update failed: %s').format(err && err.message ? err.message : _('unknown error'))), 'error');
+			ui.addNotification(null, E('p', {}, _('luci-app-netbird update failed: %s').format(
+				err ? nb.friendlyRpcError(err, _('The operation did not finish within the RPC time limit and may still be running in the background. Refresh this page in a minute to check the result.')) : _('unknown error'))), 'error');
 		});
 	},
 
@@ -669,7 +710,8 @@ return view.extend({
 		}, function (err) {
 			self._downloadToken = token + 1;
 			ui.hideModal();
-			ui.addNotification(null, E('p', {}, _('Download/install failed: %s').format(err && err.message ? err.message : self._downloadFailureMessage(null))), 'error');
+			ui.addNotification(null, E('p', {}, _('Download/install failed: %s').format(
+				err ? nb.friendlyRpcError(err, _('The operation did not finish within the RPC time limit and may still be running in the background. Refresh this page in a minute to check the result.')) : self._downloadFailureMessage(null))), 'error');
 		});
 	},
 

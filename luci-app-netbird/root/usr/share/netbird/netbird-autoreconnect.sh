@@ -9,14 +9,34 @@
 
 TAG="luci-netbird-watchdog"
 INTERVAL="${NB_AUTORECONNECT_INTERVAL:-30}"
+# 有界执行(timeout 不可用时的可移植实现)与 netbird-settings 共用。
+. "${NB_LIBDIR:-/usr/share/netbird}/nb-run-bounded.sh"
 # 重连连续失败时指数退避(INTERVAL→2x→…→封顶 MAX_INTERVAL),连上即复位;
 # 避免长时间 outage 每 INTERVAL 秒一次高成本 do_up + 日志刷屏。
 MAX_INTERVAL="${NB_AUTORECONNECT_MAX_INTERVAL:-300}"
 backoff="$INTERVAL"
 attempt_wait=0   # 距下次重连尝试还需等待的秒数(按 INTERVAL 递减);轮询本身不退避,保证恢复/清错及时
 
-# 收到 procd/系统 TERM/INT 立即退出,避免卡在 sleep 或 ubus -t 90 上拖慢 stop/reboot。
-trap 'exit 0' TERM INT
+# 收到 procd/系统 TERM/INT 立即退出,避免拖慢 stop/reboot。
+# ash 要等前台子进程结束才执行 trap,前台 sleep 会让 TERM 拖满整个 INTERVAL、
+# 被 procd 超时后 SIGKILL 并遗留孤儿 sleep;故等待一律走 _sleep(后台 sleep + wait,
+# wait 可被信号打断),trap 里顺带结束该 sleep。status/ubus 调用仍是前台执行,
+# 信号会推迟到其结束(各自有超时兜底)。
+_sleep_pid=""
+
+_on_signal() {
+	[ -n "$_sleep_pid" ] && kill "$_sleep_pid" 2>/dev/null
+	exit 0
+}
+
+trap _on_signal TERM INT
+
+_sleep() {
+	sleep "$1" &
+	_sleep_pid=$!
+	wait "$_sleep_pid"
+	_sleep_pid=""
+}
 
 _log() {
 	logger -t "$TAG" "$*"
@@ -63,13 +83,22 @@ _clear_error() {
 	_runtime_set last_error "" >/dev/null 2>&1 || true
 }
 
+# 参数:bin 之后的其余参数原样传给 status(如 --json)。daemon 卡住时 6 秒后放弃本轮采样。
 _with_timeout_status() {
 	bin="$1"
-	if command -v timeout >/dev/null 2>&1; then
-		timeout 6s "$bin" status 2>&1
-	else
-		"$bin" status 2>&1
-	fi
+	shift
+	nb_run_bounded 6 "$bin" status "$@" 2>&1
+}
+
+# JSON 采样字段提取(sed 即可,不引入 jsonfilter 依赖)。
+# daemonStatus 是 status --json 顶层字段;management.connected 的字段序由上游结构体
+# 固定(url→connected→error),用 [^}]* 防御字段增插。
+_json_daemon_status() {
+	printf '%s' "$1" | sed -n 's/.*"daemonStatus":"\([^"]*\)".*/\1/p'
+}
+
+_json_mgmt_connected() {
+	printf '%s' "$1" | sed -n 's/.*"management":{[^}]*"connected":\([a-z]*\).*/\1/p'
 }
 
 _match() {
@@ -102,60 +131,119 @@ _attempt_reconnect() {
 	fi
 }
 
+# exit node 开机恢复:LuCI 选择持久化在 netbird.settings.exit_node,而 daemon 自己的
+# 选择态(state.json)在 tmpfs、重启必丢(GitHub #10)。连接态下每 boot 恢复一次:
+# 标志文件在 /var/run(tmpfs),重启自动清零。restore_exit_node 幂等;终态
+# (restored/already-selected/not-configured/not-found)落标志不再重试,
+# not-connected/error/超时留待下轮。同 boot 内用户经 CLI 的手动调整不会被反复覆盖。
+EXITNODE_FLAG="/var/run/netbird-luci-exitnode.restored"
+
+_maybe_restore_exit_node() {
+	[ -f "$EXITNODE_FLAG" ] && return 0
+	en="$(uci -q get netbird.settings.exit_node 2>/dev/null)"
+	if [ -z "$en" ]; then
+		touch "$EXITNODE_FLAG" 2>/dev/null
+		return 0
+	fi
+	out="$(ubus -t 30 call luci.netbird restore_exit_node 2>/dev/null)"
+	case "$out" in
+	*'"result": "restored"'*)
+		touch "$EXITNODE_FLAG" 2>/dev/null
+		_log "restored exit node \"$en\" after restart" ;;
+	*'"result": "already-selected"'*|*'"result": "not-configured"'*)
+		touch "$EXITNODE_FLAG" 2>/dev/null ;;
+	*'"result": "not-found"'*)
+		touch "$EXITNODE_FLAG" 2>/dev/null
+		_log "configured exit node \"$en\" is not available on this network; leaving it unselected" ;;
+	*)
+		: ;;
+	esac
+}
+
+last_unknown=""   # 已记录过的"未识别状态"签名,同形态只记一次日志
+
 while :; do
 	bin="$(_resolve_bin 2>/dev/null)"
 	if [ -z "$bin" ]; then
-		sleep "$INTERVAL"
+		_sleep "$INTERVAL"
 		continue
 	fi
 
-	raw="$(_with_timeout_status "$bin")"
+	# 状态采样:JSON 优先。NeedsLogin/LoginFailed/SessionExpired 三态下 status 的
+	# **文本**输出会早退成一段 SSO 提示文案(不含 "Management:" 行),文本正则全部
+	# 落空;--json 不受早退影响。老版本 netbird 在部分状态下 --json 也返回纯文本,
+	# 此时 daemonStatus 解析为空 → 回退文本输出,走旧文本正则。
+	raw="$(_with_timeout_status "$bin" --json)"
+	ds="$(_json_daemon_status "$raw")"
+	if [ -z "$ds" ]; then
+		raw="$(_with_timeout_status "$bin")"
+	fi
+
 	want="$(_desired)"
 
-	if _is_connected "$raw"; then
+	if [ "$(_json_mgmt_connected "$raw")" = "true" ] || _is_connected "$raw"; then
 		[ "$want" = "1" ] || _set_desired 1
 		_clear_error
 		_reset_backoff
 		attempt_wait=0
-		sleep "$INTERVAL"
+		last_unknown=""
+		_maybe_restore_exit_node
+		_sleep "$INTERVAL"
 		continue
 	fi
 
-	[ "$want" = "1" ] || {
+	# 服务在设置里被关闭(netbird-settings 已 down+stop+disable)时不重连;不改写期望连接位,
+	# 重新启用服务后自动恢复。
+	if [ "$want" != "1" ] || [ "$(uci -q get netbird.settings.service_enabled)" = "0" ]; then
 		_reset_backoff
 		attempt_wait=0
-		sleep "$INTERVAL"
+		_sleep "$INTERVAL"
 		continue
-	}
+	fi
 
 	if _is_auth_fatal "$raw"; then
 		_set_desired 0
 		_set_error "Authentication failed: the management server rejected this peer."
 		"$bin" down >/dev/null 2>&1 || true
 		_log "authentication fatal; stopped automatic reconnect"
-		sleep "$INTERVAL"
+		_sleep "$INTERVAL"
 		continue
 	fi
 
-	if _is_needs_login "$raw"; then
+	if [ "$ds" = "NeedsLogin" ] || _is_needs_login "$raw"; then
 		_set_desired 0
 		_set_error "Authentication failed: NetBird did not receive a valid setup key."
 		_log "needs login; stopped automatic reconnect"
-		sleep "$INTERVAL"
+		_sleep "$INTERVAL"
 		continue
 	fi
 
-	if [ -z "$raw" ] || _is_transient_disconnect "$raw"; then
-		# 退避只作用于"重连尝试"频率,不拖慢轮询:仅当 attempt_wait 归零才发起一次 do_up,
-		# 随后按当前 backoff 设定下次尝试等待并增长 backoff;期间每 INTERVAL 仍轮询状态,
-		# 故 outage 恢复(daemon 自愈)后能在一个 INTERVAL 内检测到并清错复位。
-		if [ "$attempt_wait" -le 0 ]; then
-			_attempt_reconnect
-			attempt_wait="$backoff"
-			_bump_backoff
-		fi
+	# desired=1 且未连接、又不属于上面的停止类:一律按退避重试(默认重试)。
+	# LoginFailed / SessionExpired / Idle / Connecting 与未知形态都在此列——
+	# 一次失败的重连尝试可能把 daemon 推进 LoginFailed(文本早退态),若只对
+	# "已知瞬时错误"重试,这类形态会静默空转、永不自愈。未识别形态记一条日志
+	# (同形态只记一次)供后续归类,绝不静默 no-op。
+	case "$ds" in
+		LoginFailed|SessionExpired|Idle|Connecting|Connected) : ;;
+		*)
+			if [ -n "$ds" ] || { [ -n "$raw" ] && ! _is_transient_disconnect "$raw"; }; then
+				sig="${ds:-$(printf '%s\n' "$raw" | sed -n 1p)}"
+				if [ "$sig" != "$last_unknown" ]; then
+					_log "unrecognized status (retrying anyway): $sig"
+					last_unknown="$sig"
+				fi
+			fi
+			;;
+	esac
+	# 退避只作用于"重连尝试"频率,不拖慢轮询:仅当 attempt_wait 归零才发起一次 do_up,
+	# 随后按当前 backoff 设定下次尝试等待并增长 backoff;期间每 INTERVAL 仍轮询状态,
+	# 故 outage 恢复(daemon 自愈)后能在一个 INTERVAL 内检测到并清错复位。
+	if [ "$attempt_wait" -le 0 ]; then
+		_attempt_reconnect
+		attempt_wait="$backoff"
+		_bump_backoff
 	fi
 
 	[ "$attempt_wait" -gt 0 ] && attempt_wait=$(( attempt_wait - INTERVAL ))
-	sleep "$INTERVAL"
+	_sleep "$INTERVAL"
 done

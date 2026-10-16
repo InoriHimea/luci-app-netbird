@@ -12,8 +12,8 @@ transient management-server/network outages.
 |---|---|---|
 | Frontend (views) | `htdocs/luci-static/resources/view/netbird/*.js` | 6 tabs: overview / versions / settings / status / setup(network) / logs. All DOM via `E()` (no innerHTML). |
 | Frontend helpers | `.../netbird/dom-helpers.js`, `netbird.css` | `pair / code / statusPill` builders. |
-| Backend entry | `root/usr/share/rpcd/ucode/netbird.uc` | The `luci.netbird` rpcd object — 28 methods (13 read + 15 write). |
-| Backend lib | `root/usr/share/rpcd/ucode/lib/*.uc` | `shell`(quote) · `paths`(binary probe) · `envelope`({ok,err,CODE}) · `netbird_cli`(CLI wrap) · `state`(5-state) · `sanitize`(validation). |
+| Backend entry | `root/usr/share/rpcd/ucode/netbird.uc` | The `luci.netbird` rpcd object — 31 methods (13 read + 18 write). |
+| Backend lib | `root/usr/share/rpcd/ucode/lib/*.uc` | `shell`(quote + timeout probe) · `paths`(binary probe) · `envelope`({ok,err,CODE}) · `netbird_cli`(CLI wrap) · `state`(5-state) · `sanitize`(validation). |
 | ACL | `root/usr/share/rpcd/acl.d/luci-app-netbird.json` | read/write method whitelist + UCI scopes. Kept strictly 1:1 with the method table. |
 | Settings pipeline | `root/etc/init.d/netbird-settings` | config-only procd service: renders UCI → `netbird up --flags`. |
 | Reconnect watchdog | `root/etc/init.d/luci-netbird-watchdog`, `root/usr/share/netbird/netbird-autoreconnect.sh` | procd loop that retries only when `netbird.runtime.desired_connected=1`, with exponential backoff on repeated failures (the status poll stays fixed-interval, so recovery and error-clearing remain prompt); fatal auth errors stop the loop. |
@@ -109,10 +109,14 @@ Backend methods:
 - `update_luci_app` (write) — re-checks, downloads the package files into `/tmp/nb-luci-update*`,
   installs them, and cleans the temporary directory on success or failure.
 
-Feed selection is by OpenWrt release series:
+Feed selection is by OpenWrt release series. 22.03 is the oldest supported series: it is the first
+one shipping `ucode` and `rpcd-mod-ucode`, which the whole backend is written in. 21.02 and older
+ship neither, so the backend cannot run there at all and `feed.sh` rejects them.
 
 | OpenWrt series | Package manager | Feed | Package filename |
 |---|---|---|---|
+| 22.03 | `opkg` | `https://luci-app-netbird.okk.sh/openwrt-24.10/all/netbird/` (shares the 24.10 feed — the package is `PKGARCH:=all`) | `luci-app-netbird_<ver>_all.ipk` |
+| 23.05 | `opkg` | `https://luci-app-netbird.okk.sh/openwrt-24.10/all/netbird/` (shares the 24.10 feed — the package is `PKGARCH:=all`) | `luci-app-netbird_<ver>_all.ipk` |
 | 24.10 | `opkg` | `https://luci-app-netbird.okk.sh/openwrt-24.10/all/netbird/` | `luci-app-netbird_<ver>_all.ipk` |
 | 25.12 | `apk` | `https://luci-app-netbird.okk.sh/openwrt-25.12/all/netbird/` | `luci-app-netbird-<ver>.apk` |
 
@@ -120,6 +124,14 @@ Both the main package and `luci-i18n-netbird-zh-cn` are installed together. If e
 or is incomplete, the update is rejected and temporary files are removed; the UI keeps the user on
 the current version and shows the error. When there is no newer version, `update_luci_app` returns
 `invalid_input` and does not create an install workdir.
+
+On apk systems, installing a package from a file records it in `/etc/apk/world` pinned to that file
+(`luci-app-netbird><Q1…`), which makes later `apk upgrade` runs skip it. The package therefore ships
+`root/etc/uci-defaults/98-luci-app-netbird-apk-world`: it runs inside the install transaction (where
+apk still holds its lock and rewrites `world` at commit), so it only spawns a detached job that waits
+for the installing apk process (its parent) to exit and then runs `apk add <name>` for any pinned
+`luci-app-netbird` / `luci-i18n-netbird-*` entries. That changes only the constraint, not the
+installed version, and also covers updates performed by older in-app updaters and manual file installs.
 
 ## State machine
 
@@ -129,7 +141,7 @@ Five runtime-first states (trust the daemon when reachable):
 ## Authentication and failure reporting
 
 The Authentication tab drives upstream NetBird directly through `do_up` / `do_login` /
-`do_down` / `do_logout`.
+`do_down` / `do_reconnect` / `do_logout`.
 
 - Setup keys are write-only RPC parameters. A successful login stores only a masked
   `setup_key_hint`; the raw key is never written to UCI or returned to LuCI.
@@ -152,6 +164,13 @@ The Authentication tab drives upstream NetBird directly through `do_up` / `do_lo
   `do_up` with `caller=watchdog` and does **not** write `desired_connected`, so a deliberate stop is
   never re-asserted by it; it still adopts `desired_connected=1` when it observes an already connected
   daemon, so upgraded routers keep recovering from transient outages without user action.
+- `Reconnect` is a single `do_reconnect` RPC that runs `netbird down` and then the `do_up`
+  existing-identity path inside the backend. It must not be two browser-side calls: when LuCI is
+  reached over the NetBird tunnel, `down` removes the path the second request needs, and `do_down`
+  would also clear `desired_connected`, leaving the router disconnected with nothing to bring it
+  back. rpcd finishes the method even if the browser connection drops or uhttpd cuts the request,
+  and `desired_connected=1` is written before `down`, so the watchdog recovers the connection if
+  the call is interrupted.
 - The watchdog never stores setup keys. It retries only with the existing local identity, so a
   first-time setup-key registration that fails before success still requires the user to click
   Connect again.
@@ -209,14 +228,47 @@ self-heal, so a router managed over the mesh could hard-lock. Instead:
   exclusive on every netbird version (the daemon-side reconciliation only exists on newer ones).
   Positional ids are passed after `--` (cobra's flag terminator) so leading-dash names work; the
   literal name `all` is excluded on both paths because the CLI treats a sole `all` argument as
-  select-all/deselect-all. Selection state lives in the netbird daemon (persisted across restarts),
-  deliberately **not** in UCI — a second source of truth would drift from management-console changes.
+  select-all/deselect-all. The daemon keeps its selection in `state.json`, which sits under
+  `/var/lib` — tmpfs on OpenWrt, so it does not survive a reboot. Selections made through LuCI are
+  therefore also persisted to UCI (`netbird.settings.exit_node`; cleared when switched off).
+- `restore_exit_node` (write; watchdog-only, not exposed in the session ACL — the
+  automatic-reconnect watchdog calls it as root over local ubus once per boot, gated by a tmpfs
+  flag file) — re-applies the persisted selection after the connection is up. Idempotent, and the
+  target must be present in a fresh `networks list` (same whitelist as `select_exit_node`), so a
+  route deleted in the management console is skipped with a log line instead of retried forever;
+  management-console changes always win. Selections made outside LuCI are not persisted.
 
 ## Conventions (gotchas worth knowing)
 
 - **ucode modules** load via `loadfile()` IIFE (the runtime build does not support `export`), and
   **do not hoist function declarations** — a helper must be defined textually before its callers.
-- **ACL ↔ method table** must stay strictly 1:1 (13 read + 15 write = 28).
+- **`timeout` is probed by running it**, never by checking that the path exists: a `timeout` symlink can point
+  at a BusyBox built without that applet (exits 127, `applet not found`) — and stock OpenWrt BusyBox has no
+  `timeout` at all. The backend wraps short commands via `shell.with_timeout(cmd, secs)`, which runs
+  `timeout 1 true` once at load; without a working `timeout` it falls back to a portable bound: the command
+  runs as `( exec cmd )` in the background with its output in a temp file, and a timer subshell `kill -9`s it
+  when time is up (exit 124). The watchdog and `netbird-settings` source the same logic from
+  `/usr/share/netbird/nb-run-bounded.sh`. Durations are plain seconds (no `s` suffix).
+- **Settings apply never blocks procd.** procd runs config-change triggers one at a time, so a hung
+  `netbird-settings` reload stalls every other config apply on the router. When the daemon reports
+  `NeedsLogin`, the reload only writes `/etc/netbird-settings.pending` (no `netbird up`, which would wait for an
+  SSO login forever); `do_up`/`do_login` re-run the reload in the background after a successful login.
+  `down`/`up` are bounded (10 s / 45 s).
+- **Unchanged settings do not reconnect.** Runtime fields (connection state, exit node, setup-key hint,
+  management URL) live in `/etc/config/netbird`, so `reload_config` from any unrelated LuCI apply fires
+  `config.change` for it. `netbird-settings` stores an md5 of the rendered `up` arguments in
+  `/var/run/netbird-settings.applied` and skips `down`/`up` when it matches; logout, the post-login pending apply
+  and disabling the service delete it.
+- **Helper services self-heal.** Some preinstalled firmware images are built without running package scripts, so
+  `netbird-settings` and `luci-netbird-watchdog` are never enabled. `do_enable_and_start` and `do_up` enable and
+  start them when `/etc/init.d/<svc> enabled` fails.
+- **Binary-operation lock and download worker are recoverable.** `/tmp/nb-binop.lock/owner` records the holder
+  (`$PPID` of the popen shell: rpcd or the `ucode` worker); a lock whose holder is gone is reclaimed. The async
+  download worker's PID is in `/tmp/luci-netbird-binary-download.pid`; `get_binary_update_progress` turns a
+  stuck in-progress phase into `failed`/`canceled` when that process is gone.
+- **ACL ↔ method table** must stay strictly 1:1 for UI-callable methods (13 read + 17 write = 30
+  of the 31 registered methods; the one exception is `restore_exit_node`, which is watchdog-only
+  and deliberately kept out of the session ACL).
 - **DOM** is built with `E()` only (XSS).
 - **Binary/state paths** are probed at runtime, never hard-coded.
 - Identity is protected on two axes: `conffiles` (opkg upgrades) and `sysupgrade.conf`

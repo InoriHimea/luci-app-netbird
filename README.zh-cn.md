@@ -6,8 +6,14 @@
 
 [English](README.md) | **简体中文**
 
+**Fork 说明：** 本仓库保留手动安装二进制兼容及 GitHub API/CDN 镜像配置；二进制来源仅提供官方 release 与自定义 URL，不强制依赖系统 `netbird` 软件包。请从[本 fork 的 Releases](https://github.com/InoriHimea/luci-app-netbird/releases) 安装，或从源码构建。下方一键安装源分发的是上游版本，不是本 fork。
+
+> [!NOTE]
+> 上游作者说明：项目代码几乎都通过 vibe coding 写成，上游版本发布前会在不同版本的 OpenWrt 上做实机测试，作者有 10 台以上设备运行此应用。本 fork 本次同步已在隔离 OpenWrt 容器中完成冒烟验证，尚未部署至路由器。
+
 OpenWrt / ImmortalWrt 上管理 [NetBird](https://netbird.io) mesh-VPN 客户端的 LuCI 应用 —— 在路由器上使用 NetBird，无需命令行。
-同时兼容 OpenWrt / ImmortalWrt 24.x（`opkg`）和 25.x / 最新 snapshot（`apk`）。
+同时兼容 OpenWrt / ImmortalWrt 22.03 / 23.05 / 24.x（`opkg`）和 25.x / 最新 snapshot（`apk`）。
+OpenWrt 21.02 及更早版本无法支持——官方软件源缺少后端运行所需的 `ucode` / `rpcd-mod-ucode`。
 
 ## 功能
 
@@ -15,7 +21,7 @@ OpenWrt / ImmortalWrt 上管理 [NetBird](https://netbird.io) mesh-VPN 客户端
 
 - 连接 / 重新连接 / 断开 / 注销；支持自托管管理服务器
 - 短暂断网后自动重连 —— 认证失败时给出明确原因
-- 二进制版本管理 —— 官方 release、系统软件源或自定义 URL
+- 二进制版本管理 —— 官方 release 或自定义 URL，支持 GitHub API/CDN 镜像配置
 - 防火墙自动化 —— NetBird 区域与 LAN ↔ mesh 转发
 - 出口节点选择 —— 全部互联网流量经指定 mesh 节点出口，一键切换或关闭
 - 完整 `netbird up` 设置 —— WireGuard、路由、DNS、SSH、IPv6、Rosenpass、日志层级
@@ -45,14 +51,14 @@ opkg install luci-app-netbird luci-i18n-netbird-zh-cn
 
 <details><summary><b>用安装包手动安装</b></summary>
 
-运行依赖(通常已随固件存在):`rpcd`、`rpcd-mod-ucode`、`luci-base`、`netbird`、`conntrack`。
+运行依赖（通常已随固件存在）：`rpcd`、`rpcd-mod-ucode`、`ucode`、`ucode-mod-fs`、`ucode-mod-uci`、`luci-base`、`conntrack`。需要已有 NetBird daemon 服务（`/etc/init.d/netbird`）；支持手动安装的二进制，不强制安装系统 `netbird` 软件包。
 
 ```sh
-# OpenWrt / ImmortalWrt 24.10(opkg)
-opkg install rpcd rpcd-mod-ucode luci-base netbird
+# OpenWrt / ImmortalWrt 22.03 / 23.05 / 24.10(opkg)
+opkg install rpcd rpcd-mod-ucode ucode ucode-mod-fs ucode-mod-uci luci-base conntrack
 opkg install luci-app-netbird_*.ipk luci-i18n-netbird-zh-cn_*.ipk
 # OpenWrt / ImmortalWrt 25+(apk)
-apk add rpcd rpcd-mod-ucode luci-base netbird
+apk add rpcd rpcd-mod-ucode ucode ucode-mod-fs ucode-mod-uci luci-base conntrack
 apk add --allow-untrusted luci-app-netbird-*.apk luci-i18n-netbird-zh-cn-*.apk
 ```
 </details>
@@ -80,6 +86,8 @@ apk add --allow-untrusted luci-app-netbird-*.apk luci-i18n-netbird-zh-cn-*.apk
 
 - 已在 x86_64 验证；其他架构（arm64 / 386 / armv6）支持但测试较少。
 - SSH 扩展（Root 登录 / SFTP / 端口转发）需 netbird 0.72.x+。
+- 较旧官方源的 netbird 版本偏低——23.05 是 0.24.x，22.03 是 0.17.x：连接 / 状态 / 设置可用，但 exit node 选择需 netbird 0.35+ —— 安装后请在「**版本**」页把二进制切换到最新官方 release。22.03 上尤其建议切换。
+- NetBird 需要内核 WireGuard 模块或 TUN 设备。官方 OpenWrt 镜像默认既不带 `kmod-wireguard` 也不带 `kmod-tun`，而 `netbird` 包本身并不依赖它们。概览页与状态页会自动检测并提供**一键安装**按钮替你装好；若固件用的是定制内核、软件源模块不匹配，界面会原样展示包管理器输出，便于自行安装匹配版本。
 - `/etc/config/netbird` 是 conffile —— 升级保留你的设置。
 
 ## 许可
