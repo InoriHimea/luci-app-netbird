@@ -74,8 +74,14 @@ while [ "$#" -gt 0 ]; do
 done
 [ "$header" = 0 ] || { printf 'Content-Length: %s\r\n' "$(wc -c < /tmp/nb-fixture.tar.gz)"; exit 0; }
 case "$url" in
- */InoriHimea/luci-app-netbird/releases/latest/download/manifest.json) file=/tmp/nb-app-manifest ;;
+ */InoriHimea/luci-app-netbird/releases/latest/download/manifest.json) file=/tmp/nb-stale-manifest ;;
+ */InoriHimea/luci-app-netbird/releases/download/*/manifest.json) file=/tmp/nb-app-manifest ;;
  */InoriHimea/luci-app-netbird/releases/download/*) file=/tmp/nb-app-body ;;
+ */repos/InoriHimea/luci-app-netbird/releases/latest)
+  if [ -f /tmp/nb-app-release ]; then cat /tmp/nb-app-release; else
+   ucode -e 'import { readfile } from "fs"; print(sprintf("%J", { tag_name: "v" + json(readfile("/tmp/nb-app-manifest")).version }));'
+  fi
+  exit 0 ;;
  */repos/netbirdio/netbird/releases/latest) printf '{"tag_name":"v0.80.0"}'; exit 0 ;;
  */netbird_0.80.0_linux_amd64.tar.gz) file=/tmp/nb-fixture.tar.gz ;;
  */netbird_0.80.0_checksums.txt) file=/tmp/nb-checksums ;;
@@ -160,9 +166,14 @@ function manifest(version, language) {
     return { version: version, branches: branches };
 }
 put('/tmp/nb-app-manifest', sprintf('%J', manifest('0.2.0-r4', true)));
+put('/tmp/nb-stale-manifest', sprintf('%J', manifest('0.2.0-r3', true)));
 info = service().check_luci_app_update.call({});
 check(info.ok && info.data.update_available && info.data.main_package == 'luci-app-netbird_0.2.0-r4_all.ipk' && info.data.i18n_package == 'luci-i18n-netbird-zh-cn_0.2.0-r4_all.ipk', sprintf('fork IPK selection failed: %J', info));
 check(info.data.feed_url == 'https://cdn.fixture.invalid/InoriHimea/luci-app-netbird/releases/download/v0.2.0-r4/', 'downloads not pinned to fork tag/mirror');
+put('/tmp/nb-app-release', '{"tag_name":"v0.2.0-r5"}');
+info = service().check_luci_app_update.call({});
+check(!info.ok && info.code == 'parse_error', 'manifest for another release tag accepted');
+unlink('/tmp/nb-app-release');
 result = service().update_luci_app.call({});
 check(!result.ok && result.code == 'download_failed' && system('[ ! -e /tmp/nb-unexpected-install ]') == 0, 'truncated application package reached installer');
 put('/tmp/nb-app-manifest', sprintf('%J', manifest('0.2.0-r2', true)));
@@ -188,7 +199,7 @@ check(!info.ok && info.code == 'parse_error', 'wrong package format accepted');
 put('/tmp/nb-app-manifest', sprintf('%J', manifest('../bad', true)));
 info = service().check_luci_app_update.call({});
 check(!info.ok && info.code == 'parse_error', 'unsafe release version accepted');
-print('PASS: fork manifest, pinned downloads, IPK/APK selection, translation and failure boundaries\n');
+print('PASS: stale CDN discovery, tag/manifest binding, pinned downloads, IPK/APK selection and translation boundaries\n');
 UCODE
 # ucode's fixture executable reads the relative script named "version".
 cd /

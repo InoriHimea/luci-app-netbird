@@ -50,3 +50,8 @@ Since r5, the native install hooks archive legacy `netbird.uc.bak*` files outsid
 filter by extension, so backups in that directory can register an older object first.
 Use a directory outside the auto-loaded tree for manual backups. `rpcd reload` uses
 SIGHUP to re-execute the management process; do not add a NetBird daemon restart.
+
+Since r6, version discovery uses this fork's Release API through `api_base`. Both the
+manifest and package downloads use that version's immutable tag through `cdn_base`;
+the manifest must declare the same version. An r4/r5 device affected by a mirror's
+cached `latest` manifest needs one version-pinned/bootstrap upgrade to r6.

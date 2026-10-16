@@ -104,9 +104,10 @@ The `luci-app-netbird` row has separate user-triggered check/update actions. The
 scheduled application or binary upgrade; the reconnect watchdog only restores connectivity.
 First connection can acquire a missing official binary, not upgrade an already usable one.
 
-- `check_luci_app_update` reads `/InoriHimea/luci-app-netbird/releases/latest/download/manifest.json`
-  from GitHub or the configured `cdn_base`, compares package revisions, and selects the
-  compatible branch's assets. It does not query the upstream hosted package index.
+- `check_luci_app_update` queries this fork's `/repos/InoriHimea/luci-app-netbird/releases/latest`
+  using GitHub or `api_base`, then reads the selected tag's `manifest.json` using GitHub
+  or `cdn_base`. Its version must match the API tag. Mutable CDN `latest` manifests are
+  not used for discovery; they may remain cached after a new release is published.
 - `update_luci_app` re-checks and pins downloads to `/releases/download/v<manifest.version>/`.
   Manifest `files[].url` entries are hosted-feed paths and are not used for GitHub downloads.
   Missing required packages or incorrect downloaded sizes fail before the native installer.

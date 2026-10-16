@@ -77,6 +77,7 @@ Add this repo to an OpenWrt / ImmortalWrt SDK or buildroot (under `package/` or 
 - Both update actions require user interaction; automatic reconnect is not an unattended upgrader. Initial connection may acquire a missing official binary, but does not periodically upgrade an existing one.
 - Since **0.2.0-r4**, application updates read this fork's GitHub Release `manifest.json` and use version-pinned assets, honoring the configured GitHub CDN base. **r3 and older need a one-time manual upgrade** from this fork's Releases because their old updater queries the upstream feed.
 - Since **0.2.0-r5**, installation archives legacy `netbird.uc.bak*` copies to a private `/root/netbird-rpcd-backup.*` directory before the native RPC reload. Keep manual backups outside `/usr/share/rpcd/ucode/`: rpcd loads every regular file there, including `.bak` files, which can otherwise leave an older backend active.
+- Since **0.2.0-r6**, latest-version discovery uses the fork's Release API (`api_base`); manifests and packages use version-pinned CDN URLs. If an r4/r5 device sees stale CDN metadata, bootstrap r6 once from its versioned Release packages rather than waiting for the mirror cache.
 
 ## Setup / Quick start
 

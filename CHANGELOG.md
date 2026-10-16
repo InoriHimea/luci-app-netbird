@@ -3,6 +3,17 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## 0.2.0-r6 — 2026-10-17
+
+### Fixed
+
+- Discover this fork's latest version through the GitHub Release API using `api_base`, then fetch `manifest.json` and packages only from that exact tag using `cdn_base`. A CDN may cache `latest/download/manifest.json` indefinitely; this was observed returning r4 after r5 had been published.
+- Reject a manifest whose version differs from the selected Release tag. Keep the r5 legacy RPC-backup migration and the existing translation, package-format and download-size checks.
+
+### Upgrade notes
+
+- If r4/r5 still report an old version through a cached CDN, bootstrap r6 once from its version-pinned Release packages. Subsequent checks no longer use the mutable CDN `latest` manifest path. No NetBird binary upgrade, reconnect or DNS change is required.
+
 ## 0.2.0-r5 — 2026-10-17
 
 ### Fixed

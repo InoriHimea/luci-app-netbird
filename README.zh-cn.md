@@ -77,6 +77,7 @@ apk add --allow-untrusted luci-app-netbird-*.apk luci-i18n-netbird-zh-cn-*.apk
 - 两种更新均由用户操作触发，自动重连不等于无人值守升级。首次连接可以补齐缺失的官方二进制，但不会定时升级已有版本。
 - 从 **0.2.0-r4** 起，插件更新读取本 fork GitHub Release 的 `manifest.json`，按确定的版本 tag 下载资产，并使用已配置的 GitHub CDN 地址。**r3 及更早版本须先从本 fork Releases 手动升级一次**，旧入口仍查询上游软件源。
 - 从 **0.2.0-r5** 起，安装时会先将历史 `netbird.uc.bak*` 备份归档到私有的 `/root/netbird-rpcd-backup.*` 目录，再由系统原生重载 RPC 后端。手工备份必须放在 `/usr/share/rpcd/ucode/` 之外：rpcd 会加载其中所有普通文件，改成 `.bak` 后缀仍可能让旧后端抢先注册。
+- 从 **0.2.0-r6** 起，最新版本由本 fork 的 Release API（`api_base`）查询，清单与包仅从确定 tag 的 CDN 地址下载。若 r4/r5 因镜像缓存仍显示旧版本，先从确定版本的 Release 包引导升级 r6，无须等待镜像缓存刷新。
 
 ## 快速上手
 

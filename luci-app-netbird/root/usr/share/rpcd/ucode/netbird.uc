@@ -1831,8 +1831,10 @@ function _luci_feed_spec() {
     if (series != '24.10' && series != '25.12')
         return { ok: false, series: '', feed_url: '', pkg_ext: '', message: 'Unsupported OpenWrt release: ' + (_openwrt_release_string() || 'unknown') };
     let cdn = replace(_uci_binary('cdn_base', 'https://github.com'), /\/+$/, '');
+    let api = replace(_uci_binary('api_base', 'https://api.github.com'), /\/+$/, '');
     return { ok: true, series: series, branch: 'openwrt-' + series,
         feed_url: cdn + '/InoriHimea/luci-app-netbird/releases/',
+        api_url: api + '/repos/InoriHimea/luci-app-netbird/releases/latest',
         pkg_ext: series == '24.10' ? 'ipk' : 'apk' };
 }
 
@@ -1891,7 +1893,21 @@ function _luci_app_update_info() {
     };
     if (!spec.ok)
         return { ok: false, code: CODE.INVALID_INPUT, message: spec.message, data: base };
-    let response = _popen_simple(_dl_cmd(spec.feed_url + 'latest/download/manifest.json', '', 20));
+    let release = _popen_simple(_dl_cmd(spec.api_url, '', 20));
+    if (release.code != 0 || length(release.out) == 0)
+        return { ok: false, code: CODE.DOWNLOAD_FAILED, message: 'Could not fetch this fork\'s latest release metadata.', data: base };
+    let tag;
+    try {
+        let metadata = json(release.out);
+        tag = type(metadata) == 'object' ? metadata.tag_name : null;
+    } catch (e) {
+        return { ok: false, code: CODE.PARSE_ERROR, message: 'Could not parse the latest release metadata.', data: base };
+    }
+    if (type(tag) != 'string' || substr(tag, 0, 1) != 'v' || !match(substr(tag, 1), _PKGVER_RE))
+        return { ok: false, code: CODE.PARSE_ERROR, message: 'The latest release has no compatible package version.', data: base };
+    let latest = substr(tag, 1);
+    let pinned_feed = spec.feed_url + 'download/' + tag + '/';
+    let response = _popen_simple(_dl_cmd(pinned_feed + 'manifest.json', '', 20));
     if (response.code != 0 || length(response.out) == 0)
         return { ok: false, code: CODE.DOWNLOAD_FAILED, message: 'Could not fetch this fork\'s release manifest.', data: base };
     let manifest;
@@ -1900,15 +1916,15 @@ function _luci_app_update_info() {
     } catch (e) {
         return { ok: false, code: CODE.PARSE_ERROR, message: 'Could not parse the release manifest.', data: base };
     }
-    let latest = (type(manifest) == 'object') ? manifest.version : null;
+    let manifest_version = (type(manifest) == 'object') ? manifest.version : null;
     let branches = (type(manifest) == 'object') ? manifest.branches : null;
     let branch = (type(branches) == 'object') ? branches[spec.branch] : null;
-    if (type(latest) != 'string' || !match(latest, _PKGVER_RE) || type(branch) != 'object' ||
+    if (manifest_version != latest || type(branch) != 'object' ||
         branch.format != spec.pkg_ext || type(branch.files) != 'array')
         return { ok: false, code: CODE.PARSE_ERROR, message: 'The release manifest has no compatible package version or format.', data: base };
     base.latest_version = latest;
     base.update_available = _pkgver_cmp(local, latest) < 0;
-    base.feed_url = spec.feed_url + 'download/v' + latest + '/';
+    base.feed_url = pinned_feed;
     base.main_package = _luci_pkg_filename('luci-app-netbird', latest, spec.pkg_ext);
     base.i18n_package = _luci_i18n_installed() ? _luci_pkg_filename('luci-i18n-netbird-zh-cn', latest, spec.pkg_ext) : '';
     // manifest 的 url 是上游静态源目录,此 fork 的资产是按 tag 固定的平铺 GitHub 文件。

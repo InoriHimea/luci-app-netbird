@@ -1,5 +1,5 @@
 #!/bin/sh
-# Only in a disposable container: creates fixtures in system directories.
+# Only in a disposable OpenWrt container: creates fixtures in system directories.
 set -eu
 [ -f /.dockerenv ] || { echo 'Run only in a disposable container' >&2; exit 1; }
 source_root="${1:-/src}"
@@ -20,7 +20,7 @@ sh "$hook"
 set -- /root/netbird-rpcd-backup.*
 [ "$#" -eq 1 ]
 first_archive="$1"
-[ "$(stat -c '%a' "$first_archive")" = 700 ]
+NB_ARCHIVE="$first_archive" ucode -e 'import { stat } from "fs"; exit((stat(getenv("NB_ARCHIVE")).mode & 0777) == 0700 ? 0 : 1);'
 cmp /tmp/nb-first-backup "$first_archive/netbird.uc.bak-20260917"
 cmp "$modules/netbird.uc" "$first_archive/netbird.uc.bak-link"
 [ ! -L "$first_archive/netbird.uc.bak-link" ]
