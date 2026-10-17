@@ -217,6 +217,16 @@ if [ -f /etc/init.d/luci-netbird-watchdog ]; then
 		logger -t "$TAG" "警告：luci-netbird-watchdog start 失败"
 fi
 
+# Recovery is always available, but the nightly task remains opt-in. These services
+# never restart NetBird during installation when no transaction is pending.
+for _nb_service in luci-netbird-recover luci-netbird-updater; do
+	if [ -f "/etc/init.d/$_nb_service" ]; then
+		chmod 0755 "/etc/init.d/$_nb_service"
+		"/etc/init.d/$_nb_service" enable 2>/dev/null || logger -t "$TAG" "$_nb_service enable failed"
+	fi
+done
+/etc/init.d/luci-netbird-updater start 2>/dev/null || logger -t "$TAG" "updater monitor start failed"
+
 # 二进制目录仅用于 custom 和未激活的官方版本;安装插件不改动现有二进制或链接。
 mkdir -p /usr/share/netbird/bin
 

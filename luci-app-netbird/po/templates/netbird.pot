@@ -1670,3 +1670,123 @@ msgstr ""
 
 msgid "Manage NetBird binaries separately from luci-app-netbird updates."
 msgstr ""
+
+msgid "Activation deadline"
+msgstr ""
+
+msgid "Agent automatic updates"
+msgstr ""
+
+msgid "Agent maintenance active"
+msgstr ""
+
+msgid "Agent updater request failed."
+msgstr ""
+
+msgid "Automatic updates paused"
+msgstr ""
+
+msgid "Blocked version"
+msgstr ""
+
+msgid "Cancel and restore if needed"
+msgstr ""
+
+msgid "Check eligible stable release"
+msgstr ""
+
+msgid "Clear failed-version block"
+msgstr ""
+
+msgid "Disabled"
+msgstr ""
+
+msgid "Disabled by default. Updates the NetBird agent only, never the LuCI package."
+msgstr ""
+
+msgid "Eligible stable release: v%s"
+msgstr ""
+
+msgid "Enable scheduled agent updates"
+msgstr ""
+
+msgid "Latest result"
+msgstr ""
+
+msgid "Mesh service health URL"
+msgstr ""
+
+msgid "Minimum release age (hours)"
+msgstr ""
+
+msgid "Must match the running daemon profile directory and resolve to persistent storage."
+msgstr ""
+
+msgid "Next scheduled check"
+msgstr ""
+
+msgid "Nightly check time"
+msgstr ""
+
+msgid "No eligible release."
+msgstr ""
+
+msgid "Not ready for unattended updates."
+msgstr ""
+
+msgid "Only 03:00–05:00 in the selected timezone. Missed checks are not caught up during daytime."
+msgstr ""
+
+msgid "Only official stable releases at least 48 hours old are eligible."
+msgstr ""
+
+msgid "POSIX UTC-8 means Beijing UTC+08:00. Use system for the device timezone. The system timezone is never changed."
+msgstr ""
+
+msgid "Persistent identity directory"
+msgstr ""
+
+msgid "Persistent rollback is mandatory. The new agent must reconnect within 120 seconds and remain healthy for five minutes before commit."
+msgstr ""
+
+msgid "Required HTTP(S) service reachable over the NetBird interface; a public Internet check is not sufficient."
+msgstr ""
+
+msgid "Rollback is unresolved. Repair locally and run the recovery command before clearing the failure block."
+msgstr ""
+
+msgid "Run safe agent update"
+msgstr ""
+
+msgid "Run safe update now"
+msgstr ""
+
+msgid "Save auto-update settings"
+msgstr ""
+
+msgid "Schedule saved without reconnecting NetBird."
+msgstr ""
+
+msgid "Schedule timezone"
+msgstr ""
+
+msgid "Start update"
+msgstr ""
+
+msgid "Started"
+msgstr ""
+
+msgid "This restarts the NetBird agent and briefly interrupts Mesh traffic. The same stable-release, backup, health and rollback checks apply."
+msgstr ""
+
+msgid "Update phase"
+msgstr ""
+
+msgid "Version transition"
+msgstr ""
+
+msgid "Observing agent health…"
+msgstr ""
+
+msgid "Restoring previous agent…"
+msgstr ""

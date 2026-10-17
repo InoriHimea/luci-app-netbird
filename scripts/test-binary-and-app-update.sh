@@ -6,7 +6,8 @@ source_root="${1:-/src}"
 export NBLIB="$source_root/luci-app-netbird/root/usr/share/rpcd/ucode/lib"
 export NB_LIBDIR="$source_root/luci-app-netbird/root/usr/share/netbird"
 export NB_TEST_ROOT="$source_root"
-mkdir -p /tmp/nb-regression-bin /tmp/nb-fixture /usr/share/netbird/bin /etc/config /etc/init.d
+mkdir -p /tmp/nb-regression-bin /tmp/nb-fixture /usr/share/netbird/bin /etc/config /etc/init.d /etc/netbird-fixture
+printf '{"DisableDNS":true,"PrivateKey":"fixture-identity"}\n' > /etc/netbird-fixture/default.json
 export PATH="/tmp/nb-regression-bin:/usr/sbin:/usr/bin:/sbin:/bin"
 rm -f /usr/bin/netbird /usr/bin/apk /usr/bin/curl
 printf 'config netbird_bin binary\n option binary_source release\n option api_base https://api.fixture.invalid\n option cdn_base https://cdn.fixture.invalid\n' > /etc/config/netbird_bin
@@ -34,7 +35,7 @@ cat > /tmp/nb-regression-bin/ubus <<'SH'
 #!/bin/sh
 running=false
 [ ! -f /tmp/nb-daemon-running ] || running=true
-printf '{"netbird":{"instances":{"main":{"running":%s}}}}\n' "$running"
+printf '{"netbird":{"instances":{"main":{"running":%s,"pid":999999999,"command":["/usr/bin/netbird","service","run","--config","/etc/netbird-fixture/default.json"]}}}}\n' "$running"
 SH
 cat > /tmp/nb-regression-bin/ln <<'SH'
 #!/bin/sh
@@ -203,4 +204,4 @@ print('PASS: stale CDN discovery, tag/manifest binding, pinned downloads, IPK/AP
 UCODE
 # ucode's fixture executable reads the relative script named "version".
 cd /
-ucode /tmp/nb-contract-check.uc
+setsid ucode /tmp/nb-contract-check.uc

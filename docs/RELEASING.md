@@ -43,7 +43,8 @@ Application self-update uses this fork's versioned Release assets starting at 0.
 Devices on r3 or older need one manual/bootstrap upgrade because their updater still queries
 the upstream hosted feed. Application updates include all package-owned UI, backend and
 scripts plus dependencies and already-installed translations, but not the separate NetBird
-binary. No scheduled unattended upgrade is installed.
+binary. Since r7, a separate opt-in agent scheduler is installed but disabled by default;
+publishing/installing a LuCI package does not enable schedules or upgrade a live agent.
 
 Since r5, the native install hooks archive legacy `netbird.uc.bak*` files outside
 `/usr/share/rpcd/ucode/` before the package manager reloads rpcd. The loader does not
@@ -55,3 +56,17 @@ Since r6, version discovery uses this fork's Release API through `api_base`. Bot
 manifest and package downloads use that version's immutable tag through `cdn_base`;
 the manifest must declare the same version. An r4/r5 device affected by a mirror's
 cached `latest` manifest needs one version-pinned/bootstrap upgrade to r6.
+
+## r7 deployment gate
+
+Build both OpenWrt branches and verify the version-pinned Release manifest/packages before
+installation. Back up package-owned files, UCI, identity, custom init and watchdog privately.
+Canary node56 first, then node55 and Shanghai, with Wuhan last. Compare the running agent PID,
+binary/profile/init/resolver/watchdog hashes, connection/management/DNS state and existing UCI
+values before and after each installation. Verify the real LuCI versions page and the new
+RPC/monitor services. Keep agent automation disabled; do not run an agent update, connect,
+disconnect, deregister or external-watchdog integration as part of this plugin rollout.
+DC is excluded while its presented SSH identity conflicts with pinned keys. Never bypass host
+key checking. Failed canary or identity/DNS/process drift stops the rollout and triggers repair
+from the retained backup/previous r6 packages.
+

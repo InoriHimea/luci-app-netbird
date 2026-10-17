@@ -163,6 +163,14 @@ _maybe_restore_exit_node() {
 last_unknown=""   # 已记录过的"未识别状态"签名,同形态只记一次日志
 
 while :; do
+	# Must precede status adoption and NeedsLogin intent changes. Fail closed if a
+	# transaction exists but its guard cannot run; recovery is independent of us.
+	if [ -f /etc/netbird-update/transaction.json ] || [ -d /tmp/nb-binop.lock ]; then
+		if ! NB_AGENT_WORKER=1 ucode "${NB_LIBDIR:-/usr/share/netbird}/agent-update-worker.uc" guard >/dev/null 2>&1; then
+			_sleep "$INTERVAL"
+			continue
+		fi
+	fi
 	bin="$(_resolve_bin 2>/dev/null)"
 	if [ -z "$bin" ]; then
 		_sleep "$INTERVAL"

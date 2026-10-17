@@ -22,6 +22,7 @@ Surfaces the NetBird client's capabilities in the LuCI UI:
 - Connect / reconnect / disconnect / deregister; self-hosted management
 - Automatic reconnect after transient outages — with clear authentication-failure reasons
 - Binary version management — official release or custom URL, with configurable GitHub API/CDN mirrors
+- Opt-in nightly agent upgrades with persistent rollback, identity protection and a five-minute health gate
 - Firewall automation — NetBird zone and LAN ↔ mesh forwarding
 - Exit node selection — route all internet traffic through a mesh peer, switch or turn off in one click
 - Full `netbird up` settings — WireGuard, routes, DNS, SSH, IPv6, Rosenpass, log level
@@ -74,10 +75,28 @@ Add this repo to an OpenWrt / ImmortalWrt SDK or buildroot (under `package/` or 
 
 - **Application update** (the `luci-app-netbird` row on **Versions**) installs this fork's complete package: UI, RPC backend, settings/watchdog scripts, install hooks and package-manager dependencies. The Chinese package is updated only if already installed. UCI settings and NetBird identity are retained; the NetBird client binary is not upgraded by this action.
 - **NetBird binary update** is separate. An active official release is a real `/usr/bin/netbird`; custom versions use a symlink. Switching to custom parks the official binary, so switching back does not require another download. Updating the parked official version does not interrupt the active custom daemon.
-- Both update actions require user interaction; automatic reconnect is not an unattended upgrader. Initial connection may acquire a missing official binary, but does not periodically upgrade an existing one.
+- Application updates remain user-triggered. Agent upgrades additionally have an opt-in nightly scheduler, disabled by default. Reconnect and upgrade remain separate operations; initial connection can still acquire a missing official binary.
 - Since **0.2.0-r4**, application updates read this fork's GitHub Release `manifest.json` and use version-pinned assets, honoring the configured GitHub CDN base. **r3 and older need a one-time manual upgrade** from this fork's Releases because their old updater queries the upstream feed.
 - Since **0.2.0-r5**, installation archives legacy `netbird.uc.bak*` copies to a private `/root/netbird-rpcd-backup.*` directory before the native RPC reload. Keep manual backups outside `/usr/share/rpcd/ucode/`: rpcd loads every regular file there, including `.bak` files, which can otherwise leave an older backend active.
 - Since **0.2.0-r6**, latest-version discovery uses the fork's Release API (`api_base`); manifests and packages use version-pinned CDN URLs. If an r4/r5 device sees stale CDN metadata, bootstrap r6 once from its versioned Release packages rather than waiting for the mirror cache.
+
+### Scheduled agent updates
+
+On **Versions → Agent automatic updates**, configure a persistent identity directory and an HTTP(S) service reachable through the NetBird interface. Install `curl`; enable the early recovery and independent monitor services. Scheduling defaults to **03:30 Beijing time** (`UTC-8` in POSIX notation), a **03:00–05:00** maintenance window, and stable releases published at least **48 hours** ago. The device timezone is never changed; `system` follows its configured timezone. Missed checks are not caught up during daytime, and a persistent day ledger prevents repeats after clock rollback.
+
+Only an already healthy, intentionally connected **release** source is eligible. Custom binaries, disabled/disconnected services, incomplete watchdog integration, busy maintenance and insufficient storage/RAM are not upgraded. Downloads require a pinned stable version, matching official SHA-256, complete archive, native ELF and executable version. Saving a schedule writes only `netbird_bin` and does not reconnect the agent. The LuCI package is never upgraded automatically.
+
+Before activation, the updater preserves a verified old binary, stops the old process, snapshots the actual profile into a private archive, then atomically replaces the target. A new daemon has 120 seconds to reconnect and must remain healthy for five minutes; public key, Mesh IP, management URL, DNS, process stability and the configured service probe must agree with the baseline. A separate deadline worker enforces a 10-minute stop-to-rollback budget. Failures restore and verify the old version; failed activation versions are blocked, and unresolved rollback pauses further updates. This causes a short Mesh interruption, not zero downtime.
+
+An existing `/root/ztn-watchdog.sh` must be explicitly integrated before unattended updates can be enabled:
+
+```sh
+NB_AGENT_WORKER=1 ucode /usr/share/netbird/agent-update-worker.uc integrate-watchdog
+```
+
+This keeps a private original-script backup and atomically prepends a maintenance guard; it does not rewrite the watchdog's business logic or the NetBird daemon init. On an unresolved recovery, use a local console/independent SSH path, fix the underlying issue, then run `recover-retry` followed by `reset` with the same command prefix. Never delete `/etc/netbird-update` or its snapshots to clear an error. Early recovery can withhold NetBird's boot registration if restoring old files fails; a verified repair plus explicit reset restores it.
+
+For the existing fleet, the deployment plan remains: node56 03:00, node55 03:30, Shanghai 04:00, Wuhan 04:30, all Beijing time; DC excluded until its SSH identity is independently verified. Enable only node56 first and observe a maintenance window. This implementation does not apply that plan to any router.
 
 ## Setup / Quick start
 

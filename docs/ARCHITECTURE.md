@@ -1,10 +1,9 @@
 # Architecture — luci-app-netbird
 
 LuCI app to manage the [NetBird](https://netbird.io) mesh-VPN client on OpenWRT.
-It has no VPN daemon of its own — it drives the upstream `netbird` binary and its procd
-service through UCI and a ucode RPC backend. A small LuCI-owned watchdog only records
-the user's desired connection state and asks the same RPC backend to reconnect after
-transient management-server/network outages.
+It drives the upstream NetBird binary and its procd service through UCI and a ucode RPC backend.
+The reconnect watchdog preserves connection intent. A separate opt-in updater owns transactions,
+persistent rollback and interrupted-operation recovery; it never registers a new peer.
 
 ## Components
 
@@ -12,24 +11,25 @@ transient management-server/network outages.
 |---|---|---|
 | Frontend (views) | `htdocs/luci-static/resources/view/netbird/*.js` | 6 tabs: overview / versions / settings / status / setup(network) / logs. All DOM via `E()` (no innerHTML). |
 | Frontend helpers | `.../netbird/dom-helpers.js`, `netbird.css` | `pair / code / statusPill` builders. |
-| Backend entry | `root/usr/share/rpcd/ucode/netbird.uc` | The `luci.netbird` rpcd object — 31 methods (13 read + 18 write). |
-| Backend lib | `root/usr/share/rpcd/ucode/lib/*.uc` | `shell`(quote + timeout probe) · `paths`(binary probe) · `envelope`({ok,err,CODE}) · `netbird_cli`(CLI wrap) · `state`(5-state) · `sanitize`(validation). |
+| Backend entry | `root/usr/share/rpcd/ucode/netbird.uc` | The `luci.netbird` rpcd object — 38 methods (15 read + 23 write, including one root-only watchdog method). |
+| Backend lib | `root/usr/share/rpcd/ucode/lib/*.uc` | Existing CLI/state/validation helpers plus `agent_update` (transaction), `agent_schedule` (admission/scheduling) and `agent_runtime` (platform adapter). |
 | ACL | `root/usr/share/rpcd/acl.d/luci-app-netbird.json` | read/write method whitelist + UCI scopes. Kept strictly 1:1 with the method table. |
 | Settings pipeline | `root/etc/init.d/netbird-settings` | config-only procd service: renders UCI → `netbird up --flags`. |
 | Reconnect watchdog | `root/etc/init.d/luci-netbird-watchdog`, `root/usr/share/netbird/netbird-autoreconnect.sh` | procd loop that retries only when `netbird.runtime.desired_connected=1`, with exponential backoff on repeated failures (the status poll stays fixed-interval, so recovery and error-clearing remain prompt); fatal auth errors stop the loop. |
+| Upgrade recovery | `root/etc/init.d/luci-netbird-recover`, `luci-netbird-updater`; `root/usr/share/netbird/agent-update-*.uc` / `*.sh` | S04 restoration before the daemon, S95 independent monitor, isolated update/recovery/deadline workers. |
 | Config | `root/etc/config/netbird`, `root/etc/config/netbird_bin` | settings, and binary-source (kept separate so changing the download URL does not trigger a netbird reconnect). |
 | First-install | `root/etc/uci-defaults/99-luci-app-netbird` | idempotent: seed config, chmod init.d 0755, append identity paths to `sysupgrade.conf`. |
 
 ## Single source of truth
 
-**UCI is the only input source; `config.json` is read-only.** The apply chain:
+**UCI owns normal settings; only a stopped-daemon rollback restores identity files.** The apply chain:
 
 ```
 write UCI  →  init.d reads UCI  →  netbird up --flag …  →  daemon persists config.json
 ```
 
-The app never syncs or dual-writes `config.json`. Reads of `config.json` (e.g. to display
-the management URL) are display-only.
+Normal settings never sync or dual-write the daemon profile. The updater's explicit exception
+is a verified, stopped-daemon identity archive and restoration of that archive during rollback.
 
 ## Settings application (`init.d/netbird-settings`)
 
@@ -84,25 +84,69 @@ its runtime dependencies, but are never used to reinstall the separate NetBird d
 
 Downloads use `_dl_cmd` (curl → uclient-fetch → BusyBox wget), so minimal images need no curl.
 
-**Download durability and cleanup.** Binary downloads that create a new persistent file first run a
-best-effort overlay free-space preflight; low space fails early with `insufficient_space` instead of
-starting a doomed write. ENOSPC is still handled at write time, and failed first-time writes remove
-the half-written target instead of leaving a `netbird-v*` ghost version. Download artifacts must pass
-size sanity checks, archive integrity checks (`tar -tzf` for tarballs), checksum checks when
-available, ELF e_machine validation, and `netbird version` before they enter the version list. Each
-binary operation sweeps old `/tmp/nb-update*` workdirs and stale non-working custom binaries; custom
-versions are listed only when the file is executable and can report a version.
+**Download durability and cleanup.** Official unattended downloads must match a pinned stable
+release, its declared size and official SHA-256, a complete archive, native ELF identity and
+executable version. Temporary filesystem space and `MemAvailable` are checked before download
+and extraction. Persistent reservations cover old backup, candidate/restore siblings, profile
+archive and source-parking files; OpenWrt overlay/direct-backing paths share a storage budget.
+There is no truncate-in-place fallback. Existing-binary installs run in isolated sessions;
+inactive release updates do not restart custom. Temporary artifacts and private committed
+snapshots are removed; a failed recovery retains evidence and blocks further operations.
 
 **Multi-arch.** This LuCI package is architecture-independent (`PKGARCH:=all`). Official NetBird
 auto-selection supports amd64/arm64/386/armv6; other architectures require a matching manually
 installed binary or custom URL. Custom downloads are checked against the host's ELF machine,
 word size and byte order rather than the four official auto-download choices.
 
+### Agent update transaction and scheduling
+
+`agent_schedule.uc` reads the independent `netbird_bin.auto_update` section. Defaults are off,
+03:30 POSIX `UTC-8` (Beijing), stable age 48 hours, and no probe configured. The monitor checks
+locally every 20 seconds, only launches in the selected minute within 03:00–05:00, and persists
+a civil-date high-water claim before launch. `system` uses the device timezone; no system clock
+or timezone is changed. Custom/disabled/disconnected/unhealthy/busy nodes are not upgraded.
+
+The shared `agent_update.uc` core holds a root-only `/etc/netbird-update` transaction: a synced
+0600 journal with unique transaction ID, owner PID/start time/boot/session identity, verified
+old executable, and a verified 0600 `profile.tar`. Canonical profile directories must be on
+persistent storage, root-owned, separate from update storage, and contain no internal links.
+An active install records intent before stopping; both procd state and the original process's
+actual exit are checked before taking a consistent identity archive. Same-filesystem siblings
+are verified before atomic rename. Source switches include original symlink/UCI/parked-release
+state in the same transaction.
+
+The trial requires daemon version, stable PID, management+signal, unchanged public key/Mesh IP,
+management URL and DNS fingerprint, plus an HTTP(S) service probe bound to the configured
+NetBird interface. Reconnect has 120 seconds; healthy observation lasts 300 seconds at nominal
+10-second sampling. A separate isolated deadline worker starts before stop and initiates
+recovery at 600 seconds, independently of RPC/browser/update-worker lifetime. The monitor is
+an additional recovery path. Old writer process groups are drained before recovery, including
+orphans whose leader was killed; PID reuse is checked before signaling.
+
+On failure, stop the candidate, atomically restore old executable/source selection, verify and
+restore the identity archive, then start and health-check the original version. Only verified
+old connectivity is reported as recovered. Activation failures block that version; rollback
+failure pauses operations and retains snapshots. A manual update with no healthy baseline
+can restore files, but reports connectivity as unverified, not recovered.
+
+S04 recovery restores interrupted files before normal daemon startup and leaves health proof
+to the normal-start/late-monitor path. If restoration fails, the daemon's boot registration is
+withheld without overwriting its custom init. `recover-retry` is explicit local repair;
+`reset` clears failure blocks only after recovery and restores a held boot registration.
+
+Reconnect and external watchdog guards run before authentication-state/intent mutation.
+The external adapter preserves an original-script backup and prepends a verifiable early
+guard; missing integration fails unattended admission. Settings reloads create a deferred
+marker rather than touching a trial; lifecycle/network RPCs share the binary-operation lock.
+Cancellation is cooperative and survives the queued/download transition; after activation it
+requests rollback rather than killing the installer. Release checks are explicit network
+actions; status polling is local. The LuCI package is never scheduled for automatic updates.
+
 ### luci-app-netbird package self-update
 
-The `luci-app-netbird` row has separate user-triggered check/update actions. There is no
-scheduled application or binary upgrade; the reconnect watchdog only restores connectivity.
-First connection can acquire a missing official binary, not upgrade an already usable one.
+The `luci-app-netbird` row has separate user-triggered check/update actions; the opt-in agent
+scheduler never updates the LuCI package. First connection can acquire a missing official
+binary, but is not itself a periodic upgrade mechanism.
 
 - `check_luci_app_update` queries this fork's `/repos/InoriHimea/luci-app-netbird/releases/latest`
   using GitHub or `api_base`, then reads the selected tag's `manifest.json` using GitHub
@@ -272,8 +316,8 @@ self-heal, so a router managed over the mesh could hard-lock. Instead:
   (`$PPID` of the popen shell: rpcd or the `ucode` worker); a lock whose holder is gone is reclaimed. The async
   download worker's PID is in `/tmp/luci-netbird-binary-download.pid`; `get_binary_update_progress` turns a
   stuck in-progress phase into `failed`/`canceled` when that process is gone.
-- **ACL ↔ method table** must stay strictly 1:1 for UI-callable methods (13 read + 17 write = 30
-  of the 31 registered methods; the one exception is `restore_exit_node`, which is watchdog-only
+- **ACL ↔ method table** must stay strictly 1:1 for UI-callable methods (15 read + 22 write = 37
+  of the 38 registered methods; the one exception is `restore_exit_node`, which is watchdog-only
   and deliberately kept out of the session ACL).
 - **DOM** is built with `E()` only (XSS).
 - **Binary/state paths** are probed at runtime, never hard-coded.

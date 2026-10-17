@@ -3,6 +3,26 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## 0.2.0-r7 — 2026-10-17
+
+### Added
+
+- Opt-in nightly NetBird agent updates, default disabled: Beijing 03:30, a 03:00–05:00 maintenance window, stable releases aged at least 48 hours, persistent daily de-duplication, no daytime catch-up, and explicit service/profile/watchdog readiness gates.
+- A shared persistent transaction for manual downloads, source switches and unattended upgrades: mandatory unattended SHA-256/version/ELF/archive checks, storage/RAM preflight, verified old-binary backup, a private 0600 identity archive after complete daemon stop, atomic activation and verified rollback.
+- A 120-second reconnect gate, five-minute continuous health observation, immutable identity/DNS baseline, interface-bound HTTP(S) probe, independent 10-minute deadline worker, orphan-writer process-group cleanup, early boot restoration and independent recovery monitoring.
+- Activation-failure version blocking, unresolved-rollback pause, cooperative cancellation and explicit repair/unblock actions. Saving plans does not reconnect NetBird; the LuCI application is not updated automatically.
+- LuCI configuration/status/actions and Chinese translations. Existing external watchdogs require explicit backed-up guard integration; the daemon's custom init is preserved.
+
+### Changed
+
+- Lifecycle/network mutations share the binary-operation lock; reconnect watchdogs defer before changing connection intent, and settings application is deferred during maintenance. UI source switches run in an isolated background worker.
+- Existing-binary transactions require an isolated session. Administrators should use `start_binary_update` / `start_binary_source_switch`, not a synchronous active-binary RPC. First-install acquisition without an existing binary remains supported.
+
+### Verification and rollout
+
+- Disposable OpenWrt fault regressions cover commit, connection/identity/DNS/probe/process failures, cancellation, space/stop failures, rollback pause, clock rollback, SIGKILL, boot recovery and orphaned writers. A real procd/HTTP/LuCI CLI-fixture run committed only after 302 seconds; no live VPN update or router power-cycle is implied by that test.
+- Automation remains disabled by default. Publishing or installing this package does not authorize an agent upgrade or enable a router schedule. Deployment starts with node56; DC remains excluded until its SSH identity is independently verified. APK signing trust remains dependent on matching repository secrets and public keys.
+
 ## 0.2.0-r6 — 2026-10-17
 
 ### Fixed

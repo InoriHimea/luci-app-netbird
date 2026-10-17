@@ -6,6 +6,7 @@
 'require uci';
 'require dom';
 'require view.netbird.dom-helpers as nb';
+'require view.netbird.agent-update as agentUpdate';
 
 // 版本管理:官方 release 真文件和按版本保存的 custom;LuCI 包更新为独立操作。
 // 后端:get_binary_info(check_remote) / update_binary(url) / set_binary_source(source,version) / delete_custom_binary(version)。
@@ -20,7 +21,7 @@ var callBinaryInfo   = rpc.declare({ object: 'luci.netbird', method: 'get_binary
 var callStartUpdate = rpc.declare({ object: 'luci.netbird', method: 'start_binary_update', params: ['url', 'checksum'], expect: {} });
 var callBinaryProgress = rpc.declare({ object: 'luci.netbird', method: 'get_binary_update_progress', params: [], expect: {} });
 var callCancelUpdate = rpc.declare({ object: 'luci.netbird', method: 'cancel_binary_update', params: [], expect: {} });
-var callSetSource    = rpc.declare({ object: 'luci.netbird', method: 'set_binary_source',    params: ['source', 'version'], expect: {} });
+var callSetSource = rpc.declare({ object: 'luci.netbird', method: 'start_binary_source_switch', params: ['source', 'version'], expect: {} });
 var callDeleteCustom = rpc.declare({ object: 'luci.netbird', method: 'delete_custom_binary', params: ['version'],           expect: {} });
 var callLuciAppCheck = rpc.declare({ object: 'luci.netbird', method: 'check_luci_app_update', params: [], expect: {} });
 var callLuciAppUpdate = rpc.declare({ object: 'luci.netbird', method: 'update_luci_app', params: [], expect: {} });
@@ -58,10 +59,12 @@ return view.extend({
 		// 加载 netbird_bin UCI 配置(api_base/cdn_base)
 		return Promise.all([
 			L.resolveDefault(callBinaryInfo(false), { ok: false }),
-			uci.load('netbird_bin')
+			uci.load('netbird_bin'),
+			agentUpdate.load().catch(function (error) { return { ok: false, message: error.message || String(error) }; })
 		]).then(function(results) {
+			this._agentInitial = results[2];
 			return results[0];
-		});
+		}.bind(this));
 	},
 
 	render: function (res) {
@@ -105,6 +108,7 @@ return view.extend({
 			]),
 			self._detailBox
 		]));
+		container.appendChild(agentUpdate.render(this._agentInitial));
 
 		self.renderStatus();
 		self.renderDetail();
@@ -254,6 +258,8 @@ return view.extend({
 	},
 
 	_phaseText: function (phase) {
+		if (phase === 'trial' || phase === 'restored_waiting_health') return _('Observing agent health…');
+		if (phase === 'rolling_back') return _('Restoring previous agent…');
 		if (phase === 'preparing' || phase === 'idle') return _('Preparing download...');
 		if (phase === 'downloading') return _('Downloading...');
 		if (phase === 'downloaded') return _('Download complete. Verifying...');
@@ -267,7 +273,7 @@ return view.extend({
 		return _('Preparing download...');
 	},
 
-	_showDownloadModal: function () {
+	_showDownloadModal: function (title) {
 		var self = this;
 		var bar = E('progress', { 'style': 'width:100%;max-width:38em;height:1.2em' });
 		var status = E('p', { 'class': 'spinning' }, _('Preparing download...'));
@@ -288,7 +294,7 @@ return view.extend({
 			stop: stop
 		};
 
-		ui.showModal(_('Downloading NetBird binary'), [
+		ui.showModal(title || _('Downloading NetBird binary'), [
 			status,
 			bar,
 			E('div', { 'style': 'margin-top:.7em' }, [ downloaded, speed, elapsed ]),
@@ -329,8 +335,9 @@ return view.extend({
 		dom.content(n.speed, _('Speed') + ': ' + (speed > 0 ? this._fmtDownloadSpeed(speed) : '-'));
 		dom.content(n.elapsed, _('Elapsed') + ': ' + this._fmtDuration(elapsed));
 
-		n.stop.disabled = !active || phase === 'stopping';
-		dom.content(n.stop, phase === 'stopping' ? _('Stopping...') : _('Stop download'));
+		n.stop.disabled = this._downloadStopping || !active || phase === 'stopping';
+		dom.content(n.stop, this._downloadStopping || phase === 'stopping' ? _('Stopping...') :
+			phase === 'installing' || phase === 'trial' ? _('Cancel and restore if needed') : _('Stop download'));
 	},
 
 	_stopCurrentDownload: function () {
@@ -519,7 +526,7 @@ return view.extend({
 		dom.content(this._detailBox, E('div', {}, rows));
 	},
 
-	// 只在用户点击时查询官方客户端更新;不执行后台定时升级。
+	// Manual checks remain explicit; the separate opt-in scheduler is independent.
 	checkUpdate: function () {
 		var self = this;
 		if (self._relCheck) dom.content(self._relCheck, E('em', { 'style': 'color:#888' }, _('Checking…')));
@@ -682,21 +689,21 @@ return view.extend({
 	_doSwitch: function (source, version) {
 		var self = this;
 		ui.hideModal();
-		ui.showModal(_('Switching binary source'), [
-			E('p', { 'class': 'spinning' }, _('Switching and restarting NetBird…'))
-		]);
-		return L.resolveDefault(self._withRpcTimeout(180, function () {
-			return callSetSource(source, version || '');
-		}), { ok: false }).then(function (res) {
+		var token = (self._downloadToken || 0) + 1;
+		self._downloadToken = token;
+		self._downloadStopping = false;
+		self._showDownloadModal(_('Switching binary source'));
+		return callSetSource(source, version || '').then(function (res) {
+			if (!res || !res.ok) throw new Error(res && res.message || _('Switch failed.'));
+			return self._waitDownloadCompletion(token);
+		}).then(function (progress) {
 			ui.hideModal();
-			if (res && res.ok)
-				ui.addNotification(null, E('p', {}, _('Active source is now %s (running v%s).').format(srcLabel(source), (res.data && res.data.running_version) || '?')), 'info');
-			else if (res && res.code === 'insufficient_space')
-				ui.addNotification(null, E('p', {}, _('Not enough storage space. Delete unused downloaded versions and try again.') + (res.message ? ' (' + res.message + ')' : '')), 'error');
-			else
-				ui.addNotification(null, E('p', {}, (res && res.message) ? _(res.message) : _('Switch failed.')), 'error');
+			if (progress.phase !== 'done') throw new Error(progress.message || _('Switch failed.'));
 			return self.refresh();
-		});
+		}).catch(function (error) {
+			ui.hideModal();
+			ui.addNotification(null, E('p', {}, String(error.message || error)), 'error');
+		}).finally(function () { self._downloadToken = token + 1; });
 	},
 
 	deleteCustom: function (version) {

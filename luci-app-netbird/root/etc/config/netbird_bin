@@ -4,10 +4,9 @@
 # 配置名,放这里改 release_url 不会误触发 netbird down→up。
 #
 # binary_source —— daemon 实际运行哪个二进制来源:
-#   release = 官方 release(symlink /usr/bin/netbird -> /usr/share/netbird/bin/netbird-release)
-#   opkg    = OpenWRT 软件仓库版(/usr/bin/netbird 本体;从保留副本或软件源 download+解压复原,
-#             绝不 opkg --force-reinstall / apk add——那会连带删 /etc/init.d/netbird)
-# release_url —— 自定义下载链接(镜像/加速;空=用 GitHub releases/latest)
+#   release = /usr/bin/netbird official binary; parked while custom is active
+#   custom = symlink to a downloaded version in /usr/share/netbird/bin/
+# release_url = manual custom download URL; never used for unattended updates
 # api_base —— GitHub API 根地址替换(自动更新版本查询/资产解析走这里;空=api.github.com)
 # cdn_base —— GitHub 直链根地址替换(tarball/checksums 下载走这里;空=github.com)
 #   两者均用于 official(非 custom_url)下载路径;填 Nexus/CDN 代理域名可绕开直连 github.com 慢/不通。
@@ -17,3 +16,13 @@ config netbird_bin 'binary'
 	option release_url ''
 	option api_base ''
 	option cdn_base ''
+
+# Separate from netbird settings: saving a schedule never reconnects the daemon.
+# POSIX UTC-8 means Beijing UTC+08:00; the system timezone is not modified.
+config auto_update 'auto_update'
+	option enabled '0'
+	option time '03:30'
+	option timezone 'UTC-8'
+	option min_age_hours '48'
+	option probe_url ''
+	option profile_dir '/var/lib/netbird'

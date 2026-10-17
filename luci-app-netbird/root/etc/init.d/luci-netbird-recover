@@ -1,0 +1,17 @@
+#!/bin/sh /etc/rc.common
+# SPDX-License-Identifier: Apache-2.0
+# Restore interrupted activation before the normal NetBird init is allowed to run.
+START=04
+STOP=99
+start() {
+    if ! NB_AGENT_WORKER=1 ucode /usr/share/netbird/agent-update-worker.uc boot; then
+        # Do not overwrite a custom init. Withhold its normal boot registration if
+        # restoring old files failed; otherwise rcS would start unverified bytes.
+        mkdir -p /etc/netbird-update
+        chmod 0700 /etc/netbird-update
+        : > /etc/netbird-update/boot-held
+        /etc/init.d/netbird disable
+        logger -t luci-netbird-updater 'Recovery failed; NetBird boot withheld. Repair locally before enabling it.'
+        return 1
+    fi
+}

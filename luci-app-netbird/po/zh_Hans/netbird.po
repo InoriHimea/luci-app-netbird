@@ -1217,3 +1217,123 @@ msgstr "详情"
 
 msgid "Manage NetBird binaries separately from luci-app-netbird updates."
 msgstr "NetBird 二进制与 luci-app-netbird 插件分别管理、分别更新。"
+
+msgid "Activation deadline"
+msgstr "激活截止时间"
+
+msgid "Agent automatic updates"
+msgstr "Agent 自动更新"
+
+msgid "Agent maintenance active"
+msgstr "Agent 正在维护"
+
+msgid "Agent updater request failed."
+msgstr "Agent 更新请求失败。"
+
+msgid "Automatic updates paused"
+msgstr "自动更新已暂停"
+
+msgid "Blocked version"
+msgstr "已阻止版本"
+
+msgid "Cancel and restore if needed"
+msgstr "取消，必要时恢复旧版"
+
+msgid "Check eligible stable release"
+msgstr "检查可升级稳定版"
+
+msgid "Clear failed-version block"
+msgstr "解除失败版本限制"
+
+msgid "Disabled"
+msgstr "已关闭"
+
+msgid "Disabled by default. Updates the NetBird agent only, never the LuCI package."
+msgstr "默认关闭。仅更新 NetBird agent，不自动更新 LuCI 插件。"
+
+msgid "Eligible stable release: v%s"
+msgstr "可升级的稳定版：v%s"
+
+msgid "Enable scheduled agent updates"
+msgstr "启用 Agent 定时更新"
+
+msgid "Latest result"
+msgstr "最近结果"
+
+msgid "Mesh service health URL"
+msgstr "Mesh 服务健康检查 URL"
+
+msgid "Minimum release age (hours)"
+msgstr "稳定版最短发布时长（小时）"
+
+msgid "Must match the running daemon profile directory and resolve to persistent storage."
+msgstr "必须与正在运行的 daemon 的 profile 目录一致，并实际位于持久存储。"
+
+msgid "Next scheduled check"
+msgstr "下次计划检查"
+
+msgid "Nightly check time"
+msgstr "夜间检查时间"
+
+msgid "No eligible release."
+msgstr "暂无符合条件的版本。"
+
+msgid "Not ready for unattended updates."
+msgstr "尚不满足无人值守更新条件。"
+
+msgid "Only 03:00–05:00 in the selected timezone. Missed checks are not caught up during daytime."
+msgstr "仅允许所选时区的 03:00–05:00；错过任务不会在白天补跑。"
+
+msgid "Only official stable releases at least 48 hours old are eligible."
+msgstr "仅允许发布至少 48 小时的官方稳定版。"
+
+msgid "POSIX UTC-8 means Beijing UTC+08:00. Use system for the device timezone. The system timezone is never changed."
+msgstr "POSIX 的 UTC-8 表示北京时间 UTC+08:00；system 表示设备时区。不会修改系统时区。"
+
+msgid "Persistent identity directory"
+msgstr "持久身份目录"
+
+msgid "Persistent rollback is mandatory. The new agent must reconnect within 120 seconds and remain healthy for five minutes before commit."
+msgstr "必须具备持久回退能力。新版必须在 120 秒内重连，并连续健康运行 5 分钟后才提交升级。"
+
+msgid "Required HTTP(S) service reachable over the NetBird interface; a public Internet check is not sufficient."
+msgstr "必须是经 NetBird 接口可达的 HTTP(S) 服务；不能仅以公网连通性代替。"
+
+msgid "Rollback is unresolved. Repair locally and run the recovery command before clearing the failure block."
+msgstr "回滚尚未完成。请通过本地入口修复并执行恢复命令，再解除失败版本限制。"
+
+msgid "Run safe agent update"
+msgstr "执行安全 Agent 更新"
+
+msgid "Run safe update now"
+msgstr "立即按安全流程更新"
+
+msgid "Save auto-update settings"
+msgstr "保存自动更新设置"
+
+msgid "Schedule saved without reconnecting NetBird."
+msgstr "计划已保存，未重连 NetBird。"
+
+msgid "Schedule timezone"
+msgstr "计划时区"
+
+msgid "Start update"
+msgstr "开始更新"
+
+msgid "Started"
+msgstr "开始时间"
+
+msgid "This restarts the NetBird agent and briefly interrupts Mesh traffic. The same stable-release, backup, health and rollback checks apply."
+msgstr "此操作会重启 NetBird agent，短暂中断 Mesh 流量；同样执行稳定版准入、备份、健康观察和失败回滚。"
+
+msgid "Update phase"
+msgstr "更新阶段"
+
+msgid "Version transition"
+msgstr "版本变化"
+
+msgid "Observing agent health…"
+msgstr "正在观察 Agent 健康状态…"
+
+msgid "Restoring previous agent…"
+msgstr "正在恢复旧版 Agent…"

@@ -3,7 +3,7 @@
 // Canonical runtime path: /usr/share/rpcd/ucode/netbird.uc
 // Repo canonical source:  root/usr/share/rpcd/ucode/netbird.uc
 //
-// netbird.uc — rpcd 入口对象（注册 luci.netbird，31 methods = 13 read + 18 write）
+// netbird.uc — rpcd 入口对象（注册 luci.netbird，38 methods = 15 read + 23 write）
 // ACL 合约源：root/usr/share/rpcd/acl.d/luci-app-netbird.json
 // 方法名必须与 ACL 一字不差（双向 diff 是 CI 闸门）。
 //
@@ -20,11 +20,11 @@
 // 硬约束：所有 read 方法禁直读 config.json 文件；一律 CLI / ubus / logread / opkg 透传。
 //
 // module-compat：rpcd-mod-ucode 加载本文件，期望返回 { 'luci.netbird': { ... methods } }。
-// ucode 2025.07.18 不支持 export 关键字；6 个 lib 文件经 loadfile()() 加载，
+// ucode 2025.07.18 不支持 export 关键字；9 个 lib 文件经 loadfile()() 加载，
 // 路径走 NBLIB env override（默认 /usr/share/rpcd/ucode/lib）。
 // shebang 与 'use strict' 在 module 模式下都不允许，已删除。
 
-import { popen, access, open, unlink, lsdir, stat } from 'fs';
+import { popen, access, open, unlink, lsdir, stat, readfile, writefile } from 'fs';
 import * as uci from 'uci';
 
 const _LIB = getenv('NBLIB') || '/usr/share/rpcd/ucode/lib';
@@ -34,6 +34,12 @@ let _envelope = loadfile(_LIB + '/envelope.uc')();
 let _sanitize = loadfile(_LIB + '/sanitize.uc')();
 let _state    = loadfile(_LIB + '/state.uc')();
 let _cli      = loadfile(_LIB + '/netbird_cli.uc')();
+let _agent = null;
+let _schedule = null;
+let _guard_operation = null;
+let _binop_depth = 0;
+let _agent_sample = null;
+let _agent_profile_dir = null;
 
 let shell_quote          = _shell.shell_quote;
 let _to                  = _shell.with_timeout;
@@ -62,6 +68,16 @@ function _safe(fn) {
             return err(CODE.INTERNAL_ERROR, msg);
         }
     };
+}
+
+// Lifecycle and network mutations share the binary-operation lock. In particular,
+// a watchdog must not change desired_connected while a trial is being evaluated.
+function _guard_write(fn) {
+    return _safe(function(req) {
+        if ((_agent && _agent.busy()) || access('/tmp/nb-agent-launch.lock', 'f'))
+            return err(CODE.INSTALL_FAILED, 'Agent update maintenance is active; cancel or recover it before changing the connection.');
+        return _guard_operation(fn, req, true);
+    });
 }
 
 // ============================================================================
@@ -1187,13 +1203,9 @@ function _do_teardown_automation() {
 // netbird 二进制管理（get_binary_info / update_binary）
 // ============================================================================
 //
-// 用户意向：官方最新版为主、opkg 保底。get_binary_info 展示三方版本（运行中 /
-// opkg 包元数据 / GitHub 最新稳定），update_binary 一键下载校验并原地替换二进制。
-//
-// 磁盘约束（务必遵守）：目标机 overlay 通常紧张（常见十几~几十 MB），官方二进制约 39MB。绝不在
-// overlay 留二进制副本/备份（双份撑爆→二进制写坏→daemon 崩）。正确做法：
-// tgz 下到 /tmp（tmpfs ~875MB）→ /tmp 解压 → 原地 `cp /tmp/netbird <bin>`
-// （cp 先 truncate 目标释放旧空间再写，净增 0）→ 清 /tmp。备份只备到 /tmp。
+// Manual and scheduled installs share a persistent transaction. Compressed downloads
+// and extraction use /tmp; rollback binary/profile snapshots do not. Insufficient
+// persistent space is a hard refusal, never a reason to truncate the active binary.
 //
 // 安全：先 sha256 校验再安装，不符立即中止（绝不安装未校验二进制）。所有动态值
 // （bin 路径 / 版本号 / arch / URL）经 shell_quote 或正则白名单后再拼接（防注入）。
@@ -1631,7 +1643,8 @@ function _http_content_length(url, headers) {
 }
 
 function _progress_reset() {
-    _popen_simple('rm -f ' + shell_quote(_NB_DL_STATUS) + ' ' + shell_quote(_NB_DL_CANCEL) + ' 2>/dev/null');
+    _popen_simple('rm -f ' + shell_quote(_NB_DL_STATUS) + ' ' + shell_quote(_NB_DL_CANCEL) + ' ' +
+        shell_quote(_NB_DL_WORKER_PID) + ' /tmp/luci-netbird-agent-update.pid 2>/dev/null');
 }
 
 function _progress_status() {
@@ -1697,48 +1710,59 @@ function _progress_canceled() {
     return access(_NB_DL_CANCEL, 'f');
 }
 
+function _binary_job_busy() {
+    if (_agent && _agent.busy()) return true;
+    if (access(_NB_BINOP_LOCK, 'f') && !_binop_lock_stale()) return true;
+    return _pid_runs(_read_small_text(_NB_DL_WORKER_PID), 'ucode') ||
+        _pid_runs(_read_small_text('/tmp/luci-netbird-agent-update.pid'), 'agent-update-worker.uc');
+}
+
 function _do_get_binary_update_progress(req) {
     let st = _progress_status();
-    if (st.active) {
-        let wpid = _read_small_text(_NB_DL_WORKER_PID);
-        if (length(wpid) > 0 && !_pid_runs(wpid, 'ucode')) {
-            // worker 已不在(OOM/崩溃/被停止):中间态永远不会再更新,改为终态让前端结束等待。
-            if (st.phase == 'stopping')
-                _progress_phase('canceled', 'Download stopped.', '', st.total);
-            else
-                _progress_phase('failed', 'The download worker stopped unexpectedly. Try again.', '', st.total);
-            unlink(_NB_DL_WORKER_PID);
-            st = _progress_status();
-        }
+    let transaction = _agent.status();
+    if (_agent.busy()) {
+        st.phase = transaction.paused ? 'failed' : transaction.phase;
+        st.active = !transaction.paused;
+        st.message = transaction.message;
+        return ok(st);
+    }
+    if (st.active && !_binary_job_busy()) {
+        let job_pid = _read_small_text(_NB_DL_WORKER_PID) || _read_small_text('/tmp/luci-netbird-agent-update.pid');
+        _progress_phase(transaction.phase == 'committed' && job_pid && transaction.worker_pid == job_pid ? 'done' : 'failed',
+            transaction.message || 'The worker stopped; recovery is complete or no installation was started.', '', st.total);
+        unlink(_NB_DL_WORKER_PID);
+        st = _progress_status();
     }
     return ok(st);
 }
 
 function _do_cancel_binary_update(req) {
+    if (_agent && _agent.busy()) {
+        _popen_simple('touch ' + shell_quote(_NB_DL_CANCEL));
+        return _agent.cancel();
+    }
     let st = _progress_status();
     if (!st.active)
         return ok(st);
     _popen_simple('touch ' + shell_quote(_NB_DL_CANCEL) + ' 2>/dev/null');
-    // worker 会在阶段之间检查取消标记;只在核实 PID 仍是下载 worker 时才强杀,避免误伤复用了该 PID 的进程。
-    let wpid = _read_small_text(_NB_DL_WORKER_PID);
-    if (_pid_runs(wpid, 'ucode'))
-        _popen_simple('kill -9 ' + wpid + ' 2>/dev/null');
+    // Cancellation is cooperative. SIGKILL during install would strand a trial;
+    // the independent monitor owns recovery if the worker actually dies.
     _progress_phase('stopping', 'Stopping download...', '', st.total);
     return ok(_progress_status());
 }
 
 function _do_start_binary_update(req) {
-    let st = _progress_status();
-    if (st.active || (access(_NB_BINOP_LOCK, 'f') && !_binop_lock_stale()))
+    if (_binary_job_busy() || access('/tmp/nb-agent-launch.lock', 'f'))
         return err(CODE.INSTALL_FAILED, 'Another binary operation is in progress; please wait and try again.');
 
     let a = (req != null && req.args != null) ? req.args : (req || {});
     let args = {
         url: (type(a.url) == 'string') ? a.url : '',
         checksum: (type(a.checksum) == 'string') ? a.checksum : '',
-        dl_timeout: 0
+        dl_timeout: 0, prepared: true
     };
     _progress_reset();
+    _agent.clear_cancel();
     _progress_phase('preparing', 'Preparing download...', '', 0);
 
     let expr =
@@ -1746,8 +1770,8 @@ function _do_start_binary_update(req) {
         'let svc = mod["luci.netbird"]; ' +
         'let r = svc.update_binary.call({ args: ' + sprintf('%J', args) + ' }); ' +
         'print(sprintf("%J\\n", r));';
-    let cmd = 'NBLIB=' + shell_quote(_LIB) + ' ucode -e ' + shell_quote(expr) +
-              ' > ' + shell_quote(_NB_DL_WORKER_LOG) + ' 2>&1 & echo $!';
+    let cmd = 'NBLIB=' + shell_quote(_LIB) + ' setsid ucode -e ' + shell_quote(expr) +
+              ' </dev/null > ' + shell_quote(_NB_DL_WORKER_LOG) + ' 2>&1 & echo $!';
     let r = _popen_simple(cmd);
     let pid = trim(r.out);
     if (!match(pid, /^[0-9]+$/)) {
@@ -2069,6 +2093,14 @@ function _list_custom_versions() {
 //   解析 `df -k` 末行:列序 [Filesystem] 1K-blocks Used Available Use% Mounted —— Available = 倒数第三(NF-2)。
 //   按 NF-2 取兼容 BusyBox 长设备名换行(数据行 5 列)与不换行(6 列)两种排版。best-effort:解析失败返 -1
 //   → 调用方跳过预检(下载仍由 step 9 的 ENOSPC 兜底),绝不因 df 差异误拦。
+// tmpfs free blocks are not a RAM guarantee. Keep extraction plus a small CLI/
+// decompressor reserve below MemAvailable; unknown memory information fails closed.
+function _agent_memory_available_kb() {
+    let text = readfile('/proc/meminfo') || '';
+    let m = match(text, /MemAvailable:\s+([0-9]+)\s+kB/);
+    return m ? int(m[1]) : -1;
+}
+
 function _overlay_free_kb() {
     let r = _popen_simple('df -k ' + shell_quote(_NB_REL_DIR) + ' 2>/dev/null');
     if (length(trim(r.out)) == 0)
@@ -2178,21 +2210,30 @@ function _sweep_binary_junk() {
     }
 }
 // _binop_guard(fn, req) — 取锁 → 清理历史残留 → 执行 fn → 释放锁(成功/异常路径都释放)。取不到锁返回忙错误。
-function _binop_guard(fn, req) {
+function _binop_guard(fn, req, lifecycle) {
+    if (_binop_depth > 0)
+        return fn(req);
+    if (_agent && _agent.busy())
+        return err(CODE.INSTALL_FAILED, 'An agent transaction needs completion or recovery.');
     if (!_binop_lock())
         return err(CODE.INSTALL_FAILED, 'Another binary operation is in progress; please wait and try again.');
+    _binop_depth++;
     try {
-        _sweep_binary_junk();
+        if (!lifecycle) _sweep_binary_junk();
         let r = fn(req);
-        _sweep_binary_junk();
+        if (!lifecycle) _sweep_binary_junk();
+        _binop_depth--;
         _binop_unlock();
         return r;
     } catch (e) {
-        _sweep_binary_junk();
+        // Never sweep a candidate or snapshots still needed by recovery.
+        if (!lifecycle && !(_agent && _agent.busy())) _sweep_binary_junk();
+        _binop_depth--;
         _binop_unlock();
         return err(CODE.INTERNAL_ERROR, (e != null && e.message != null) ? e.message : `${e}`);
     }
 }
+_guard_operation = _binop_guard;
 
 // 下载后先校验架构、完整性与版本。官方版本在 release 激活时更新规范路径,
 // custom 激活时只更新停放的官方版本,绝不覆盖正在使用的 custom。
@@ -2205,7 +2246,8 @@ function _update_binary_locked(req) {
     // tarball 下载超时(秒):手动下载默认 0=不限总时长,仅由「停止下载」取消;首连自动兜底
     // (_ensure_configured_binary)传短值(避免阻塞连接过久;超时则回落 feed)。
     let dl_secs = (a.dl_timeout != null && a.dl_timeout > 0) ? a.dl_timeout : 0;
-    _progress_reset();
+    if (!a.prepared && !a.strict) { _progress_reset(); _agent.clear_cancel(); }
+    if (_agent.canceled()) return err(CODE.DOWNLOAD_CANCELED, 'Update canceled before download.');
     _progress_phase('preparing', 'Preparing download...', '', 0);
     let fail_pre = function(code, message) {
         _progress_phase('failed', message, '', 0);
@@ -2249,7 +2291,7 @@ function _update_binary_locked(req) {
         if (vm)
             ver = vm[1];
     } else {
-        ver = _latest_version();
+        ver = a.strict ? a.version : _latest_version();
         if (!match(ver, _SEMVER_RE))
             return fail_pre(CODE.INVALID_INPUT, 'Could not fetch or parse the latest version from GitHub (network failure or unexpected format).');
         tarball = 'netbird_' + ver + '_linux_' + arch + '.tar.gz';
@@ -2283,12 +2325,11 @@ function _update_binary_locked(req) {
     let sums_path   = work + '/checksums.txt';
     let extract_dir = work;
     let new_bin     = work + '/netbird';
-    let bak_path    = work + '/target.bak';
 
     let cleanup = function() {
         _popen_simple('rm -rf ' + shell_quote(work) + ' 2>/dev/null');
     };
-    let progress_total = _http_content_length(dl_url, dl_headers);
+    let progress_total = a.strict ? int(a.asset_size || 0) : _http_content_length(dl_url, dl_headers);
     let fail_work = function(code, message, phase) {
         _progress_phase(phase || 'failed', message, tgz_path, progress_total);
         cleanup();
@@ -2300,6 +2341,17 @@ function _update_binary_locked(req) {
         cleanup();
         return err(CODE.DOWNLOAD_CANCELED, message);
     };
+    if (a.strict) {
+        let compressed = int(a.asset_size || 0);
+        if (_agent_memory_available_kb() < int((compressed + 1023) / 1024) + 16384)
+            return fail_work(CODE.INSUFFICIENT_SPACE, 'Not enough measurable available RAM for the official download.');
+        let space = _popen_simple('df -k /tmp 2>/dev/null');
+        let lines = split(trim(space.out), '\n');
+        let fields = split(trim(lines[length(lines) - 1] || ''), /\s+/);
+        let avail = int(fields[length(fields) - 3] || '-1');
+        if (compressed < 1 || space.code != 0 || avail < int((compressed + 1023) / 1024) + 1024)
+            return fail_work(CODE.INSUFFICIENT_SPACE, 'Not enough measurable temporary space for the official asset.');
+    }
 
     // step 3 — 下载 tarball(经 _dl_cmd 多下载器回落;下载器自带超时防卡死;URL 已 shell_quote)。
     _progress_phase('downloading', 'Downloading...', tgz_path, progress_total);
@@ -2309,6 +2361,8 @@ function _update_binary_locked(req) {
     if (dl.code != 0)
         return fail_work(CODE.DOWNLOAD_FAILED, 'Failed to download the binary: ' + substr(dl.out, 0, 300));
     _progress_phase('verifying', 'Verifying checksum and architecture...', tgz_path, progress_total);
+    if (a.strict && _file_size_bytes(tgz_path) != int(a.asset_size))
+        return fail_work(CODE.DOWNLOAD_FAILED, 'The downloaded official asset does not match its release size.');
     if (_progress_canceled())
         return cancel_work();
     // 下载器退出 0 仍可能拿到代理错误页/被截断的小文件(尤其自定义 URL/镜像)。NetBird 压缩包
@@ -2384,6 +2438,8 @@ function _update_binary_locked(req) {
     } else {
         checksum_note = 'no version in filename; skipped sha256';
     }
+    if (a.strict && length(checksum_note) > 0)
+        return fail_work(CODE.CHECKSUM_MISMATCH, 'Automatic updates require a matching official SHA-256 checksum; ' + checksum_note);
 
     // step 5 — 取出 netbird 二进制。下载物可能是 **tar.gz**(官方/镜像 release 包,取 netbird 成员),
     //   也可能是 **直接的二进制直链**(用户自贴):先按 ELF 魔数探测,是 ELF 就直接用,否则按 tar.gz 解压。
@@ -2407,6 +2463,17 @@ function _update_binary_locked(req) {
         let archive_check = _popen_simple('tar -tzf ' + shell_quote(tgz_path) + ' >/dev/null 2>&1');
         if (archive_check.code != 0)
             return fail_work(CODE.DOWNLOAD_FAILED, 'The downloaded archive is incomplete or corrupt (download interrupted, or the URL returned an error page instead of a tarball).');
+        if (a.strict) {
+            let listing = _popen_simple('tar -tvzf ' + shell_quote(tgz_path) + ' netbird 2>/dev/null');
+            let member = match(listing.out, /^-\S+\s+\S+\s+([0-9]+)\s/);
+            let df = _popen_simple('df -k /tmp 2>/dev/null');
+            let rows = split(trim(df.out), '\n');
+            let fields = split(trim(rows[length(rows) - 1] || ''), /\s+/);
+            if (listing.code != 0 || !member || df.code != 0 || int(fields[length(fields) - 3] || '-1') < int((int(member[1]) + 1023) / 1024) + 1024)
+                return fail_work(CODE.INSUFFICIENT_SPACE, 'Not enough measurable temporary space for the extracted official binary.');
+            if (_agent_memory_available_kb() < int((int(member[1]) + 1023) / 1024) + 16384)
+                return fail_work(CODE.INSUFFICIENT_SPACE, 'Not enough available RAM for extraction while keeping the old daemon running.');
+        }
         // 整包完整 → 仅解出 netbird 成员
         let untar = _popen_simple('tar -xzf ' + shell_quote(tgz_path) + ' -C ' + shell_quote(extract_dir) + ' netbird 2>&1');
         if (untar.code != 0 || !access(new_bin, 'f'))
@@ -2442,10 +2509,13 @@ function _update_binary_locked(req) {
     // step 7 — 解压件能执行 version(完整性兜底)
     if (_progress_canceled())
         return cancel_work();
-    let chk = _popen_simple('chmod +x ' + shell_quote(new_bin) + '; ' + shell_quote(new_bin) + ' version 2>&1');
+    _popen_simple('chmod 0755 ' + shell_quote(new_bin));
+    let chk = _popen_simple(_to(shell_quote(new_bin) + ' version 2>&1', 5));
     let new_ver = _parse_version_output(chk.out);
     if (length(new_ver) == 0)
         return fail_work(CODE.INSTALL_FAILED, 'The downloaded binary cannot run "version" (possibly corrupt): ' + substr(chk.out, 0, 200));
+    if (a.strict && new_ver != ver)
+        return fail_work(CODE.INSTALL_FAILED, 'The executable version does not match the pinned stable release.');
 
     // custom 按版本存储;官方更新只写自己的当前/停放位置。
     let target_path = release_target;
@@ -2457,100 +2527,29 @@ function _update_binary_locked(req) {
     }
     // 变量名避开 `from`:它在较早的 ucode 里是保留字(import ... from ...),
     // 用作标识符会让整个文件解析失败。返回体的 `from` 键名不变。
-    let from_ver = access(target_path, 'x') ? _file_version(target_path) : '';
-
-    // step 8 — 备份目标(若存在);仅当目标正是当前运行的二进制时才停 daemon(避 ETXTBSY,所有 sibling 分支一致)
-    _progress_phase('installing', 'Installing binary...', tgz_path, progress_total);
-    if (_progress_canceled())
-        return cancel_work();
+    if (a.strict && a.scheduled && !_schedule.window_open())
+        return fail_work(CODE.INSTALL_FAILED, 'The night window closed during download; the current daemon was not stopped.');
     let active_bin = _active_binary_path();
-    let need_stop = (target_path == _NB_OPKG_BIN) || (target_path == active_bin);
-    // /usr/bin/netbird 是 daemon 的规范路径,不能仅依赖各系统 readlink 的返回值判断是否停服务。
-    if (access(target_path, 'f')) {
-        // 备份必须完整才能动目标,避免空间不足时用半截备份覆盖可用的旧版本。
-        let bk = _popen_simple('cat ' + shell_quote(target_path) + ' > ' + shell_quote(bak_path) + ' 2>&1');
-        if (bk.code != 0 || _file_size_bytes(bak_path) != _file_size_bytes(target_path)) {
-            _popen_simple('rm -f ' + shell_quote(bak_path) + ' 2>/dev/null');
-            return fail_work(CODE.INSUFFICIENT_SPACE,
-                             'Not enough temporary space to back up the current binary; nothing was changed.');
-        }
-    }
-    let stopped = false;
-    if (need_stop) {
-        _popen_simple('/etc/init.d/netbird stop 2>&1');
-        if (!_wait_daemon_gone()) {
-            let stop_msg = 'The netbird daemon did not stop in time; replacement aborted to protect the current binary.';
-            _progress_phase('failed', stop_msg, tgz_path, progress_total);
-            cleanup();
-            _popen_simple('rm -f ' + shell_quote(bak_path) + ' 2>/dev/null');
-            _popen_simple('/etc/init.d/netbird start 2>&1');
-            return err(CODE.INSTALL_FAILED, stop_msg);
-        }
-        stopped = true;
-    }
-
-    // step 9 — 截断式写入 target(1× 峰值,省 overlay 空间);验证;失败兜底。
-    //   整组用 `{ …; } 2>&1` 收 stderr:原写法 `… cat > target && chmod … 2>&1` 的 `2>&1` 只绑定末尾
-    //   chmod,`cat > target` 写失败(如 overlay 空间不足 ENOSPC)的报错落在未捕获的 stderr → 错误明细
-    //   空白(已知 bug:UI 显示「Failed to write the binary:」后面什么都没有)。整组重定向后 wr.out 拿到真因。
-    //   先删除再写:目标若仍被某个进程执行(停服务时恰在运行的 netbird CLI,如 status 采样或设置应用里的 up),
-    //   原地覆盖会报 Text file busy;删除正在执行的文件是允许的,已在运行的进程继续使用旧 inode。
-    //   无进程占用时空间峰值与原地写相同;失败时由下方备份还原。
-    let wr = _popen_simple('{ mkdir -p ' + shell_quote(_NB_REL_DIR) + ' && rm -f ' + shell_quote(target_path) +
-                           ' && cat ' + shell_quote(new_bin) +
-                           ' > ' + shell_quote(target_path) + ' && chmod 0755 ' + shell_quote(target_path) + ' ; } 2>&1');
-    let to = (wr.code == 0) ? _file_version(target_path) : '';
-    if (wr.code != 0 || length(to) == 0) {
-        // 写入成功却读不到版本:回滚前用同一命令再跑一次并保留 stderr,让错误明细带上真实退出码与输出
-        //   (例如包装命令本身不可用时的 127),而不是一律归为文件损坏。
-        let ver_diag = (wr.code == 0) ? _popen_simple(_to(shell_quote(target_path) + ' version 2>&1')) : null;
-        // 失败兜底:有备份(=target 原已存在)则还原旧二进制;无备份(=本就是新文件)则删掉**半成品**——
-        //   `cat > target` 即便写失败也已 create/truncate 出 target,且因 `&&` 短路 chmod 没跑 → 残片为
-        //   非可执行的 0644;若不删,会被 _list_custom_versions 当成「已下载版本」列出(幽灵版本),切换时
-        //   又因 access(x)=false 报「not downloaded」(已知 bug)。
-        let restored = false;
-        if (access(bak_path, 'f')) {
-            _popen_simple('cat ' + shell_quote(bak_path) + ' > ' + shell_quote(target_path) +
-                          ' && chmod 0755 ' + shell_quote(target_path) + ' 2>/dev/null');
-            restored = (length(_file_version(target_path)) > 0);   // 只有旧版本确实能运行才算已还原
-        } else {
-            _popen_simple('rm -f ' + shell_quote(target_path) + ' 2>/dev/null');
-        }
-        if (stopped)
-            _popen_simple('/etc/init.d/netbird start 2>&1');
-        cleanup();
-        _popen_simple('rm -f ' + shell_quote(bak_path) + ' 2>/dev/null');
-        // 空间不足(ENOSPC)单列 code,前端本地化「删旧版本」可操作提示(K1);其它写失败走 install_failed + 明细。
-        let raw = trim(wr.out);
-        if (match(raw, /[Nn]o space left|ENOSPC/)) {
-            let space_msg = restored ? 'storage filled up during install (previous binary kept)' : 'storage filled up during install';
-            _progress_phase('failed', space_msg, tgz_path, progress_total);
-            return err(CODE.INSUFFICIENT_SPACE, space_msg);
-        }
-        // 明细:即使 wr.out 为空也给可操作信息(写命令非零但无输出多为 overlay 空间不足/只读)。
-        let detail;
-        if (length(raw) > 0)
-            detail = substr(raw, 0, 200);
-        else if (wr.code != 0)
-            detail = sprintf('write command exited %d with no output (storage may be full or read-only)', wr.code);
-        else {
-            let diag_out = substr(trim(ver_diag.out), 0, 160);
-            detail = sprintf('the written file could not report its version (exit %d%s)', ver_diag.code,
-                             length(diag_out) > 0 ? ': ' + diag_out : ', no output; truncated or corrupt');
-        }
-        let write_msg = 'Failed to write the binary' + (restored ? '; restored the previous one' : '') + ': ' + detail;
-        _progress_phase('failed', write_msg, tgz_path, progress_total);
-        return err(CODE.INSTALL_FAILED, write_msg);
-    }
-
-    // step 10 — 重启(若停过);清理
-    if (stopped)
-        _popen_simple('/etc/init.d/netbird start 2>&1');
-    _progress_phase('done', 'Binary installed.', tgz_path, progress_total);
+    let active = target_path == _NB_OPKG_BIN || target_path == active_bin;
+    let cfg = _schedule.config();
+    let baseline = a.strict ? a.baseline : (active && _daemon_running() ? _agent_sample() : null);
+    // A non-connected manual install still uses atomic replacement and persistent
+    // binary rollback. Unattended installs additionally require full health proof.
+    if (baseline && !baseline.ok) baseline = null;
+    _progress_phase('installing', 'Running persistent install transaction...', '', progress_total);
+    let result = _agent.install({ candidate: new_bin, target: target_path, version: new_ver,
+        active: active, was_running: active && _daemon_running(), strict: !!a.strict,
+        profile_dir: a.strict ? cfg.profile_dir : _agent_profile_dir(), probe_url: a.strict ? cfg.probe_url : '', baseline: baseline });
     cleanup();
-    _popen_simple('rm -f ' + shell_quote(bak_path) + ' 2>/dev/null');
-
-    return ok({ from: from_ver, to: to, active_source: _active_source(), checksum_note: checksum_note, path: target_path, custom: is_custom });
+    if (!result.ok) {
+        _progress_phase('failed', result.message || 'Agent transaction failed.', '', progress_total);
+        return result;
+    }
+    _progress_phase('done', 'Binary installed and verified.', '', progress_total);
+    result.data.active_source = _active_source();
+    result.data.checksum_note = checksum_note;
+    result.data.custom = is_custom;
+    return result;
 }
 // _do_update_binary(req) — _update_binary_locked 的互斥包装(二进制操作串行,见 _binop_guard)。
 function _do_update_binary(req) { return _binop_guard(_update_binary_locked, req); }
@@ -2566,126 +2565,58 @@ function _record_binary_source(source) {
     }
 }
 
-// 只用于把非标准/旧版 symlink 的内容保存为真文件;通常切换直接 mv,不复制大二进制。
-function _copy_binary_verified(source, target) {
-    let version = _file_version(source);
-    let size = _file_size_bytes(source);
-    if (length(version) == 0 || size < 1)
-        return false;
-    let temp = target + '.switch-new';
-    let copied = _popen_simple('{ mkdir -p ' + shell_quote(_NB_REL_DIR) +
-        ' && rm -f ' + shell_quote(temp) + ' && cat ' + shell_quote(source) +
-        ' > ' + shell_quote(temp) + ' && chmod 0755 ' + shell_quote(temp) + '; } 2>&1');
-    let valid = copied.code == 0 && _file_size_bytes(temp) == size && _file_version(temp) == version;
-    let moved = valid ? _popen_simple('mv -f ' + shell_quote(temp) + ' ' + shell_quote(target) + ' 2>&1') : null;
-    if (!valid || moved.code != 0) {
-        _popen_simple('rm -f ' + shell_quote(temp));
-        return false;
-    }
-    return true;
-}
 
-// 切换前校验目标,停 daemon 后移动官方真文件或原子替换 custom symlink。
-// 配置只在文件切换验证成功后提交;失败恢复原先的文件/链接及配置,不伪称回滚成功。
+// Source switching uses the same journal, snapshots, health and recovery core.
 function _set_binary_source_locked(req) {
     let a = (req != null && req.args != null) ? req.args : (req || {});
     let source = (type(a.source) == 'string') ? a.source : '';
     if (source != 'release' && source != 'custom')
         return err(CODE.INVALID_INPUT, 'source must be release or custom.');
     let active = _active_source();
-    let old_path = _active_binary_path();
-    let old_version = _file_version(_NB_OPKG_BIN);
-    let had_active = length(old_version) > 0;
-    let was_link = old_path != _NB_OPKG_BIN;
-    let old_configured = _uci_binary('binary_source', 'release');
-    let target;
-    if (source == 'release') {
-        target = _release_binary_path();
-    } else {
+    let target = _release_binary_path();
+    if (source == 'custom') {
         let version = _sanitize_version(a.version);
-        if (length(version) == 0)
-            return err(CODE.INVALID_INPUT, 'Switching to the custom source requires a valid version.');
+        if (!version) return err(CODE.INVALID_INPUT, 'Switching to custom requires a valid version.');
         target = _custom_version_path(version);
     }
-    let target_version = _file_version(target);
-    if (length(target_version) == 0)
-        return err(CODE.NOT_INSTALLED, 'The selected binary is not downloaded or cannot report its version.');
-    if (had_active && active == source && (source == 'release' || old_path == target)) {
-        if (!_record_binary_source(source))
-            return err(CODE.INSTALL_FAILED, 'Could not save the selected binary source.');
-        return ok({ source: source, already: true, active_source: active, running_version: old_version });
+    let version = _file_version(target);
+    if (!version) return err(CODE.NOT_INSTALLED, 'The selected binary is not downloaded or cannot report its version.');
+    if (active == source && (source == 'release' && _active_binary_path() == _NB_OPKG_BIN || source == 'custom' && _active_binary_path() == target)) {
+        if (!_record_binary_source(source)) return err(CODE.INSTALL_FAILED, 'Could not save the binary source.');
+        return ok({ source: source, already: true, active_source: active, running_version: version });
     }
-
-    _popen_simple('/etc/init.d/netbird stop 2>&1');
-    if (!_wait_daemon_gone()) {
-        _popen_simple('/etc/init.d/netbird start 2>&1');
-        return err(CODE.INSTALL_FAILED, 'The netbird daemon did not stop in time; the binary and selection were not changed.');
-    }
-    let parked = false;
-    let activated = false;
-    let changed = { code: 0, out: '' };
-    if (source == 'custom') {
-        if (active == 'release' && had_active && old_path != _NB_REL_BIN) {
-            if (was_link) {
-                if (!_copy_binary_verified(_NB_OPKG_BIN, _NB_REL_BIN))
-                    changed = { code: 1, out: 'Could not preserve the official release.' };
-            } else {
-                changed = _popen_simple('mkdir -p ' + shell_quote(_NB_REL_DIR) + ' && mv -f ' +
-                    shell_quote(_NB_OPKG_BIN) + ' ' + shell_quote(_NB_REL_BIN) + ' 2>&1');
-                parked = changed.code == 0;
-            }
-        }
-        if (changed.code == 0)
-            changed = _popen_simple('ln -sf ' + shell_quote(target) + ' ' + shell_quote(_NB_OPKG_BIN + '.tmp') +
-                ' && mv -f ' + shell_quote(_NB_OPKG_BIN + '.tmp') + ' ' + shell_quote(_NB_OPKG_BIN) + ' 2>&1');
-    } else {
-        let linked = trim(_popen_simple('[ -L ' + shell_quote(target) + ' ] && echo yes || true').out) == 'yes';
-        if (linked && !_copy_binary_verified(target, target))
-            changed = { code: 1, out: 'Could not normalize the stored official release.' };
-        if (changed.code == 0) {
-            changed = _popen_simple('mv -f ' + shell_quote(target) + ' ' + shell_quote(_NB_OPKG_BIN) + ' 2>&1');
-            activated = changed.code == 0;
-        }
-    }
-    let valid = changed.code == 0 && _active_source() == source && _file_version(_NB_OPKG_BIN) == target_version;
-    if (valid && source == 'custom')
-        valid = _active_binary_path() == target;
-    if (valid && !_record_binary_source(source)) {
-        valid = false;
-        changed.out = 'Could not save the selected binary source.';
-    }
-    if (valid) {
-        let started = _popen_simple('/etc/init.d/netbird start 2>&1');
-        if (started.code != 0) {
-            _popen_simple('/etc/init.d/netbird stop 2>&1');
-            if (!_wait_daemon_gone())
-                return err(CODE.INSTALL_FAILED, 'The selected daemon failed to start and could not be stopped for rollback.');
-            valid = false;
-            changed.out = 'The selected daemon failed to start: ' + started.out;
-        }
-    }
-    if (!valid) {
-        if (activated)
-            _popen_simple('mv -f ' + shell_quote(_NB_OPKG_BIN) + ' ' + shell_quote(_NB_REL_BIN) + ' 2>&1');
-        if (parked)
-            _popen_simple('mv -f ' + shell_quote(_NB_REL_BIN) + ' ' + shell_quote(_NB_OPKG_BIN) + ' 2>&1');
-        else if (had_active && was_link)
-            _popen_simple('ln -sf ' + shell_quote(old_path) + ' ' + shell_quote(_NB_OPKG_BIN + '.tmp') +
-                ' && mv -f ' + shell_quote(_NB_OPKG_BIN + '.tmp') + ' ' + shell_quote(_NB_OPKG_BIN));
-        else if (!had_active)
-            _popen_simple('rm -f ' + shell_quote(_NB_OPKG_BIN));
-        let restored = _record_binary_source(old_configured) && (!had_active ||
-            (_active_source() == active && _file_version(_NB_OPKG_BIN) == old_version &&
-             (!was_link || _active_binary_path() == old_path)));
-        _popen_simple('rm -f ' + shell_quote(_NB_OPKG_BIN + '.tmp'));
-        let restarted = _popen_simple('/etc/init.d/netbird start 2>&1');
-        return err(CODE.INSTALL_FAILED, 'Failed to switch binary source' +
-            (restored ? '; previous selection restored: ' : '; rollback could not be verified: ') + substr(changed.out, 0, 200) +
-            (restarted.code == 0 ? '' : '; restarting the previous daemon also failed'));
-    }
-    return ok({ source: source, active_source: source, running_version: target_version });
+    let running = _daemon_running();
+    let baseline = running ? _agent_sample() : null;
+    if (baseline && !baseline.ok) baseline = null;
+    let result = _agent.install({ candidate: target, target: _NB_OPKG_BIN, version: version,
+        active: true, was_running: running, strict: false, source: source,
+        target_link: source == 'custom' ? target : '',
+        park_path: source == 'custom' && active == 'release' && _active_binary_path() != _NB_REL_BIN ? _NB_REL_BIN : '',
+        remove_candidate_on_commit: source == 'release' && target == _NB_REL_BIN,
+        baseline: baseline, profile_dir: _agent_profile_dir(), probe_url: '' });
+    if (result.ok) result.data = { source: source, active_source: _active_source(), running_version: version };
+    return result;
 }
 function _do_set_binary_source(req) { return _binop_guard(_set_binary_source_locked, req); }
+
+function _do_start_source_switch(req) {
+    if (_binary_job_busy() || access('/tmp/nb-agent-launch.lock', 'f'))
+        return err(CODE.INSTALL_FAILED, 'Another agent operation is in progress.');
+    let a = req && req.args ? req.args : req || {};
+    if (a.source != 'release' && a.source != 'custom') return err(CODE.INVALID_INPUT, 'Invalid binary source.');
+    if (a.source == 'custom' && !_sanitize_version(a.version)) return err(CODE.INVALID_INPUT, 'Invalid custom version.');
+    let args = { source: a.source, version: a.version || '' };
+    _progress_reset();
+    _agent.clear_cancel();
+    _progress_phase('installing', 'Switching binary source with persistent recovery...', '', 0);
+    let expr = 'let api = loadfile("/usr/share/rpcd/ucode/netbird.uc")(); let r = api.switch_source(' + sprintf('%J', args) + '); print(sprintf("%J\\n", r));';
+    let r = _popen_simple('NB_AGENT_WORKER=1 NBLIB=' + shell_quote(_LIB) + ' setsid ucode -e ' + shell_quote(expr) +
+        ' </dev/null >' + shell_quote(_NB_DL_WORKER_LOG) + ' 2>&1 & echo $!');
+    let pid = trim(r.out);
+    if (!match(pid, /^[1-9][0-9]*$/) || writefile(_NB_DL_WORKER_PID, pid) != length(pid))
+        return err(CODE.INSTALL_FAILED, 'Could not start the source-switch worker.');
+    return ok({ started: true, pid: int(pid) });
+}
 
 // _delete_custom_binary_locked(req) — 删除一个非 active 的自定义下载版本 netbird-v<ver>(多版本盘面清理)。
 // 拒删正在使用的版本(防把 active 删掉致 daemon 跑空)。经 _do_delete_custom_binary 包 _binop_guard 互斥。
@@ -3077,8 +3008,79 @@ function _do_reconnect(req) {
     return _do_up({ args: { management_url: '', setup_key: '', caller: '' } });
 }
 
+// Instantiate adapters after all helpers: ucode does not hoist declarations.
+let _runtime = loadfile(_LIB + '/agent_runtime.uc')().create({
+    run: function(cmd) { return _popen_simple(_to('sh -c ' + shell_quote(cmd), 6)); }, quote: shell_quote,
+    status_json: fetch_status_json, lib: _LIB,
+});
+_agent_sample = _runtime.sample;
+_agent_profile_dir = _runtime.profile_dir;
+_agent = loadfile(_LIB + '/agent_update.uc')().create({
+    // Filesystem children stay in the isolated worker's process group. A shell
+    // timeout killing only cp's parent would let a write race rollback.
+    run: _popen_simple, quote: shell_quote,
+    version: _file_version, sample: _agent_sample, running: _daemon_running,
+    daemon_pid: _runtime.daemon_pid,
+    arm_deadline: _runtime.arm_deadline,
+    stopped: function() { let state = probe_running_via_ubus(); return !state.error && !state.running; },
+    probe: _runtime.probe, now: time, sleep: function(seconds) { system('sleep ' + int(seconds)); },
+    pid: function() { return trim(_popen_simple('printf "%s" "$PPID"').out); },
+    canceled: _progress_canceled, source: function() { return _uci_binary('binary_source', 'release'); },
+    set_source: _record_binary_source,
+});
+_schedule = loadfile(_LIB + '/agent_schedule.uc')().create({
+    run: function(cmd) { return _popen_simple(_to('sh -c ' + shell_quote(cmd), 30)); }, quote: shell_quote,
+    engine: _agent, active_source: _active_source, version: _file_version, sample: _agent_sample,
+    probe: _runtime.probe, profile_matches: _runtime.profile_matches,
+    external_guarded: _runtime.external_guarded, worker_alive: _runtime.worker_alive,
+    monitor_running: _runtime.monitor_running,
+    spawn: _runtime.spawn, now: time, arch: function() { return _detect_arch().arch; },
+    locked: function() { return access(_NB_BINOP_LOCK, 'f') && !_binop_lock_stale(); },
+    lock: function(fn) { return _binop_guard(fn, {}); },
+    update: function(args) { return _update_binary_locked({ args: args }); },
+    cancel_download: function() { _popen_simple('touch ' + shell_quote(_NB_DL_CANCEL)); },
+    clear_cancel_download: _progress_reset,
+    release: function() {
+        let base = _uci_binary('api_base', 'https://api.github.com');
+        let r = _popen_simple(_dl_cmd(base + '/repos/netbirdio/netbird/releases/latest', '', 15));
+        if (r.code != 0) return err(CODE.DOWNLOAD_FAILED, 'Could not fetch stable release metadata.');
+        try { return ok(json(r.out)); }
+        catch (e) { return err(CODE.INVALID_INPUT, 'Stable release metadata is invalid JSON.'); }
+    },
+});
+
+// Private local CLI entry, never exposed as another rpcd/ubus object.
+if (getenv('NB_AGENT_WORKER') == '1')
+    return { switch_source: function(args) {
+        let result = _do_set_binary_source(args);
+        _progress_phase(result.ok ? 'done' : 'failed', result.message || 'Binary source switched and verified.', '', 0);
+        return result;
+    }, run: function(command) {
+        if (command == 'run' || command == 'scheduled') return _schedule.execute(command == 'scheduled');
+        if (command == 'tick') return _schedule.tick();
+        if (command == 'recover' || command == 'boot') return _schedule.recover(command == 'boot');
+        if (command == 'recover-retry') return _schedule.recover(false, true);
+        if (command == 'deadline') return _agent.wait_deadline();
+        if (command == 'guard') return ok({ allowed: !_agent.busy() && (!access(_NB_BINOP_LOCK, 'f') || _binop_lock_stale()) });
+        if (command == 'status') return _schedule.status();
+        if (command == 'check') return _schedule.check();
+        if (command == 'cancel') return _schedule.cancel();
+        if (command == 'reset') return _schedule.reset();
+        if (command == 'integrate-watchdog') return _runtime.integrate_watchdog();
+        return err(CODE.INVALID_INPUT, 'Unknown agent updater command.');
+    } };
+
 return {
     'luci.netbird': {
+        get_agent_update_status: { args: {}, call: _safe(function() { return _schedule.status(); }) },
+        check_agent_update: { args: {}, call: _safe(function() { return _schedule.check(); }) },
+        set_agent_update_config: {
+            args: { enabled: false, time: '', timezone: '', min_age_hours: 48, probe_url: '', profile_dir: '' },
+            call: _safe(function(req) { return _schedule.set_config(req); }),
+        },
+        start_agent_update: { args: {}, call: _safe(function() { return _schedule.start(); }) },
+        cancel_agent_update: { args: {}, call: _safe(function() { return _schedule.cancel(); }) },
+        reset_agent_update_failure: { args: {}, call: _safe(function() { return _schedule.reset(); }) },
         // ==== 13 read ====（ACL read.ubus.luci.netbird 对齐）
 
         // 任何态都 ok:true；data.status 暴露 5 态字面量
@@ -3308,14 +3310,14 @@ return {
         //   6. setup_key 局部变量用完置空；超时 → connect_failed。
         do_up: {
             args: { management_url: '', setup_key: '', caller: '' },
-            call: _safe(_do_up),
+            call: _guard_write(_do_up),
         },
 
         // do_down — 仅断开当前会话，保留认证（与 do_logout 语义区别）。
         // 幂等：本就断开也算成功（netbird down 在未连态退 0 或可忽略错误）。
         do_down: {
             args: {},
-            call: _safe(function() {
+            call: _guard_write(function() {
                 let bin = resolve_netbird_bin();
                 if (bin == null)
                     return err(CODE.NOT_INSTALLED, 'The netbird binary is not installed.');
@@ -3333,14 +3335,14 @@ return {
         // 与 do_down 不同：全程保持 desired_connected=1（「重连」表达的是保持连接的意图）。
         do_reconnect: {
             args: {},
-            call: _safe(_do_reconnect),
+            call: _guard_write(_do_reconnect),
         },
 
         // do_login — 仅认证不拉起连接（与 do_up 区别）。
         // args { management_url, setup_key } 同 do_up 瞬时处理；不轮询 connected（login 不建连）。
         do_login: {
             args: { management_url: '', setup_key: '' },
-            call: _safe(function(req) {
+            call: _guard_write(function(req) {
                 let a = (req != null && req.args != null) ? req.args : (req || {});
                 let arg_url = (type(a.management_url) == 'string') ? a.management_url : '';
                 let setup_key = (type(a.setup_key) == 'string') ? a.setup_key : '';  // 瞬时
@@ -3403,7 +3405,7 @@ return {
         // 本分支是用户二次确认后的显式销毁动作,且删除前 daemon 已停,无一致性风险。
         do_logout: {
             args: { local_only: '' },
-            call: _safe(function(req) {
+            call: _guard_write(function(req) {
                 let a = (req != null && req.args != null) ? req.args : (req || {});
                 let local_only = (type(a.local_only) == 'string' && a.local_only == '1');
 
@@ -3469,7 +3471,7 @@ return {
         // 所有 init 子进程调用走 _run_init：白名单 + 5s timeout。
         do_enable_and_start: {
             args: {},
-            call: _safe(function() {
+            call: _guard_write(function() {
                 let st = probe_state();
                 _ensure_helper_services();
 
@@ -3507,14 +3509,14 @@ return {
         },
         // OpenWRT 自动化（zone 直接绑定 netbird 设备，不建 network 接口）。幂等 named section,
         // 安全红线见各 _do_* 注释。注：zone 设备直绑设计已移除 setup_network（zone 直接 list device 绑定）。
-        setup_firewall_zone:   { args: {},  call: _safe(_do_setup_firewall_zone) },
-        setup_forwarding:      { args: { lan_to_netbird: false, netbird_to_lan: false }, call: _safe(_do_setup_forwarding) },
+        setup_firewall_zone:   { args: {}, call: _guard_write(_do_setup_firewall_zone) },
+        setup_forwarding:      { args: { lan_to_netbird: false, netbird_to_lan: false }, call: _guard_write(_do_setup_forwarding) },
         // teardown_automation — setup_* 逆操作（删 zone+两条 forwarding + 旧版残留 iface，幂等，
         // 绝不碰 lan/wan，不杀 wtX 设备）。破坏性 → 前端二次确认。ACL: 已加入 write.ubus.luci.netbird。
-        teardown_automation:   { args: {},  call: _safe(_do_teardown_automation) },
+        teardown_automation:   { args: {}, call: _guard_write(_do_teardown_automation) },
 
-        // update_binary — 下载官方/镜像 release 二进制,校验(sha256/ELF/arch/可执行)后装到
-        // _NB_REL_BIN（绝不直写 /usr/bin/netbird）；备份+失败还原。args.url 空=GitHub latest。
+        // Official/custom downloads use the persistent transaction. Only active
+        // targets restart the daemon; url empty selects the latest official version.
         // ACL: 方法名已加入 write.ubus.luci.netbird（一字不差）。
         update_binary:         { args: { url: '', checksum: '' },  call: _safe(_do_update_binary) },
         // start_binary_update — 为 LuCI 前端启动独立后台 worker 跑 update_binary,让 rpcd 可继续响应
@@ -3526,16 +3528,17 @@ return {
         // set_binary_source — 切换 daemon 运行的二进制来源(release/opkg/custom;custom 带 version);
         // 破坏性 → 前端确认。ACL: 方法名已加入 write.ubus.luci.netbird（一字不差）。
         set_binary_source:     { args: { source: '', version: '' }, call: _safe(_do_set_binary_source) },
+        start_binary_source_switch: { args: { source: '', version: '' }, call: _safe(_do_start_source_switch) },
         // delete_custom_binary — 删非 active 的自定义下载版本(多版本盘面清理)。
         // ACL: 方法名已加入 write.ubus.luci.netbird（一字不差）。
         delete_custom_binary:  { args: { version: '' }, call: _safe(_do_delete_custom_binary) },
         // update_luci_app — 从本 fork 的版本固定 GitHub Release 资产安装完整 LuCI 包。
         // ACL: 方法名已加入 write.ubus.luci.netbird（一字不差）。
-        update_luci_app:       { args: {}, call: _safe(_do_update_luci_app) },
+        update_luci_app:       { args: {}, call: _guard_write(_do_update_luci_app) },
 
         // install_iface_backend — 高置信缺 WG+TUN 时一键装 kmod-wireguard（优先）/ kmod-tun。
         // 装完复验 probe_iface_backend；失败原样回传包管理器输出。ACL: write 段已同步。
-        install_iface_backend: { args: {}, call: _safe(_do_install_iface_backend) },
+        install_iface_backend: { args: {}, call: _guard_write(_do_install_iface_backend) },
 
         // select_exit_node — 切换/关闭 exit node。args.id：目标 exit node ID，'' = 关闭。
         // 流程：白名单校验（目标必须在当前 list 的 exit node 集内，任意字符串到不了 CLI）
@@ -3546,7 +3549,7 @@ return {
         // ACL: 方法名已加入 write.ubus.luci.netbird（一字不差）。
         select_exit_node: {
             args: { id: '' },
-            call: _safe(function(req) {
+            call: _guard_write(function(req) {
                 let a = (req != null && req.args != null) ? req.args : (req || {});
                 let id = (type(a.id) == 'string') ? trim(a.id) : '';
                 // 防御性拒绝：超长、控制字符、CLI 保留关键字 'all'（唯一参数时被
@@ -3616,7 +3619,7 @@ return {
         //   error            list/deselect/select 失败(message 带原因;调用方下轮重试)
         restore_exit_node: {
             args: {},
-            call: _safe(function() {
+            call: _guard_write(function() {
                 let c = uci.cursor();
                 let want = c.get('netbird', 'settings', 'exit_node');
                 want = (type(want) == 'string') ? trim(want) : '';
