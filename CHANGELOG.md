@@ -21,7 +21,9 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 ### Verification and rollout
 
 - Disposable OpenWrt fault regressions cover commit, connection/identity/DNS/probe/process failures, cancellation, space/stop failures, rollback pause, clock rollback, SIGKILL, boot recovery and orphaned writers. A real procd/HTTP/LuCI CLI-fixture run committed only after 302 seconds; no live VPN update or router power-cycle is implied by that test.
-- Automation remains disabled by default. Publishing or installing this package does not authorize an agent upgrade or enable a router schedule. Deployment starts with node56; DC remains excluded until its SSH identity is independently verified. APK signing trust remains dependent on matching repository secrets and public keys.
+- Both SDK branches passed in Actions `39011005934`; Release `v0.2.0-r7` is built from `14d3984988c6d22e0a7e477f8b8c75fb39ab6d71`. Manifest versions/sizes and GitHub asset SHA-256 digests were verified; the published APK was installed and exercised in disposable OpenWrt.
+- Both APK signatures remain UNTRUSTED against `feed/public-key.pem`; matching signing secrets are not configured. Successful builds are not signing-trust proof.
+- Canary node56 passed before node55, Shanghai and Wuhan were upgraded. All 30 package-owned runtime files match the release on each device; real LuCI pages are free of script errors. Existing client versions/PIDs, identity, DNS, custom init, root watchdog and UCI hashes were preserved. Automation remains off on all four; DC was untouched. No live agent upgrade or physical router power-cycle was performed.
 
 ## 0.2.0-r6 — 2026-10-17
 
