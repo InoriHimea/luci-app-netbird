@@ -11,6 +11,7 @@ function runner(argv, timeout) {
     if (index(command, 'status') >= 0) out = readfile(fixtures + '/status-0.82.0.json');
     else if (index(command, 'pidof') >= 0) out = (mode == 'missing-process' ? '99999999' : self_pid) + '\n';
     else if (index(command, 'rule') >= 0) out = readfile(fixtures + '/real-rules.json');
+    else if (index(command, 'route get') >= 0) out = '[{"dst":"10.40.1.2","from":"192.0.2.10","dev":"mesh-alt","table":9911}]';
     else if (index(command, 'route') >= 0) out = readfile(fixtures + '/real-routes.json');
     else if (index(command, 'link') >= 0) {
         out = readfile(fixtures + '/real-links.json');
@@ -64,4 +65,11 @@ check(r.complete && r.agent.data.daemon_status == 'Connected' && r.routes.record
 mode = 'A04'; r = collect(runner);
 check(r.complete && r.rules.records[0].priority == 77 && r.rules.records[0].table == r.routes.records[0].table
     && r.routes.records[0].dev == r.links.records[0].ifname && r.rules.records[0].iif == 'br-business', 'A04 preserves equivalent non-default interface/table/priority semantics');
+let path = { id: 'business', approval: { approved: true }, source_ip: '192.0.2.10', destination: '10.40.1.2', ingress_interface: 'br-lan' };
+mode = 'stable'; r = collect(runner, [path]);
+check(r.complete && r.lookups.business.ok && r.lookups.business.table == '9911', 'lookup captured within stable generation window');
+mode = 'churn'; links = 0; r = collect(runner, [path]);
+check(!r.complete && !r.lookups.business.ok && r.lookups.business.reason == 'GENERATION_CHANGED', 'later generation change invalidates successful kernel lookup');
+mode = 'stable'; r = collect(runner, [path, path]);
+check(!r.complete && !r.lookups.business.ok, 'duplicate path identity cannot replace bound evidence');
 printf('PASS: %d collector assertions\n', n);

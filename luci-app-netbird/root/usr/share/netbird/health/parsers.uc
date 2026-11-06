@@ -49,7 +49,7 @@ function select_peer(agent, approved_address) {
         : { ok: false, reason: 'PEER_NOT_OBSERVED' };
 }
 const FIELDS = {
-    rules: ['priority', 'src', 'srclen', 'dst', 'dstlen', 'iif', 'oif', 'table', 'fwmark', 'fwmask', 'action', 'suppress_prefixlength', 'protocol'],
+    rules: ['priority', 'src', 'srclen', 'dst', 'dstlen', 'iif', 'oif', 'table', 'fwmark', 'fwmask', 'not', 'action', 'suppress_prefixlength', 'protocol'],
     routes: ['dst', 'dev', 'gateway', 'prefsrc', 'protocol', 'scope', 'table', 'type', 'flags', 'metric', 'multipath'],
     links: ['ifindex', 'ifname', 'flags', 'mtu', 'operstate', 'link_type', 'master', 'linkinfo'],
 };
@@ -58,7 +58,13 @@ function normalize(kind, rows) {
     let records = [];
     for (let row in rows) {
         if (type(row) != 'object') return failure();
-        if (kind == 'rules' && (type(row.priority) != 'int' || row.priority < 0 || row.table == null)) return failure();
+        if (kind == 'rules') {
+            if (type(row.priority) != 'int' || row.priority < 0) return failure();
+            let terminal = index(['blackhole', 'unreachable', 'prohibit'], row.action) >= 0;
+            if (!terminal && row.table == null) return failure();
+            if (terminal && row.table != null) return failure();
+            if (row.fwmask != null && row.fwmark == null) return failure();
+        }
         if (kind == 'routes' && !address(row.dst, true)) return failure();
         if (kind == 'links' && (type(row.ifindex) != 'int' || row.ifindex < 1 || !text(row.ifname, 64))) return failure();
         let out = {};
@@ -69,6 +75,15 @@ function normalize(kind, rows) {
             if (key == 'table') {
                 if (type(value) == 'int' ? value < 0 || value > 4294967295 : !text(value, 64) || !match(value, /^[a-zA-Z0-9_.-]+$/)) return failure();
                 out[key] = '' + value;
+            }
+            else if (key == 'not') {
+                if (type(value) != 'bool') return failure();
+                out[key] = value;
+            }
+            else if (key == 'fwmark' || key == 'fwmask') {
+                if (type(value) != 'int' && (type(value) != 'string' || !match(value, /^(0x[0-9a-fA-F]{1,8}|[0-9]{1,10})$/))) return failure();
+                if (int(value) < 0 || int(value) > 4294967295) return failure();
+                out[key] = value;
             }
             else if (key == 'flags') {
                 if (type(value) != 'array' || length(value) > 32) return failure();
@@ -131,11 +146,24 @@ function parse_text(kind, raw) {
                 if ('flags' in row) return failure();
                 row.flags = ['linkdown']; continue;
             }
+            if (kind == 'rules' && key == 'not') {
+                if ('not' in row) return failure();
+                row.not = true; continue;
+            }
+            if (kind == 'rules' && index(['blackhole', 'unreachable', 'prohibit'], key) >= 0) {
+                if ('action' in row) return failure();
+                row.action = key; continue;
+            }
             if (mapped in row || index(FIELDS[kind], mapped) < 0 || i >= length(tokens)) return failure();
             let val = tokens[i++];
             if (index(['metric', 'suppress_prefixlength'], mapped) >= 0) {
                 if (!match(val, /^[0-9]+$/)) return failure();
                 val = int(val);
+            }
+            if (kind == 'rules' && mapped == 'fwmark' && index(val, '/') >= 0) {
+                let parts = split(val, '/');
+                if (length(parts) != 2 || 'fwmask' in row) return failure();
+                val = parts[0]; row.fwmask = parts[1];
             }
             row[mapped] = val;
         }

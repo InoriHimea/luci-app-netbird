@@ -34,6 +34,14 @@
       ],
       "expected_prefix": "198.51.100.0/24",
       "optional_mark": null,
+      "routing": {
+        "tables": ["9911"],
+        "native_priorities": [77],
+        "primary_peer": "100.64.0.1",
+        "backup_peers": ["100.64.0.2"],
+        "mark_reference": null,
+        "query_limitations": []
+      },
       "required": true,
       "enabled": false
     }

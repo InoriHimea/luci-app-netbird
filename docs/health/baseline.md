@@ -54,3 +54,18 @@ Actual isolated `collect()` without the production tools returned `complete=fals
 Independent review findings were addressed with recorded native RED/GREEN regressions: discarded nexthop semantics, ambiguous duplicate fields, invalid CIDR/null selectors, malformed backend, general command failures falling back, stderr budget accounting, process incarnation evidence, firewall inventory changes and malformed metadata. A second review found the iproute2 unknown-option exit is255; [upstream ip/ip.c](https://github.com/iproute2/iproute2/blob/main/ip/ip.c) confirms `exit(-1)`. Correcting the fixture first failed, then the diagnostic-specific fix passed the unified suite. Runtime inspection disproved a review claim about `clock(true)`: deployed ucode actually returns `[seconds,nanoseconds]`.
 
 No agent configuration/private key was read, no network write command ran, no production deployment or schedule changed, and no A01/A04 production fault was injected. The adapter does not claim an atomic network generation or firewall-rule enforcement from table inventory.
+
+## Native path evaluator verification
+
+NBH-13 unified native run passes 22 model, 12 runner, 33 parser, 15 collector, 29 evaluator and 18 lookup assertions, plus five model replays. Independent review exposed suppression of terminal route errors, an out-of-prefix destination acceptance and old-generation lookup reuse; regressions failed before correction and pass afterward. Approved route-exception boundaries and peer/LAN provenance are synthetic behavioral tests, not production network proof.
+
+A separate disposable namespace `nbh-route-20261106` used the same image digest, network none, no host mounts, all capabilities dropped except NET_ADMIN, 128MiB RAM, 0.5CPU and 64 PIDs. Dummy br-lan/mesh-alt/wan interfaces and table9911 allowed real kernel `ip -d -j -4 route get 10.40.1.2 from 192.0.2.10 iif br-lan`, invoked through the actual 2000ms runner and parser. Actual rule/route/link snapshots before and after the query were equal; the real evaluator produced:
+
+- A01: table9911 retained its target route, rule77 absent, actual lookup main/wan; rules FAIL/RULE_MISSING and forward FAIL/FORWARD_LOOKUP_MISMATCH.
+- A02: limited rule12100 restored table9911/mesh-alt; forward PASS and native rules FAIL/NATIVE_RULE_DRIFT at warning severity.
+- A04: approved rule77/table9911/mesh-alt; rules/routes/forward PASS, without hardcoded wt0/table7120 assumptions.
+- All three retain peer/router/LAN UNKNOWN; no real peer selection or end-to-end LAN packets were simulated as success. All 18 emitted check records satisfy the result schema.
+
+Details mode is necessary: this iproute2 build omits the main-table field without `-d`. Missing table remains UNKNOWN rather than inferred from static routes. The OpenWrt TLS-download `ip-full-6.18.0-r2.apk` SHA-256 is `ccb056ae416635ceeedec2bf1d137c1b9a181069f818e0f1404547e8e16ad22d`; its signature was UNTRUSTED against the image's key. It and required libraries were used only with explicit allow-untrusted in this disposable namespace, not installed on production or represented as trusted signing.
+
+Repeated descendant tests exhausted the original container's 64 PID limit because its sleep PID1 retained approximately 60 zombies. Restarting only that disposable container and removing its test marker restored the full passing run; limits were not raised. Future repeated harnesses should use an init reaper. No production network configuration, agent restart, notification or rollout gate changed.

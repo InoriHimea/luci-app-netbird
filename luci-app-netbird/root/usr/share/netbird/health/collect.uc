@@ -2,6 +2,7 @@
 import { access, open } from 'fs';
 import { run_command, monotonic_ms } from './runner.uc';
 import { parse_agent, parse_ip } from './parsers.uc';
+import { lookup_path } from './lookup.uc';
 
 function executable(candidates) {
     for (let p in candidates) if (access(p, 'x')) return p;
@@ -33,7 +34,7 @@ function process_identity(raw) {
 function unknown(reason) { return { ok: false, reason }; }
 // Internal injection seam for deterministic command/error/generation scenarios;
 // never exposed as an RPC command or UCI-configured executable.
-function collect(execute) {
+function collect(execute, paths) {
     execute ??= run_command;
     let started = monotonic_ms(), deadline = started + 20000, remaining_bytes = 262144;
     let ip = executable(['/sbin/ip', '/usr/sbin/ip', '/bin/ip', '/usr/bin/ip']);
@@ -97,6 +98,15 @@ function collect(execute) {
     let before = snapshot();
     let status = command(['/usr/bin/netbird', 'status', '--json']);
     let agent = status.ok ? parse_agent(status.stdout) : status;
+    let lookups = {}, lookup_input_valid = paths == null || (type(paths) == 'array' && length(paths) <= 64);
+    if (lookup_input_valid && paths != null) {
+        for (let path in paths) {
+            if (type(path?.id) != 'string' || !match(path.id, /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,95}$/) || path.id in lookups) {
+                lookup_input_valid = false; break;
+            }
+            lookups[path.id] = lookup_path(path, command, ip, before.rules);
+        }
+    }
     let firewall = before.firewall;
     let after = snapshot();
     let generation_available = before_boot != null && before.processes != null && after.processes != null
@@ -104,10 +114,21 @@ function collect(execute) {
         && before.firewall.ok && after.firewall.ok;
     let stable = generation_available && boot_id() == before_boot && sprintf('%J', before) == sprintf('%J', after);
     let expired = monotonic_ms() >= deadline;
-    let complete = stable && agent.ok && !expired;
+    let complete = stable && agent.ok && !expired && lookup_input_valid;
+    if (!stable || expired || !lookup_input_valid)
+        for (let id in lookups) lookups[id] = unknown(expired ? 'COMMAND_TIMEOUT' : !lookup_input_valid ? 'INTENT_UNVERIFIED' : 'GENERATION_CHANGED');
+    let generation = complete ? before_boot + ':' + started : null;
+    let sampled_at = time();
+    if (complete) for (let path in paths || []) {
+        if (!lookups[path.id]?.ok) continue;
+        lookups[path.id].evidence = { kind: 'forward_lookup', path_id: path.id, path_source: path.source_ip,
+            iif: path.ingress_interface, destination: path.destination, baseline_revision: path.approval?.baseline_revision,
+            generation, sampled_at, expires_at: sampled_at + 30 };
+    }
     return { complete, consistency: 'endpoint_comparison', address_family: 'ipv4',
         reason: expired ? 'COMMAND_TIMEOUT' : !generation_available ? 'GENERATION_UNAVAILABLE' : !stable ? 'GENERATION_CHANGED' : complete ? null : 'COLLECTION_INCOMPLETE',
         boot_id: before_boot, duration_ms: monotonic_ms() - started,
-        agent, rules: before.rules, routes: before.routes, links: before.links, firewall };
+        generation,
+        agent, rules: before.rules, routes: before.routes, links: before.links, firewall, lookups };
 }
 export { collect };
