@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: Apache-2.0
+import { mkdtemp, mkdir, open, readfile, lsdir, unlink, rmdir } from 'fs';
+import { create_settings } from '../../luci-app-netbird/root/usr/share/netbird/health/settings.uc';
+let root = mkdtemp('/tmp/nbh-settings-test.XXXXXX');
+mkdir(root + '/config', 0700); mkdir(root + '/state', 0700); mkdir(root + '/state/uci', 0700);
+let file = open(root + '/config/netbird_health', 'wx', 0600);
+file.write(readfile('luci-app-netbird/root/etc/config/netbird_health')); file.close();
+let settings = create_settings(root + '/config', root + '/state');
+let read_config = settings.read_config, save_config = settings.save_config;
+let count = 0;
+function check(ok, label) { if (!ok) die(label + '\n'); count++; }
+let original = read_config();
+check(original != null && original.monitor.enabled === false, 'independent disabled initial UCI config');
+let old_revision = original.revision;
+original.monitor.interval = 90;
+let result = save_config(original, old_revision);
+check(result.ok && result.revision == old_revision + 1, 'serialized revision CAS accepts current generation');
+let current = read_config();
+check(current.monitor.interval == 90 && current.revision == old_revision + 1, 'committed config is readable');
+original.monitor.interval = 120;
+result = save_config(original, old_revision);
+check(!result.ok && result.reason == 'REVISION_CONFLICT', 'stale writer cannot overwrite newer value');
+check(read_config().monitor.interval == 90, 'stale CAS preserves committed value');
+current.monitor.interval = 1;
+result = save_config(current, current.revision);
+check(!result.ok && result.reason == 'CONFIG_INVALID', 'invalid config rejected before commit');
+check(read_config().revision == old_revision + 1, 'rejection does not advance revision');
+for (let name in lsdir(root + '/state/uci')) unlink(root + '/state/uci/' + name);
+rmdir(root + '/state/uci');
+for (let name in lsdir(root + '/state')) unlink(root + '/state/' + name);
+rmdir(root + '/state');
+for (let name in lsdir(root + '/config')) unlink(root + '/config/' + name);
+rmdir(root + '/config'); rmdir(root);
+print('settings: ', count, ' assertions passed\n');

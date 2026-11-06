@@ -7,13 +7,14 @@ import { evaluate_path } from './evaluate.uc';
 import { aggregate } from './model.uc';
 import { difference } from './boundary.uc';
 import { read_json, atomic_json, private_dir, keep_history } from './storage.uc';
+import { read_config } from './settings.uc';
 const ROOT = '/tmp/netbird-health';
 if (!private_dir(ROOT)) exit(2);
 // Separate from the supervisor lock: a replacement supervisor cannot overlap
 // a still-bounded worker orphaned by its predecessor's crash.
 let lock = open(ROOT + '/cycle.lock', 'a', 0600);
 if (!lock || !lock.lock('xn')) exit(3);
-let config = read_json('/etc/netbird-health/config.json', 65536);
+let config = read_config();
 if (config?.monitor?.enabled !== true || type(config.paths) != 'array' || length(config.paths) > 64 ||
     type(config.endpoints) != 'array' || length(config.endpoints) > 16) exit(2);
 let budget = config.monitor.cycle_timeout;

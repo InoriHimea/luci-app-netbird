@@ -1,0 +1,34 @@
+{
+  "luci-app-netbird-health-read": {
+    "description": "Read cached NetBird health results and non-secret approved configuration",
+    "read": {
+      "ubus": {
+        "luci.netbird.health": ["get_summary", "get_checks", "get_events", "get_config", "get_job"]
+      }
+    }
+  },
+  "luci-app-netbird-health-run": {
+    "description": "Request one coalesced approved NetBird health baseline check",
+    "write": {
+      "ubus": { "luci.netbird.health": ["start_check"] }
+    }
+  },
+  "luci-app-netbird-health-config": {
+    "description": "Change only revision-checked independent NetBird health configuration",
+    "write": {
+      "ubus": { "luci.netbird.health": ["set_config"] }
+    }
+  },
+  "luci-app-netbird-health-export": {
+    "description": "Create and retrieve bounded redacted NetBird health evidence exports",
+    "write": {
+      "ubus": { "luci.netbird.health": ["prepare_export"] }
+    }
+  },
+  "luci-app-netbird-health-notify": {
+    "description": "Submit one explicit bounded test to the protected locally owned notification sink",
+    "write": {
+      "ubus": { "luci.netbird.health": ["test_notification"] }
+    }
+  }
+}

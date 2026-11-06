@@ -24,9 +24,12 @@ export function atomic_json(dir, name, data, limit) {
     if (length(text) > limit) return false;
     // Single serialized writer only. Recover its interrupted private temporary file;
     // never adopt a symlink or a file with unexpected ownership/permissions.
-    // History sequences share one recoverable stage; killed writes cannot
-    // accumulate a new temporary file with every published sequence.
-    let temporary = dir + '/' + (match(name, /^history-[0-9]{10}\.json$/) ? '.history' : name) + '.new';
+    // Serialized history/job/page writers reuse one stage per namespace;
+    // opaque publication IDs must not create unbounded orphan stages on crashes.
+    let stage = match(name, /^history-[0-9]{10}\.json$/) ? '.history' :
+        match(name, /^job-[0-9a-f]{32}\.json$/) ? '.job' :
+        match(name, /^page-[0-9a-f]{32}\.json$/) ? '.page' : name;
+    let temporary = dir + '/' + stage + '.new';
     let stale = lstat(temporary);
     if (stale && (stale.type != 'file' || stale.uid != 0 || stale.mode != 0600 || !unlink(temporary)))
         return false;

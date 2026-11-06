@@ -31,8 +31,9 @@ function bounded_read(path, size) {
     f.close();
     return s;
 }
-// Internal primitive only: callers must select fixed read-only tool argv.
-// No command/path from RPC or UCI may be passed through to this function.
+// Internal primitive: fixed system tools and caller-validated operands only.
+// Collection callers are read-only; the notification worker owns the explicit
+// approved POST. Never pass arbitrary RPC commands, paths or targets here.
 function run_command(argv, timeout_ms) {
     let start = monotonic_ms();
     let result = { ok: false, reason: 'RUNNER_ERROR', exit_code: null,

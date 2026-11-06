@@ -4,6 +4,8 @@ import { open, unlink, access } from 'fs';
 import { private_dir, read_json, atomic_json } from './storage.uc';
 import { create_schedule, next_check, finish_check, request_check, route_event } from './scheduler.uc';
 import { monotonic_ms, cleanup_commands } from './runner.uc';
+import { read_config } from './settings.uc';
+import { create_jobs } from './jobs.uc';
 const ROOT = '/tmp/netbird-health';
 if (!private_dir(ROOT)) exit(2);
 let lock = open(ROOT + '/service.lock', 'a', 0600);
@@ -13,12 +15,13 @@ function text(path) {
     let f = open(path, 'r'); if (!f) return null;
     let s = trim(f.read(128) || ''); f.close(); return s;
 }
-let config = read_json('/etc/netbird-health/config.json', 65536);
+let config = read_config();
 if (config?.monitor?.enabled !== true) exit(0);
 let boot = text('/proc/sys/kernel/random/boot_id');
 let stop_reason = null;
 let state = create_schedule(boot, monotonic_ms() / 1000, config.monitor.interval);
 let child = null, listener = null, event_status = 'disabled', stopping = false;
+let jobs = create_jobs(ROOT), active_job = null;
 let event_started_at = time(), event_overrun = false, overrun_observable = false;
 let next_cleanup = monotonic_ms() / 1000 + 5;
 uloop.init();
@@ -43,7 +46,8 @@ function publish(phase, reason) {
     atomic_json(ROOT, 'service.json', { phase, reason, boot_id: boot, sampled_at: time(),
         event_watch: event_status, event_gap: event_status != 'listening' || event_overrun || !overrun_observable,
         event_started_at, event_overrun, overrun_observable,
-        interval: state.interval, active: state.active, attribution: 'cause_undetermined' });
+        interval: state.interval, active: state.active, config_revision: config.revision,
+        job_id: active_job, attribution: 'cause_undetermined' });
 }
 let tick = uloop.interval(250, () => {
     if (stopping) return;
@@ -65,15 +69,26 @@ let tick = uloop.interval(250, () => {
     if (!reason) return;
     let budget = config.monitor.cycle_timeout;
     if (type(budget) != 'int' || budget < 1 || budget > 20) budget = 20;
+    let started = jobs.begin(config.revision);
+    if (!started.ok) {
+        finish_check(state, monotonic_ms() / 1000); publish('idle', started.reason); return;
+    }
+    active_job = started.job.id;
     publish('running', reason);
     child = uloop.process('/usr/bin/ucode', ['/usr/share/netbird/health/cycle-host.uc', '' + budget * 1000], null,
         (code) => {
             child = null;
+            let latest = code == 0 ? read_json(ROOT + '/latest.json', 524288) : null;
+            jobs.finish(active_job, latest?.run, code == 0 ? null : 'CYCLE_FAILED');
+            active_job = null;
             finish_check(state, monotonic_ms() / 1000);
             publish(stopping ? 'stopped' : 'idle', stop_reason || (code == 0 ? null : 'CYCLE_FAILED'));
             if (stopping) uloop.end();
         });
-    if (!child) { finish_check(state, monotonic_ms() / 1000); publish('idle', 'WORKER_START_FAILED'); }
+    if (!child) {
+        jobs.finish(active_job, null, 'WORKER_START_FAILED'); active_job = null;
+        finish_check(state, monotonic_ms() / 1000); publish('idle', 'WORKER_START_FAILED');
+    }
 });
 function stop() {
     stopping = true;

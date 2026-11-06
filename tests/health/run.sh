@@ -7,6 +7,7 @@ case "${1:---unit}" in
 esac
 command -v ucode >/dev/null 2>&1 || { echo 'ucode is required; run in an isolated OpenWrt environment.' >&2; exit 1; }
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+cd "$ROOT"
 ucode "$ROOT/tests/health/model.uc"
 ucode "$ROOT/tests/health/fixtures.uc" "$ROOT"/tests/health/fixtures/A*.json
 ucode "$ROOT/tests/health/runner.uc"
@@ -19,3 +20,10 @@ ucode "$ROOT/tests/health/storage.uc"
 ucode "$ROOT/tests/health/maintenance.uc"
 ucode "$ROOT/tests/health/boundary.uc"
 ucode "$ROOT/tests/health/probe.uc"
+ucode "$ROOT/tests/health/config.uc"
+ucode "$ROOT/tests/health/settings.uc"
+ucode "$ROOT/tests/health/jobs.uc"
+ucode "$ROOT/tests/health/pages.uc"
+ucode "$ROOT/tests/health/cache.uc"
+ucode "$ROOT/tests/health/export.uc"
+ucode "$ROOT/tests/health/notification.uc"

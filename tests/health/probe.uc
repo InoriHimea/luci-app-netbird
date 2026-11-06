@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import * as socket from 'socket';
-import { probe_endpoint, rdp_confirm, run_probe } from '../../luci-app-netbird/root/usr/share/netbird/health/probe.uc';
+import { probe_endpoint, rdp_confirm, run_probe, approved_resolution } from '../../luci-app-netbird/root/usr/share/netbird/health/probe.uc';
 let count = 0;
 function check(ok, label) { if (!ok) die(label + '\n'); count++; }
 let endpoint = { id: 'loopback', path_id: 'test', enabled: true, host: '127.0.0.1',
@@ -28,6 +28,13 @@ endpoint.vantage = 'lan_probe';
 check(probe_endpoint(endpoint, 1000).reason == 'EXTERNAL_VANTAGE_REQUIRED', 'router cannot prove LAN');
 endpoint.vantage = 'external_observer';
 check(probe_endpoint(endpoint, 1000).reason == 'EXTERNAL_VANTAGE_REQUIRED', 'router cannot impersonate observer');
+endpoint.vantage = 'router_probe'; endpoint.allowed_addresses = ['198.51.100.10'];
+check(probe_endpoint(endpoint, 1000).reason == 'ADDRESS_SCOPE_INVALID', 'resolved loopback cannot bypass approved pins');
+check(approved_resolution(endpoint, [{ addr: { address: '198.51.100.10' } }]) == '198.51.100.10', 'approved DNS answer selected');
+check(approved_resolution(endpoint, [{ addr: { address: '198.51.100.10' } }, { addr: { address: '127.0.0.1' } }]) == null,
+    'mixed safe and forbidden DNS answers fail closed');
+check(approved_resolution(endpoint, [{ addr: { address: '::ffff:127.0.0.1' } }]) == null, 'mapped IPv6 cannot evade IPv4 policy');
+delete endpoint.allowed_addresses;
 endpoint.vantage = 'router_probe'; endpoint.host = 'user:secret@127.0.0.1';
 check(probe_endpoint(endpoint, 1000).reason == 'ENDPOINT_INVALID', 'userinfo rejected');
 endpoint.host = '127.0.0.1'; endpoint.http_path = '/\r\nAuthorization: secret';

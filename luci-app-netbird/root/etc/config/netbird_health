@@ -1,0 +1,2 @@
+config monitor 'main'
+	option approved_config '{"schema_version":1,"revision":0,"monitor":{"enabled":false,"interval":60,"cycle_timeout":20,"event_watch":false,"grace_period":30,"history_limit":100},"node":{"stable_node_id":"unconfigured-node","role":"standalone","expected_connection_intent":"connected","baseline_revision":0},"paths":[],"endpoints":[],"exceptions":[],"notification":{"owner":"none","failure_threshold":3,"recovery_threshold":2,"reminder":false,"sink_ref":null}}'

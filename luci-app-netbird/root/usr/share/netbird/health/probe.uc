@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { run_command } from './runner.uc';
+import { permitted_address } from './config.uc';
 
 // Called only inside the independently bounded cycle worker. This is not a
 // LAN forward-path test: the socket belongs to this router's network stack.
@@ -20,6 +21,16 @@ function rdp_confirm(data) {
     let size = ord(data, 2) * 256 + ord(data, 3);
     return size == length(data) && ord(data, 4) >= 6 && ord(data, 4) + 5 == size;
 }
+function approved_resolution(endpoint, addresses) {
+    if (type(endpoint.allowed_addresses) != 'array' || !length(endpoint.allowed_addresses) ||
+        length(endpoint.allowed_addresses) > 8 || type(addresses) != 'array' ||
+        !length(addresses) || length(addresses) > 32) return null;
+    for (let row in addresses) {
+        let address = row?.addr?.address;
+        if (!permitted_address(address) || index(endpoint.allowed_addresses, address) < 0) return null;
+    }
+    return addresses[0].addr.address;
+}
 function probe_endpoint(e, timeout_ms) {
     let result = { endpoint_id: e?.id, path_id: e?.path_id,
         vantage: 'router_probe', state: 'UNKNOWN', reason: 'ENDPOINT_INVALID',
@@ -31,17 +42,33 @@ function probe_endpoint(e, timeout_ms) {
         result.reason = 'EXTERNAL_VANTAGE_REQUIRED';
         return result;
     }
+    let socket;
+    try { socket = require('socket'); }
+    catch (err) { result.reason = 'SOCKET_UNAVAILABLE'; return result; }
+    let destination = e.host;
+    // Direct protocol helpers remain privileged local primitives. The approved
+    // configuration schema requires pins for every production cycle endpoint.
+    if ('allowed_addresses' in e) {
+        let addresses = socket.addrinfo(e.host, null, { family: socket.AF_UNSPEC, socktype: socket.SOCK_STREAM });
+        destination = approved_resolution(e, addresses);
+        if (!destination) { result.reason = 'ADDRESS_SCOPE_INVALID'; return result; }
+    }
     if (e.protocol == 'HTTP' || e.protocol == 'HTTPS') {
         let scheme = lc(e.protocol), host = index(e.host, ':') >= 0 ? '[' + e.host + ']' : e.host;
-        let r = run_command(['/usr/bin/curl', '-q', '--noproxy', '*', '--globoff',
+        let argv = ['/usr/bin/curl', '-q', '--noproxy', '*', '--globoff',
             '--proto', '=' + scheme, '--max-time', sprintf('%.3f', timeout_ms / 1000.0),
             '--connect-timeout', sprintf('%.3f', timeout_ms / 1000.0),
             '--silent', '--output', '/dev/null', '--write-out', '%{local_ip}\n%{remote_ip}\n%{http_code}\n',
-            '--url', scheme + '://' + host + ':' + e.port + e.http_path], timeout_ms);
+            '--url', scheme + '://' + host + ':' + e.port + e.http_path];
+        if ('allowed_addresses' in e) { push(argv, '--resolve'); push(argv, e.host + ':' + e.port + ':' + destination); }
+        let r = run_command(argv, timeout_ms);
         let lines = split(trim(r.stdout), '\n');
         if (length(lines) == 3 && iptoarr(lines[0]) && iptoarr(lines[1])) {
             result.source_ip = lines[0]; result.destination_ip = lines[1];
             result.http_status = int(lines[2]);
+        }
+        if ('allowed_addresses' in e && result.destination_ip != null && result.destination_ip != destination) {
+            result.reason = 'ADDRESS_SCOPE_INVALID'; return result;
         }
         if (!r.ok) { result.reason = r.reason; return result; }
         if (!result.source_ip) { result.reason = 'SOURCE_UNOBSERVED'; return result; }
@@ -49,18 +76,15 @@ function probe_endpoint(e, timeout_ms) {
         result.reason = result.state == 'PASS' ? null : 'HTTP_STATUS_MISMATCH';
         return result;
     }
-    let socket;
-    try { socket = require('socket'); }
-    catch (err) { result.reason = 'SOCKET_UNAVAILABLE'; return result; }
     if (e.protocol == 'ICMP') {
         // Linux ping datagram sockets: observe the actual ICMP socket source,
         // not a different protocol's route selection. No raw capability needed.
-        let addresses = socket.addrinfo(e.host, null, { family: socket.AF_INET, socktype: socket.SOCK_DGRAM });
-        let destination = addresses?.[0]?.addr?.address;
-        if (!destination) { result.reason = 'ICMP_RESOLUTION_UNAVAILABLE'; return result; }
+        let addresses = socket.addrinfo(destination, null, { family: socket.AF_INET, socktype: socket.SOCK_DGRAM });
+        let target = addresses?.[0]?.addr?.address;
+        if (!target) { result.reason = 'ICMP_RESOLUTION_UNAVAILABLE'; return result; }
         let connection = socket.create(socket.AF_INET, socket.SOCK_DGRAM | socket.SOCK_CLOEXEC, 1);
         if (!connection) { result.reason = 'ICMP_SOCKET_UNAVAILABLE'; return result; }
-        if (!connection.connect({ address: destination, port: 0 })) {
+        if (!connection.connect({ address: target, port: 0 })) {
             connection.close(); result.reason = 'ICMP_CONNECT_FAILED'; return result;
         }
         let local = connection.sockname(), packet = '\x08\x00\x00\x00\x00\x00\x00\x01nbh';
@@ -75,15 +99,18 @@ function probe_endpoint(e, timeout_ms) {
         let valid = type(data) == 'string' && length(data) == length(packet) &&
             ord(data, 0) == 0 && ord(data, 1) == 0 &&
             ord(data, 4) * 256 + ord(data, 5) == local.port &&
-            substr(data, 6) == substr(packet, 6) && result.destination_ip == destination;
+            substr(data, 6) == substr(packet, 6) && result.destination_ip == target;
         result.state = valid ? 'PASS' : 'FAIL';
         result.reason = valid ? null : 'ICMP_REPLY_INVALID';
         return result;
     }
-    let connection = socket.connect(e.host, e.port, { socktype: socket.SOCK_STREAM }, timeout_ms);
+    let connection = socket.connect(destination, e.port, { socktype: socket.SOCK_STREAM }, timeout_ms);
     if (!connection) { result.reason = 'CONNECT_UNDETERMINED'; return result; }
     result.source_ip = connection.sockname()?.address;
     result.destination_ip = connection.peername()?.address;
+    if ('allowed_addresses' in e && result.destination_ip != destination) {
+        connection.close(); result.reason = 'ADDRESS_SCOPE_INVALID'; return result;
+    }
     if (!result.source_ip || !result.destination_ip) {
         connection.close(); result.reason = 'SOURCE_UNOBSERVED'; return result;
     }
@@ -129,4 +156,4 @@ function run_probe(e, timeout_ms) {
         duration_ms: r.duration_ms, exit_code: r.exit_code,
         source_ip: null, destination_ip: null, http_status: null, attribution: 'cause_undetermined' };
 }
-export { valid_endpoint, rdp_confirm, probe_endpoint, run_probe };
+export { valid_endpoint, rdp_confirm, probe_endpoint, run_probe, approved_resolution };

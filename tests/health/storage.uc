@@ -27,6 +27,12 @@ interrupted = open(root + '/.history.new', 'wx', 0600);
 interrupted.write('{'); interrupted.close();
 check(atomic_json(root, 'history-0000000005.json', { i: 5 }) && !lstat(root + '/.history.new'),
     'a new sequence reclaims the previous interrupted history stage');
+for (let namespace in ['job', 'page']) {
+    interrupted = open(root + '/.' + namespace + '.new', 'wx', 0600);
+    interrupted.write('{'); interrupted.close();
+    check(atomic_json(root, namespace + '-11111111111111111111111111111111.json', { generation: 'recovered' }) &&
+        !lstat(root + '/.' + namespace + '.new'), 'opaque ' + namespace + ' IDs share a recoverable bounded stage');
+}
 let payload = sprintf('%0524200d', 0);
 for (let i = 20; i <= 28; i++) atomic_json(root, sprintf('history-%010d.json', i), { payload });
 keep_history(root, 1000);

@@ -50,6 +50,7 @@ PKG_PO_VERSION:=$(PKG_VERSION)-r$(PKG_RELEASE)
 define Package/luci-app-netbird/conffiles
 /etc/config/netbird
 /etc/config/netbird_bin
+/etc/config/netbird_health
 endef
 
 # luci.mk 内部已 $(eval $(call BuildPackage,...)),不要再重复调用(否则 package

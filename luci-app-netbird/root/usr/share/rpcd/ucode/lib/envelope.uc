@@ -41,6 +41,13 @@ const CODE = {
     INSUFFICIENT_SPACE: 'insufficient_space',   // overlay 空间不足(下载/写二进制);前端按 code 本地化「删旧版本」提示
     // 二进制来源管理系（update_binary/set_binary_source：架构不符/坏包）
     ARCH_MISMATCH:     'arch_mismatch',
+    // Independent health-service operations.
+    NOT_FOUND:        'not_found',
+    EXPIRED:          'expired',
+    CONFLICT:         'conflict',
+    NOT_CONFIGURED:   'not_configured',
+    RESOURCE_BUSY:    'resource_busy',
+    HEALTH_ERROR:     'health_error',
 };
 
 // 已知合法 code 集合：从 CODE 派生（值即合法 code），用于 err() 白名单校验，遇到未知 code die()。
