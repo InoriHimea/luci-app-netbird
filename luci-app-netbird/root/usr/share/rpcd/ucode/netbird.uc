@@ -34,6 +34,7 @@ let _envelope = loadfile(_LIB + '/envelope.uc')();
 let _sanitize = loadfile(_LIB + '/sanitize.uc')();
 let _state    = loadfile(_LIB + '/state.uc')();
 let _cli      = loadfile(_LIB + '/netbird_cli.uc')();
+let _action_lock = loadfile(_LIB + '/action_lock.uc')().create();
 let _agent = null;
 let _schedule = null;
 let _guard_operation = null;
@@ -1308,19 +1309,13 @@ function _read_small_text(path) {
     return trim(t);
 }
 
-// 二进制操作互斥锁(mkdir 原子创建)。锁目录里记录持锁进程(popen 的 sh 的父进程,即 rpcd 或
-// 后台 worker)的 PID:持有者被 OOM/崩溃杀掉时锁不会释放,之后所有二进制操作都报"进行中"直到重启。
+// Shared kernel exclusion retains the legacy directory marker for watchdog and
+// settings maintenance guards. PID/boot identity and orphan fencing are common.
 const _NB_BINOP_LOCK = '/tmp/nb-binop.lock';
 
-// _binop_lock_stale() → bool:锁存在但持有者已不在。无持有者记录的旧锁(旧版本留下)超过 10 分钟视为残留。
 function _binop_lock_stale() {
-    let st = stat(_NB_BINOP_LOCK);
-    if (st == null)
-        return false;
-    let owner = _read_small_text(_NB_BINOP_LOCK + '/owner');
-    if (length(owner) > 0)
-        return !_pid_runs(owner, 'ucode') && !_pid_runs(owner, 'rpcd');
-    return time() - st.mtime > 600;
+    let state = _action_lock.marker_state();
+    return state.present && !state.busy;
 }
 
 // _progress_download_cmd(fetcher,out,secs,total) — 包装实际下载器,每秒写状态文件并响应取消。
@@ -2172,25 +2167,14 @@ function _do_get_binary_info(req) {
 }
 
 
-// ─── 二进制操作互斥(advisory lock)──────────────────────────────────────────────
-// rpcd 本身串行处理 ubus 调用,但「客户端 ubus 超时后重试 / 多会话并发」等边界仍可能让两个
-// 二进制操作交错。原子 mkdir 锁让第二个操作快速失败,而非交错破坏(下载/换 symlink/重启 daemon)。
-// 锁目录在 /tmp(tmpfs):进程被硬杀残留也会随重启自然清除;_binop_guard 用 try/catch 保证异常
-// 路径也释放锁。ucode 不 hoist:这三个 helper 定义在所有二进制 _do_* 之前。
-// 取锁失败时核实持有者,已不在则回收(见 _binop_lock_stale)。
-function _binop_lock() {
-    let q = shell_quote(_NB_BINOP_LOCK);
-    let r = _popen_simple('mkdir ' + q + ' 2>/dev/null && echo $PPID > ' + q + '/owner && echo OK');
-    if (trim(r.out) == 'OK')
-        return true;
-    if (!_binop_lock_stale())
-        return false;
-    _popen_simple('rm -rf ' + q + ' 2>/dev/null');
-    r = _popen_simple('mkdir ' + q + ' 2>/dev/null && echo $PPID > ' + q + '/owner && echo OK');
-    return trim(r.out) == 'OK';
+// Lifecycle and update callers share nonblocking kernel exclusion. The complete
+// legacy marker is published under that lease; killed owners enter bounded
+// orphan quarantine rather than being reclaimed on PID absence alone.
+function _binop_lock(owner) {
+    return _action_lock.acquire(owner || 'binary-operation').ok;
 }
 function _binop_unlock() {
-    _popen_simple('rm -rf ' + shell_quote(_NB_BINOP_LOCK) + ' 2>/dev/null');
+    return _action_lock.release();
 }
 // _sweep_binary_junk() — 清理历次二进制操作残留,防止累积撑爆存储(尤其 overlay)。
 //   由 _binop_guard 在每次操作前调用(已持锁,无并发,安全)。删:
@@ -2215,7 +2199,7 @@ function _binop_guard(fn, req, lifecycle) {
         return fn(req);
     if (_agent && _agent.busy())
         return err(CODE.INSTALL_FAILED, 'An agent transaction needs completion or recovery.');
-    if (!_binop_lock())
+    if (!_binop_lock(lifecycle ? 'lifecycle' : 'binary-operation'))
         return err(CODE.INSTALL_FAILED, 'Another binary operation is in progress; please wait and try again.');
     _binop_depth++;
     try {
@@ -3061,7 +3045,7 @@ if (getenv('NB_AGENT_WORKER') == '1')
         if (command == 'recover' || command == 'boot') return _schedule.recover(command == 'boot');
         if (command == 'recover-retry') return _schedule.recover(false, true);
         if (command == 'deadline') return _agent.wait_deadline();
-        if (command == 'guard') return ok({ allowed: !_agent.busy() && (!access(_NB_BINOP_LOCK, 'f') || _binop_lock_stale()) });
+        if (command == 'guard') return ok({ allowed: !_agent.busy() && _action_lock.available() });
         if (command == 'status') return _schedule.status();
         if (command == 'check') return _schedule.check();
         if (command == 'cancel') return _schedule.cancel();

@@ -13,8 +13,11 @@ var startCheck = rpc.declare({ object: 'luci.netbird.health', method: 'start_che
 var getJob = rpc.declare({ object: 'luci.netbird.health', method: 'get_job', params: ['id'], expect: {} });
 var exportEvidence = rpc.declare({ object: 'luci.netbird.health', method: 'prepare_export', params: ['id', 'offset'], expect: {} });
 var notify = rpc.declare({ object: 'luci.netbird.health', method: 'test_notification', expect: {} });
+var prepareRecovery = rpc.declare({ object: 'luci.netbird.health', method: 'prepare_recovery', params: ['expected_revision'], expect: {} });
+var startRecovery = rpc.declare({ object: 'luci.netbird.health', method: 'start_recovery', params: ['id', 'expected_revision', 'confirmed'], expect: {} });
+var getRecoveryJob = rpc.declare({ object: 'luci.netbird.health', method: 'get_recovery_job', params: ['id'], expect: {} });
 var access = rpc.declare({ object: 'session', method: 'access', params: ['scope', 'object', 'function'], expect: { access: false } });
-var methods = ['start_check', 'set_config', 'prepare_export', 'test_notification'];
+var methods = ['start_check', 'set_config', 'prepare_export', 'test_notification', 'start_recovery'];
 
 return view.extend({
  load: function () {
@@ -27,6 +30,10 @@ return view.extend({
   var summaryBox = E('section', { 'aria-live': 'polite' }), issueBox = E('section'), evidenceBox = E('section');
   var eventBox = E('section'), message = E('p', { 'role': 'status', 'aria-live': 'polite' });
   var alertBox = E('section', { 'id': 'nb-health-alert-state', 'aria-live': 'polite' });
+  var recoveryBox = E('section', { 'id': 'nb-health-recovery-result', 'aria-live': 'polite' });
+  var recoveryId = E('input', { 'type': 'text', 'maxlength': 32, 'aria-label': _('Recovery job ID for result query') });
+  var recoveryStorageKey = 'netbird-health-recovery-job';
+  try { recoveryId.value = window.localStorage.getItem(recoveryStorageKey) || ''; } catch (e) {}
   var configError = E('p', { 'class': 'alert-message warning' });
   var editor = E('textarea', { 'id': 'nb-health-config', 'rows': 20, 'spellcheck': 'false', 'aria-label': _('Approved health configuration JSON') });
   var path = E('select', { 'id': 'nb-health-path', 'aria-label': _('Approved path for immediate check') });
@@ -43,6 +50,7 @@ return view.extend({
    buttons.forEach(function (entry) {
     entry.node.disabled = busy || permissions[entry.permission] !== true ||
      (entry.permission === 0 && (!config || !config.monitor.enabled || !path.value || Object.keys(jobs).some(function (id) { return jobs[id] === 'check'; }))) ||
+     (entry.permission === 4 && entry.needsConfig && (!config || !config.monitor.enabled || Object.keys(jobs).some(function (id) { return jobs[id] === 'recovery'; }))) ||
      (entry.needsConfig && !config);
    });
    editor.disabled = busy || permissions[1] !== true || !config;
@@ -111,7 +119,7 @@ return view.extend({
   }
   function button(label, permission, fn, needsConfig) {
    var node = E('button', { 'type': 'button', 'class': 'btn cbi-button cbi-button-action', 'click': action(permission, fn) }, label);
-   buttons.push({ node: node, permission: permission, needsConfig: permission === 1 && needsConfig !== false }); return node;
+   buttons.push({ node: node, permission: permission, needsConfig: needsConfig === true || permission === 1 && needsConfig !== false }); return node;
   }
   function track(data, kind) {
    if (!data.job || !data.job.id) throw new Error(_('Missing job identifier; submission outcome unknown, do not automatically retry.'));
@@ -121,15 +129,18 @@ return view.extend({
   }
   function readJobs() {
    return Promise.all(Object.keys(jobs).map(function (id) {
-    return getJob(id).then(health.checked).then(function (data) {
+    return (jobs[id] === 'recovery' ? getRecoveryJob(id) : getJob(id)).then(health.checked).then(function (data) {
      var job = data.job;
      if (!job || !job.state) throw new Error(_('Invalid job response'));
+     if (jobs[id] === 'recovery') dom.content(recoveryBox, [ E('h3', {}, _('Managed restart result — not command-exit proof')),
+      E('p', {}, _('Required fresh rules, routes, actual forwarding and business vantages determine recovery. Missing LAN evidence never becomes green. No automatic resubmission.')),
+      E('pre', {}, health.literal(job)) ]);
      if (job.state !== 'queued' && job.state !== 'running') {
-      say(_('Backend job finished: ') + id + ' — ' + job.state + ' / ' + health.text(job.result || job.reason || job.delivery_state) +
+      say(_('Backend job finished: ') + id + ' — ' + job.state + ' / ' + health.text(job.outcome || job.result || job.reason || job.delivery_state) +
        (jobs[id] === 'notification' ? ' (' + _('receipt not verified') + ')' : ''));
       delete jobs[id];
      }
-    }).catch(function (error) { say(id + ': ' + error.message + ' (' + _('outcome unknown; no automatic resubmission') + ')'); delete jobs[id]; });
+    }).catch(function (error) { say(id + ': ' + error.message + ' (' + _('outcome unknown; retain the ID and query it, no automatic resubmission') + ')'); delete jobs[id]; });
    })).then(updateControls);
   }
   function save(next) {
@@ -148,6 +159,41 @@ return view.extend({
      E('button', { 'class': 'btn', 'click': function () { ui.hideModal(); resolve(); } }, _('Cancel')),
      E('button', { 'class': 'btn cbi-button-positive', 'click': function () { ui.hideModal(); resolve(Promise.resolve().then(function () { return save(next); })); } }, _('Confirm'))
     ]);
+   });
+  }
+  function queryRecovery() {
+   var id = recoveryId.value.trim();
+   if (!/^[0-9a-f]{32}$/.test(id)) throw new Error(_('Enter the 32-character recovery job ID.'));
+   jobs[id] = 'recovery'; return readJobs();
+  }
+  function confirmRecovery() {
+   if (!config) throw new Error(_('Health configuration unavailable.'));
+   return prepareRecovery(config.revision).then(health.checked).then(function (prepared) {
+    if (!/^[0-9a-f]{32}$/.test(prepared.id) || prepared.operation !== 'managed_agent_restart' || !Number.isInteger(prepared.revision))
+     throw new Error(_('Invalid recovery confirmation.'));
+    return new Promise(function (resolve) {
+     var agreed = E('input', { 'type': 'checkbox' }), accepted = false;
+     var confirm = E('button', { 'class': 'btn cbi-button-negative', 'disabled': true, 'click': function () {
+      if (accepted || !agreed.checked) return;
+      accepted = true; confirm.disabled = true; ui.hideModal();
+      // Retain the non-secret ID before submission; a lost reply must only be
+      // queried, never automatically confirmed or restarted a second time.
+      recoveryId.value = prepared.id; jobs[prepared.id] = 'recovery';
+      try { window.localStorage.setItem(recoveryStorageKey, prepared.id); } catch (e) {}
+      say(_('Recovery job ID (retain for reconnect): ') + prepared.id);
+      resolve(startRecovery(prepared.id, prepared.revision, true).then(health.checked).then(function (data) {
+       if (!data.job || data.job.id !== prepared.id) throw new Error(_('Recovery acknowledgement missing; query the saved ID, do not resubmit.'));
+       return readJobs();
+      }));
+     } }, _('Confirm one managed agent restart'));
+     agreed.addEventListener('change', function () { confirm.disabled = !agreed.checked || accepted; });
+     ui.showModal(_('Restart managed NetBird agent?'), [
+      E('p', { 'class': 'alert-message warning' }, health.literal(prepared.impact)),
+      E('p', {}, _('Authenticated operator: ') + health.text(prepared.actor) + ' — ' + _('Operation: managed service restart once; no down/up, login or route repair.')),
+      E('details', {}, [ E('summary', {}, _('Evidence before confirmation (sampled, not current proof)')), E('pre', {}, health.literal(prepared.evidence)) ]),
+      E('label', {}, [ agreed, ' ', _('I understand that the Mesh connection and this page may disconnect. I explicitly approve this one restart.') ]),
+      E('div', { 'class': 'right' }, [ E('button', { 'class': 'btn', 'click': function () { if (!accepted) { accepted = true; ui.hideModal(); resolve(); } } }, _('Cancel')), confirm ]) ]);
+    });
    });
   }
   function download() {
@@ -178,7 +224,7 @@ return view.extend({
   }
   box.appendChild(E('h2', {}, _('NetBird — Health inspection')));
   box.appendChild(E('p', {}, _('Browser polling reads cached results only. Backend scheduling survives closing this page. No automatic route repair is provided.')));
-  box.appendChild(E('p', {}, _('Actions require separate run / configuration / export / notification permissions. Disabled controls do not grant authority.')));
+  box.appendChild(E('p', {}, _('Actions require separate run / configuration / export / notification / recovery permissions. Disabled controls do not grant authority.')));
   box.appendChild(summaryBox); box.appendChild(message);
   box.appendChild(alertBox);
   box.appendChild(E('div', { 'class': 'nb-health-actions' }, [ path,
@@ -191,6 +237,10 @@ return view.extend({
       E('button', { 'class': 'btn cbi-button-positive', 'click': function () { ui.hideModal(); resolve(notify().then(health.checked).then(function (data) { track(data, 'notification'); })); } }, _('Send test')) ]);
     });
    }) ]));
+  box.appendChild(E('div', { 'class': 'nb-health-actions' }, [
+   button(_('Recover: restart managed agent…'), 4, confirmRecovery, true), recoveryId,
+   button(_('Query recovery job only (no restart)'), 4, queryRecovery, false) ]));
+  box.appendChild(recoveryBox);
   box.appendChild(issueBox); box.appendChild(evidenceBox); box.appendChild(eventBox);
   var configuration = E('details', { 'id': 'nb-health-configuration' }, [ E('summary', {}, _('Approved monitoring configuration (JSON)')), configError,
    E('label', { 'for': 'nb-health-config' }, _('Complete configuration: monitor interval, paths, endpoints, approval and notification ownership. No secrets.')),
@@ -199,6 +249,7 @@ return view.extend({
     button(_('Reload configuration / discard edits'), 1, function () { return readConfig(true); }, false) ]) ]);
   box.appendChild(configuration);
   draw(); updateControls(); readConfig(true); refresh();
+  if (permissions[4] === true && /^[0-9a-f]{32}$/.test(recoveryId.value)) { jobs[recoveryId.value] = 'recovery'; readJobs(); }
   poll.add(function tick() {
    if (!box.isConnected) { if (attached) poll.remove(tick); return Promise.resolve(); }
    attached = true; draw(); return Promise.all([refresh(), readJobs()]);

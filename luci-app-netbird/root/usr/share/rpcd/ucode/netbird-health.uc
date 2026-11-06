@@ -2,8 +2,11 @@
 import * as health from '/usr/share/netbird/health/api.uc';
 import { prepare_export } from '/usr/share/netbird/health/export.uc';
 import { test_notification } from '/usr/share/netbird/health/notification.uc';
+import { connect } from 'ubus';
+import * as recovery from '/usr/share/netbird/health/recovery.uc';
 const envelope = loadfile('/usr/share/rpcd/ucode/lib/envelope.uc')();
 const CODE = envelope.CODE;
+const session_bus = connect(null, 2);
 function handler(method) {
     return function(request) {
         try {
@@ -24,6 +27,22 @@ function handler(method) {
         catch (e) { return envelope.err(CODE.INTERNAL_ERROR, 'HEALTH_OPERATION_FAILED'); }
     };
 }
+function authenticated(method) {
+    return function(request) {
+        let args = request.args || {}, sid = args.ubus_rpc_session;
+        if (!session_bus || type(sid) != 'string' || !match(sid, /^[0-9a-f]{32}$/))
+            return envelope.err(CODE.PERMISSION_DENIED, 'RECOVERY_DENIED');
+        // A synchronous call into our own rpcd cannot advance its session loop.
+        // Return the native deferred request, keeping SID only in this closure.
+        return session_bus.defer('session', 'get', { ubus_rpc_session: sid }, function(code, session) {
+            let actor = session?.values?.username;
+            if (code != 0 || type(actor) != 'string' || !match(actor, /^[A-Za-z0-9_.@+-]{1,96}$/)) {
+                request.reply(envelope.err(CODE.PERMISSION_DENIED, 'RECOVERY_DENIED')); return;
+            }
+            request.reply(handler(() => method(args, actor))({ args: {} }));
+        });
+    };
+}
 return {
     'luci.netbird.health': {
         get_summary: { args: {}, call: handler(health.get_summary) },
@@ -34,6 +53,9 @@ return {
         get_job: { args: { id: '' }, call: handler(health.get_job) },
         prepare_export: { args: { id: '', offset: 0 }, call: handler(prepare_export) },
         test_notification: { args: {}, call: handler(test_notification) },
+        prepare_recovery: { args: { expected_revision: 0 }, call: authenticated(recovery.prepare_recovery) },
+        start_recovery: { args: { id: '', expected_revision: 0, confirmed: false }, call: authenticated(recovery.start_recovery) },
+        get_recovery_job: { args: { id: '' }, call: authenticated(recovery.get_recovery_job) },
         set_config: { args: { config: {}, expected_revision: 0 }, call: handler(health.set_config) }
     }
 };

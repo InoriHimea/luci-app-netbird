@@ -122,4 +122,4 @@ function prepare_export(args) {
     if (args.offset != null) return { ok: false, reason: 'EXPORT_INVALID' };
     return exports.create(read_json('/tmp/netbird-health/latest.json', 524288));
 }
-export { create_exports, prepare_export };
+export { evidence, create_exports, prepare_export };

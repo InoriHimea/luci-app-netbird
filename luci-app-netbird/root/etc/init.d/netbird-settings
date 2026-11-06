@@ -362,16 +362,20 @@ service_triggers() {
 
 # reload_service —— 应用入口（被 reload / Save&Apply 触发调用）。
 reload_service() {
-	local bin rc
-	if [ "$NB_DRY_RUN" != "1" ] && { [ -f /etc/netbird-update/transaction.json ] || [ -d /tmp/nb-binop.lock ]; }; then
-		if ! NB_AGENT_WORKER=1 ucode /usr/share/netbird/agent-update-worker.uc guard >/dev/null 2>&1; then
-			mkdir -p /etc/netbird-update
-			chmod 0700 /etc/netbird-update
-			touch /etc/netbird-update/settings.pending
-			logger -t "$TAG" "agent maintenance active; settings application deferred"
-			return 1
-		fi
-	fi
+    local bin rc action_result
+    if [ "$NB_DRY_RUN" != "1" ] && [ "$NB_SETTINGS_ACTION_HELD" != "1" ]; then
+        action_result="$(NB_ACTION_WORKER=1 ucode /usr/share/netbird/action-worker.uc settings)"
+        rc=$?
+        if [ "$action_result" = "ACTION_DEFERRED" ] && [ "$rc" -eq 75 ]; then
+            mkdir -p /etc/netbird-update
+            chmod 0700 /etc/netbird-update
+            touch /etc/netbird-update/settings.pending
+            logger -t "$TAG" "agent action active; settings application deferred"
+        elif [ -n "$action_result" ]; then
+            printf '%s\n' "$action_result" >&2
+        fi
+        return "$rc"
+    fi
 
 	bin="$(_resolve_bin)" || {
 		echo "$TAG: netbird binary not found" >&2

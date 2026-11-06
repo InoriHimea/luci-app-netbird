@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { mkdtemp, open, unlink, rmdir, access, glob, lstat } from 'fs';
+import { mkdtemp, open, unlink, rmdir, access, glob, lstat, popen } from 'fs';
 import { private_dir } from './storage.uc';
 
 const LIMIT = 65536;
@@ -20,6 +20,7 @@ const LAUNCH = 'umask 077; echo $$ > "$1/pid"; ulimit -f 128 || exit 125; d="$1"
     + 'export NB_HEALTH_DEADLINE_MS="$3"; shift 3; exec "$@" > "$d/out" 2> "$d/err"';
 // Only trusted system tools are allowed: no daemonization/setsid descendants.
 const DRAIN = 'kill -0 "-$1" 2>/dev/null || exit 0; kill -9 "-$1" 2>/dev/null';
+const GROUP_GONE = 'kill -0 "-$1" 2>/dev/null && exit 1; exit 0';
 function monotonic_ms() {
     let t = clock(true);
     return t[0] * 1000 + int(t[1] / 1000000);
@@ -34,16 +35,22 @@ function bounded_read(path, size) {
 // Internal primitive: fixed system tools and caller-validated operands only.
 // Collection callers are read-only; the notification worker owns the explicit
 // approved POST. Never pass arbitrary RPC commands, paths or targets here.
-function run_command(argv, timeout_ms) {
+function execute_command(argv, timeout_ms, absolute_deadline) {
     let start = monotonic_ms();
     let result = { ok: false, reason: 'RUNNER_ERROR', exit_code: null,
-        stdout: '', output_bytes: 0, json_unsupported: false, duration_ms: 0 };
-    if (type(timeout_ms) != 'int' || timeout_ms <= 0 || timeout_ms > 20000)
+        stdout: '', output_bytes: 0, json_unsupported: false, duration_ms: 0,
+        invoked: false, cleanup_confirmed: false };
+    if (type(timeout_ms) != 'int' || timeout_ms <= 0 || timeout_ms > 120000)
         return result;
     if (type(argv) != 'array' || !length(argv) || type(argv[0]) != 'string')
         return result;
     for (let arg in argv)
         if (type(arg) != 'string' || index(arg, '\x00') >= 0) return result;
+    if (absolute_deadline != null) {
+        if (type(absolute_deadline) != 'int') return result;
+        timeout_ms = min(timeout_ms, absolute_deadline - start);
+        if (timeout_ms <= 0) { result.reason = 'TIMEOUT'; return result; }
+    }
     let inherited = getenv('NB_HEALTH_DEADLINE_MS');
     if (inherited != null) {
         if (!match(inherited, /^[0-9]+$/)) return result;
@@ -65,8 +72,16 @@ function run_command(argv, timeout_ms) {
         let budget = max(1, timeout_ms - min(100, int(timeout_ms / 4)));
         let cmd = ['/bin/busybox', 'setsid', '/bin/sh', '-c', LAUNCH, 'health-command', dir, GUARD, '' + (start + budget)];
         for (let arg in argv) push(cmd, arg);
-        // Reserve bounded cleanup time within the requested execution budget.
-        rc = system(cmd, budget);
+        // Native ucode system(argv, timeout) passes blocked SIGCHLD to the
+        // child; ash's bounded command-substitution waits can then deadlock.
+        // libc popen preserves the mask. Every argument uses the existing
+        // POSIX single-quote convention; the pre-exec guard still owns the
+        // independent deadline and the entire process group.
+        let program = join(' ', map(cmd, value => "'" + replace(value, "'", "'\\''") + "'"));
+        result.invoked = true;
+        let child = popen(program, 'r');
+        if (!child) die('COMMAND_SPAWN_FAILED');
+        child.read('all'); rc = child.close();
         result.stdout = bounded_read(dir + '/out', LIMIT);
         let stderr = bounded_read(dir + '/err', LIMIT);
         result.output_bytes = length(result.stdout) + length(stderr);
@@ -76,7 +91,7 @@ function run_command(argv, timeout_ms) {
         result.exit_code = rc >= 0 ? rc : null;
         if (length(result.stdout) >= LIMIT || length(stderr) >= LIMIT)
             result.reason = 'OUTPUT_LIMIT';
-        else if (rc == -9)
+        else if (rc == -9 || (rc == 137 && monotonic_ms() >= start + budget))
             result.reason = 'TIMEOUT';
         else if (rc != 0)
             result.reason = 'COMMAND_FAILED';
@@ -93,10 +108,21 @@ function run_command(argv, timeout_ms) {
     // before exec; absence cannot be treated as a successful invocation.
     try {
         pid = bounded_read(dir + '/pid', 32);
-        if (match(pid, /^[0-9]+\n$/) && int(pid) > 1)
-            drained = system(['/bin/sh', '-c', DRAIN, 'health-cleanup', '' + int(pid)], 100) == 0;
+        if (match(pid, /^[0-9]+\n$/) && int(pid) > 1 &&
+            system(['/bin/sh', '-c', DRAIN, 'health-cleanup', '' + int(pid)], 100) == 0) {
+            // SIGKILL delivery can succeed while a group member is still in
+            // uninterruptible sleep. Never release action ownership on that
+            // acknowledgement alone; require observed group disappearance.
+            let until = monotonic_ms() + 100;
+            while (true) {
+                drained = system(['/bin/sh', '-c', GROUP_GONE, 'health-drain', '' + int(pid)], 100) == 0;
+                if (drained || monotonic_ms() >= until) break;
+                sleep(5);
+            }
+        }
     }
     catch (e) { drained = false; }
+    result.cleanup_confirmed = drained;
     if (!drained) {
         result.ok = false;
         if (result.reason != 'TIMEOUT') result.reason = 'CLEANUP_UNCONFIRMED';
@@ -110,6 +136,27 @@ function run_command(argv, timeout_ms) {
         result.reason = 'TIMEOUT';
     }
     return result;
+}
+function run_command(argv, timeout_ms) {
+    // Collection retains its existing 20s maximum; action timeouts cannot be
+    // selected by a collector or supplied through health configuration/RPC.
+    return execute_command(argv, type(timeout_ms) == 'int' && timeout_ms <= 20000 ? timeout_ms : 0);
+}
+function run_action_command(action) {
+    // The outer native reload already owns procd's service lock. Re-enter only
+    // its existing settings body, not rc.common/procd's locking wrapper.
+    if (action == 'settings') return execute_command(['/bin/sh', '-c',
+        '. /etc/init.d/netbird-settings; NB_SETTINGS_ACTION_HELD=1 reload_service'], 120000);
+    if (action == 'restart') return execute_command(['/etc/init.d/netbird', 'restart'], 20000);
+    return execute_command([], 0);
+}
+function run_recovery_worker(id, deadline_ms) {
+    // Private fixed executable/operand, not a general long-command RPC. The
+    // absolute claim deadline cannot be renewed by delayed worker dispatch.
+    if (type(id) != 'string' || !match(id, /^[0-9a-f]{32}$/) || type(deadline_ms) != 'int' ||
+        deadline_ms > monotonic_ms() + 45000) return execute_command([], 0);
+    return execute_command(['/usr/bin/ucode', '/usr/share/netbird/health/recovery-worker.uc', id],
+        45000, deadline_ms);
 }
 
 // Exclusive lease proves no live owner or independently armed guard can still
@@ -134,4 +181,4 @@ function cleanup_commands() {
     lease.close();
     return true;
 }
-export { run_command, monotonic_ms, cleanup_commands };
+export { run_command, run_action_command, run_recovery_worker, monotonic_ms, cleanup_commands };

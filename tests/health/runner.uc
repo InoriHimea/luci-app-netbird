@@ -8,6 +8,15 @@ function check(value, label) {
 }
 let r = run_command(['/bin/busybox', 'printf', '%s', '$(touch /tmp/nbh-injected);literal'], 1000);
 check(r.ok && r.stdout == '$(touch /tmp/nbh-injected);literal' && !access('/tmp/nbh-injected'), 'arguments remain literal');
+let quoted = "' ; touch /tmp/nbh-quote-injected; printf '";
+r = run_command(['/bin/busybox', 'printf', '%s', quoted], 1000);
+check(r.ok && r.stdout == quoted && !access('/tmp/nbh-quote-injected'), 'all embedded single quotes remain literal');
+r = run_command(['/bin/sh', '-c',
+    '. ./luci-app-netbird/root/usr/share/netbird/nb-run-bounded.sh; _NB_HAS_TIMEOUT=0; '
+    + 'value="$(nb_run_bounded 2 /bin/sh -c \'sleep 1; printf bounded-substitution\')"; '
+    + '[ "$value" = bounded-substitution ] && printf "%s" "$value"'], 3500);
+check(r.ok && r.cleanup_confirmed && r.stdout == 'bounded-substitution',
+    'native settings-style bounded command substitution reaps children without SIGCHLD deadlock');
 r = run_command(['/no-such-health-tool'], 1000);
 check(!r.ok && r.reason == 'TOOL_MISSING', 'missing tool is not empty success');
 r = run_command(['/bin/sh', '-c', 'printf partial; exit 7'], 1000);

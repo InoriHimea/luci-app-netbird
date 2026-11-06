@@ -30,5 +30,11 @@
     "write": {
       "ubus": { "luci.netbird.health": ["test_notification"] }
     }
+  },
+  "luci-app-netbird-health-recover": {
+    "description": "Confirm and query one audited managed NetBird restart; distinct from read-only checks",
+    "write": {
+      "ubus": { "luci.netbird.health": ["prepare_recovery", "start_recovery", "get_recovery_job"] }
+    }
   }
 }
