@@ -1,0 +1,361 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:netbird-health:run:1",
+  "title": "NetBird health run schema v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "node_id",
+    "boot_id",
+    "generation",
+    "started_at",
+    "finished_at",
+    "monotonic_duration_ms",
+    "config_revision",
+    "overall",
+    "flags",
+    "coverage",
+    "checks",
+    "events_cursor",
+    "delivery_state",
+    "expected_count",
+    "executed_count",
+    "pass_count",
+    "fail_count",
+    "unknown_count",
+    "not_applicable_count",
+    "disabled_count"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "run_id": {
+      "type": "string",
+      "maxLength": 96,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+    },
+    "node_id": {
+      "type": "string",
+      "maxLength": 96,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+    },
+    "boot_id": {
+      "type": "string",
+      "maxLength": 96,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+    },
+    "generation": {
+      "type": "string",
+      "maxLength": 256
+    },
+    "started_at": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2147483647
+    },
+    "finished_at": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2147483647
+    },
+    "monotonic_duration_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 20000
+    },
+    "config_revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2147483647
+    },
+    "overall": {
+      "enum": [
+        "healthy",
+        "degraded",
+        "unhealthy",
+        "unknown",
+        "disabled"
+      ]
+    },
+    "flags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checking",
+        "maintenance",
+        "stale"
+      ],
+      "properties": {
+        "checking": {
+          "type": "boolean"
+        },
+        "maintenance": {
+          "type": "boolean"
+        },
+        "stale": {
+          "type": "boolean"
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "local_structure",
+        "forward_lookup",
+        "router_probe",
+        "lan_probe",
+        "external_observer"
+      ],
+      "properties": {
+        "local_structure": {
+          "enum": [
+            "healthy",
+            "degraded",
+            "unhealthy",
+            "unknown",
+            "disabled"
+          ]
+        },
+        "forward_lookup": {
+          "enum": [
+            "healthy",
+            "degraded",
+            "unhealthy",
+            "unknown",
+            "disabled"
+          ]
+        },
+        "router_probe": {
+          "enum": [
+            "healthy",
+            "degraded",
+            "unhealthy",
+            "unknown",
+            "disabled"
+          ]
+        },
+        "lan_probe": {
+          "enum": [
+            "healthy",
+            "degraded",
+            "unhealthy",
+            "unknown",
+            "disabled"
+          ]
+        },
+        "external_observer": {
+          "enum": [
+            "healthy",
+            "degraded",
+            "unhealthy",
+            "unknown",
+            "disabled"
+          ]
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "category",
+          "status",
+          "severity",
+          "code",
+          "expected",
+          "observed",
+          "vantage",
+          "source",
+          "target",
+          "evidence_ref",
+          "sampled_at",
+          "last_success_at",
+          "fresh",
+          "retryable",
+          "required",
+          "executed",
+          "duration_ms",
+          "exit_code",
+          "parse_status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 96,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 48
+          },
+          "status": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "UNKNOWN",
+              "NOT_APPLICABLE",
+              "DISABLED"
+            ]
+          },
+          "severity": {
+            "enum": [
+              "info",
+              "warning",
+              "critical"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          },
+          "expected": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 4096
+          },
+          "observed": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 4096
+          },
+          "vantage": {
+            "enum": [
+              "local_structure",
+              "forward_lookup",
+              "router_probe",
+              "lan_probe",
+              "external_observer"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "target": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "evidence_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 128
+          },
+          "sampled_at": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "last_success_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "fresh": {
+            "type": "boolean"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "executed": {
+            "type": "boolean"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20000
+          },
+          "exit_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 255
+          },
+          "parse_status": {
+            "enum": [
+              "ok",
+              "unsupported",
+              "malformed",
+              "truncated",
+              "not_run"
+            ]
+          }
+        }
+      }
+    },
+    "events_cursor": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 96
+    },
+    "delivery_state": {
+      "enum": [
+        "not_requested",
+        "pending",
+        "submitted",
+        "delivered",
+        "failed",
+        "unknown"
+      ]
+    },
+    "expected_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 512
+    },
+    "executed_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 512
+    },
+    "pass_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 512
+    },
+    "fail_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 512
+    },
+    "unknown_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 512
+    },
+    "not_applicable_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 512
+    },
+    "disabled_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 512
+    }
+  }
+}

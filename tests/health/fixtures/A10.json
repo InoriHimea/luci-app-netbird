@@ -1,0 +1,95 @@
+{
+  "fixture": "A10",
+  "provenance": "synthetic; not a production capture",
+  "intent": {
+    "approved": true,
+    "destination": "198.51.100.0/24",
+    "source": "192.0.2.10",
+    "ingress_interface": "br-lan",
+    "allowed_egress": [
+      "wt0"
+    ]
+  },
+  "options": {},
+  "checks": [
+    {
+      "id": "native-rule",
+      "category": "forwarding",
+      "status": "PASS",
+      "severity": "critical",
+      "code": "OK",
+      "expected": "approved path",
+      "observed": "synthetic observation",
+      "vantage": "local_structure",
+      "source": "192.0.2.10",
+      "target": "198.51.100.10",
+      "evidence_ref": "fixture:native-rule",
+      "sampled_at": 1793923200,
+      "last_success_at": 1793923200,
+      "fresh": true,
+      "retryable": false,
+      "required": true,
+      "executed": true,
+      "duration_ms": 1,
+      "exit_code": 0,
+      "parse_status": "ok"
+    },
+    {
+      "id": "forward",
+      "category": "forwarding",
+      "status": "PASS",
+      "severity": "critical",
+      "code": "OK",
+      "expected": "approved path",
+      "observed": "synthetic observation",
+      "vantage": "forward_lookup",
+      "source": "192.0.2.10",
+      "target": "198.51.100.10",
+      "evidence_ref": "fixture:forward",
+      "sampled_at": 1793923200,
+      "last_success_at": 1793923200,
+      "fresh": true,
+      "retryable": false,
+      "required": true,
+      "executed": true,
+      "duration_ms": 1,
+      "exit_code": 0,
+      "parse_status": "ok"
+    },
+    {
+      "id": "business",
+      "category": "forwarding",
+      "status": "UNKNOWN",
+      "severity": "critical",
+      "code": "NOT_CONFIGURED",
+      "expected": "approved path",
+      "observed": null,
+      "vantage": "lan_probe",
+      "source": "192.0.2.10",
+      "target": "198.51.100.10",
+      "evidence_ref": "fixture:business",
+      "sampled_at": 1793923200,
+      "last_success_at": null,
+      "fresh": false,
+      "retryable": true,
+      "required": true,
+      "executed": false,
+      "duration_ms": 0,
+      "exit_code": null,
+      "parse_status": "not_run"
+    }
+  ],
+  "expected": {
+    "overall": "unknown",
+    "expected_count": 3,
+    "executed_count": 2,
+    "unknown_count": 1,
+    "coverage": {
+      "local_structure": "healthy",
+      "lan_probe": "unknown"
+    }
+  },
+  "raw": {
+    "lan_probe_configured": false
+  }
+}

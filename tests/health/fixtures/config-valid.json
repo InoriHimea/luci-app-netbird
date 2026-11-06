@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "revision": 0,
+  "monitor": {
+    "enabled": false,
+    "interval": 60,
+    "cycle_timeout": 20,
+    "event_watch": false,
+    "grace_period": 30,
+    "history_limit": 100
+  },
+  "node": {
+    "stable_node_id": "fixture-node",
+    "role": "standalone",
+    "expected_connection_intent": "connected",
+    "baseline_revision": 1
+  },
+  "paths": [
+    {
+      "id": "example-path",
+      "raw_cidr": "198.51.100.0/24",
+      "normalized_cidr": "198.51.100.0/24",
+      "approval": {
+        "approved": true,
+        "approved_by": "fixture-admin",
+        "approved_at": 1793923200,
+        "baseline_revision": 1
+      },
+      "source_ip": "192.0.2.10",
+      "ingress_interface": "br-lan",
+      "destination": "198.51.100.10",
+      "allowed_egress": [
+        "mesh7"
+      ],
+      "expected_prefix": "198.51.100.0/24",
+      "optional_mark": null,
+      "required": true,
+      "enabled": false
+    }
+  ],
+  "endpoints": [],
+  "exceptions": [],
+  "notification": {
+    "owner": "none",
+    "failure_threshold": 3,
+    "recovery_threshold": 2,
+    "reminder": false,
+    "sink_ref": null
+  }
+}

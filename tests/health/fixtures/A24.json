@@ -1,0 +1,79 @@
+{
+  "fixture": "A24",
+  "provenance": "synthetic; not a production capture",
+  "intent": {
+    "approved": true,
+    "destination": "198.51.100.0/24",
+    "source": "192.0.2.10",
+    "ingress_interface": "br-lan",
+    "allowed_egress": [
+      "wt0"
+    ]
+  },
+  "options": {},
+  "checks": [
+    {
+      "id": "native-rule",
+      "category": "forwarding",
+      "status": "FAIL",
+      "severity": "critical",
+      "code": "NATIVE_RULE_DRIFT",
+      "expected": "approved path",
+      "observed": "synthetic observation",
+      "vantage": "local_structure",
+      "source": "192.0.2.10",
+      "target": "198.51.100.10",
+      "evidence_ref": "fixture:native-rule",
+      "sampled_at": 1793923200,
+      "last_success_at": null,
+      "fresh": true,
+      "retryable": false,
+      "required": true,
+      "executed": true,
+      "duration_ms": 1,
+      "exit_code": 0,
+      "parse_status": "ok"
+    },
+    {
+      "id": "cause",
+      "category": "forwarding",
+      "status": "UNKNOWN",
+      "severity": "info",
+      "code": "CAUSE_UNDETERMINED",
+      "expected": "approved path",
+      "observed": "network reload and rule absence correlated in time; deleting actor unobserved",
+      "vantage": "external_observer",
+      "source": "192.0.2.10",
+      "target": "198.51.100.10",
+      "evidence_ref": "fixture:cause",
+      "sampled_at": 1793923200,
+      "last_success_at": null,
+      "fresh": true,
+      "retryable": true,
+      "required": true,
+      "executed": true,
+      "duration_ms": 1,
+      "exit_code": 0,
+      "parse_status": "ok"
+    }
+  ],
+  "expected": {
+    "overall": "unhealthy",
+    "expected_count": 2,
+    "unknown_count": 1
+  },
+  "raw": {
+    "events": [
+      {
+        "at": 1793923190,
+        "message": "network reload"
+      },
+      {
+        "at": 1793923200,
+        "message": "rule absent"
+      }
+    ],
+    "deleting_actor": null,
+    "audit_available": false
+  }
+}

@@ -1,0 +1,113 @@
+{
+  "fixture": "A04",
+  "provenance": "synthetic; not a production capture",
+  "intent": {
+    "approved": true,
+    "destination": "198.51.100.0/24",
+    "source": "192.0.2.10",
+    "ingress_interface": "br-lan",
+    "allowed_egress": [
+      "mesh7"
+    ]
+  },
+  "options": {},
+  "checks": [
+    {
+      "id": "native-rule",
+      "category": "forwarding",
+      "status": "PASS",
+      "severity": "critical",
+      "code": "OK",
+      "expected": "approved priority220 table9001 interface mesh7",
+      "observed": "priority220 table9001 interface mesh7",
+      "vantage": "local_structure",
+      "source": "192.0.2.10",
+      "target": "198.51.100.10",
+      "evidence_ref": "fixture:native-rule",
+      "sampled_at": 1793923200,
+      "last_success_at": 1793923200,
+      "fresh": true,
+      "retryable": false,
+      "required": true,
+      "executed": true,
+      "duration_ms": 1,
+      "exit_code": 0,
+      "parse_status": "ok"
+    },
+    {
+      "id": "forward",
+      "category": "forwarding",
+      "status": "PASS",
+      "severity": "critical",
+      "code": "OK",
+      "expected": "approved path",
+      "observed": "synthetic observation",
+      "vantage": "forward_lookup",
+      "source": "192.0.2.10",
+      "target": "198.51.100.10",
+      "evidence_ref": "fixture:forward",
+      "sampled_at": 1793923200,
+      "last_success_at": 1793923200,
+      "fresh": true,
+      "retryable": false,
+      "required": true,
+      "executed": true,
+      "duration_ms": 1,
+      "exit_code": 0,
+      "parse_status": "ok"
+    },
+    {
+      "id": "business",
+      "category": "forwarding",
+      "status": "PASS",
+      "severity": "critical",
+      "code": "OK",
+      "expected": "approved path",
+      "observed": "synthetic observation",
+      "vantage": "lan_probe",
+      "source": "192.0.2.10",
+      "target": "198.51.100.10",
+      "evidence_ref": "fixture:business",
+      "sampled_at": 1793923200,
+      "last_success_at": 1793923200,
+      "fresh": true,
+      "retryable": false,
+      "required": true,
+      "executed": true,
+      "duration_ms": 1,
+      "exit_code": 0,
+      "parse_status": "ok"
+    }
+  ],
+  "expected": {
+    "overall": "healthy",
+    "expected_count": 3,
+    "fail_count": 0
+  },
+  "raw": {
+    "agent": {
+      "status": "Connected"
+    },
+    "rules": [
+      {
+        "priority": 220,
+        "table": 9001,
+        "origin": "approved-native"
+      }
+    ],
+    "routes": [
+      {
+        "table": 9001,
+        "dst": "198.51.100.0/24",
+        "dev": "mesh7"
+      }
+    ],
+    "forward_query": {
+      "from": "192.0.2.10",
+      "iif": "br-lan",
+      "to": "198.51.100.10",
+      "dev": "mesh7",
+      "table": 9001
+    }
+  }
+}

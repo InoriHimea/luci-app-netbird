@@ -1,0 +1,373 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:netbird-health:config:1",
+  "title": "NetBird health approved configuration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "revision",
+    "monitor",
+    "node",
+    "paths",
+    "endpoints",
+    "exceptions",
+    "notification"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2147483647
+    },
+    "monitor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "interval",
+        "cycle_timeout",
+        "event_watch",
+        "grace_period",
+        "history_limit"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "interval": {
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 3600
+        },
+        "cycle_timeout": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "event_watch": {
+          "type": "boolean"
+        },
+        "grace_period": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 600
+        },
+        "history_limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stable_node_id",
+        "role",
+        "expected_connection_intent",
+        "baseline_revision"
+      ],
+      "properties": {
+        "stable_node_id": {
+          "type": "string",
+          "maxLength": 96,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+        },
+        "role": {
+          "enum": [
+            "standalone",
+            "primary",
+            "backup",
+            "observer"
+          ]
+        },
+        "expected_connection_intent": {
+          "enum": [
+            "connected",
+            "disconnected",
+            "disabled"
+          ]
+        },
+        "baseline_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        }
+      }
+    },
+    "paths": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "raw_cidr",
+          "normalized_cidr",
+          "approval",
+          "source_ip",
+          "ingress_interface",
+          "destination",
+          "allowed_egress",
+          "expected_prefix",
+          "optional_mark",
+          "required",
+          "enabled"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 96,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "raw_cidr": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "normalized_cidr": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[0-9a-fA-F:.]+/[0-9]{1,3}$"
+          },
+          "approval": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "approved",
+              "approved_by",
+              "approved_at",
+              "baseline_revision"
+            ],
+            "properties": {
+              "approved": {
+                "type": "boolean"
+              },
+              "approved_by": {
+                "type": "string",
+                "maxLength": 96
+              },
+              "approved_at": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              "baseline_revision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              }
+            }
+          },
+          "source_ip": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[0-9a-fA-F:.]+$"
+          },
+          "ingress_interface": {
+            "type": "string",
+            "maxLength": 15,
+            "pattern": "^[A-Za-z0-9_.:-]+$"
+          },
+          "destination": {
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9.:-]*$"
+          },
+          "allowed_egress": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "type": "string",
+              "maxLength": 15,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            }
+          },
+          "expected_prefix": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[0-9a-fA-F:.]+/[0-9]{1,3}$"
+          },
+          "optional_mark": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "endpoints": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "path_id",
+          "host",
+          "protocol",
+          "port",
+          "vantage",
+          "http_path",
+          "http_status",
+          "enabled",
+          "required"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 96,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "path_id": {
+            "type": "string",
+            "maxLength": 96,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "host": {
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9.:-]*$"
+          },
+          "protocol": {
+            "enum": [
+              "ICMP",
+              "TCP",
+              "HTTP",
+              "HTTPS",
+              "RDP"
+            ]
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "vantage": {
+            "enum": [
+              "router_probe",
+              "lan_probe",
+              "external_observer"
+            ]
+          },
+          "http_path": {
+            "type": "string",
+            "maxLength": 512,
+            "pattern": "^/[^\\r\\n]*$"
+          },
+          "http_status": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "required": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "exceptions": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "object_id",
+          "reason",
+          "authorization",
+          "expires_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 96,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "object_id": {
+            "type": "string",
+            "maxLength": 96,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "authorization": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "expires_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 2147483647
+          }
+        }
+      }
+    },
+    "notification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "owner",
+        "failure_threshold",
+        "recovery_threshold",
+        "reminder",
+        "sink_ref"
+      ],
+      "properties": {
+        "owner": {
+          "enum": [
+            "none",
+            "local",
+            "central"
+          ]
+        },
+        "failure_threshold": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "recovery_threshold": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "reminder": {
+          "type": "boolean"
+        },
+        "sink_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 96,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+        }
+      }
+    }
+  }
+}

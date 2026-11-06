@@ -1,0 +1,117 @@
+{
+  "fixture": "A02",
+  "provenance": "synthetic; not a production capture",
+  "intent": {
+    "approved": true,
+    "destination": "198.51.100.0/24",
+    "source": "192.0.2.10",
+    "ingress_interface": "br-lan",
+    "allowed_egress": [
+      "wt0"
+    ]
+  },
+  "options": {},
+  "checks": [
+    {
+      "id": "native-rule",
+      "category": "forwarding",
+      "status": "FAIL",
+      "severity": "warning",
+      "code": "NATIVE_RULE_DRIFT",
+      "expected": "approved path",
+      "observed": "synthetic observation",
+      "vantage": "local_structure",
+      "source": "192.0.2.10",
+      "target": "198.51.100.10",
+      "evidence_ref": "fixture:native-rule",
+      "sampled_at": 1793923200,
+      "last_success_at": null,
+      "fresh": true,
+      "retryable": false,
+      "required": true,
+      "executed": true,
+      "duration_ms": 1,
+      "exit_code": 0,
+      "parse_status": "ok"
+    },
+    {
+      "id": "forward",
+      "category": "forwarding",
+      "status": "PASS",
+      "severity": "critical",
+      "code": "OK",
+      "expected": "approved path",
+      "observed": "synthetic observation",
+      "vantage": "forward_lookup",
+      "source": "192.0.2.10",
+      "target": "198.51.100.10",
+      "evidence_ref": "fixture:forward",
+      "sampled_at": 1793923200,
+      "last_success_at": 1793923200,
+      "fresh": true,
+      "retryable": false,
+      "required": true,
+      "executed": true,
+      "duration_ms": 1,
+      "exit_code": 0,
+      "parse_status": "ok"
+    },
+    {
+      "id": "business",
+      "category": "forwarding",
+      "status": "PASS",
+      "severity": "critical",
+      "code": "OK",
+      "expected": "approved path",
+      "observed": "synthetic observation",
+      "vantage": "lan_probe",
+      "source": "192.0.2.10",
+      "target": "198.51.100.10",
+      "evidence_ref": "fixture:business",
+      "sampled_at": 1793923200,
+      "last_success_at": 1793923200,
+      "fresh": true,
+      "retryable": false,
+      "required": true,
+      "executed": true,
+      "duration_ms": 1,
+      "exit_code": 0,
+      "parse_status": "ok"
+    }
+  ],
+  "expected": {
+    "overall": "degraded",
+    "expected_count": 3,
+    "fail_count": 1,
+    "coverage": {
+      "local_structure": "degraded",
+      "lan_probe": "healthy"
+    }
+  },
+  "raw": {
+    "agent": {
+      "status": "Connected"
+    },
+    "routes": [
+      {
+        "table": 7120,
+        "dst": "198.51.100.0/24",
+        "dev": "wt0"
+      }
+    ],
+    "rules": [
+      {
+        "priority": 12100,
+        "table": 7120,
+        "origin": "temporary-fallback"
+      }
+    ],
+    "forward_query": {
+      "from": "192.0.2.10",
+      "iif": "br-lan",
+      "to": "198.51.100.10",
+      "dev": "wt0",
+      "table": 7120
+    }
+  }
+}

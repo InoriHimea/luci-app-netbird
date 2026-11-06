@@ -3,6 +3,13 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- NBH-11 health result/configuration schemas and pure ucode aggregation: approved expectations retain missing observations, stale/unexecuted checks remain UNKNOWN in fixed counts, fallback drift stays degraded, and absent LAN proof cannot produce all-green health. No monitor or active probe is enabled by this change.
+- Synthetic A01/A02/A04/A10/A24 model replay, a native OpenWrt test entrypoint, and source/fleet compatibility evidence under `docs/health/`.
+
 ## 0.2.0-r7 — 2026-10-17
 
 ### Added
