@@ -69,3 +69,26 @@
 .nb-sev-warn  { color: #e65100; }
 .nb-sev-info  { color: #1565c0; }
 .nb-sev-debug { color: #757575; }
+
+/* Independent health evidence: text labels remain meaningful without color. */
+.nb-health { min-width: 0; }
+.nb-health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .75em; }
+.nb-health-card { display: flex; flex-direction: column; gap: .4em; border: 1px solid #999; padding: .75em; min-width: 0; }
+.nb-health-state { display: inline-block; border: 1px solid currentColor; padding: .15em .5em; border-radius: .25em; }
+.nb-health-healthy, .nb-health-PASS { color: #246328; }
+.nb-health-unhealthy, .nb-health-FAIL { color: #b32222; }
+.nb-health-degraded { color: #945000; }
+.nb-health-unknown, .nb-health-UNKNOWN { color: #666; }
+.nb-health-actions { display: flex; flex-wrap: wrap; gap: .5em; margin: 1em 0; }
+.nb-health-actions select { max-width: 100%; min-width: 0; }
+.nb-health pre, .nb-health summary, .nb-health p { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+.nb-health pre { max-height: 24em; overflow: auto; }
+.nb-health details { border-top: 1px solid #999; padding: .75em 0; }
+.nb-health summary { cursor: pointer; }
+.nb-health textarea { box-sizing: border-box; width: 100%; max-width: 100%; font-family: monospace; }
+@media (max-width: 600px) {
+	.nb-health-grid { grid-template-columns: 1fr; }
+	.nb-health .nb-pair { display: block; }
+	.nb-health .nb-pair-label, .nb-health .nb-pair-value { display: block; }
+	.nb-health-actions > * { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+}

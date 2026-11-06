@@ -4,9 +4,6 @@
 		"order": 45,
 		"action": {
 			"type": "firstchild"
-		},
-		"depends": {
-			"acl": [ "luci-app-netbird" ]
 		}
 	},
 	"admin/services/netbird/overview": {
@@ -51,6 +48,17 @@
 		},
 		"depends": {
 			"acl": [ "luci-app-netbird" ]
+		}
+	},
+	"admin/services/netbird/health": {
+		"title": "Health inspection",
+		"order": 32,
+		"action": {
+			"type": "view",
+			"path": "netbird/health"
+		},
+		"depends": {
+			"acl": [ "luci-app-netbird-health-read" ]
 		}
 	},
 	"admin/services/netbird/network": {

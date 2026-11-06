@@ -6,6 +6,7 @@
 'require dom';
 'require ui';
 'require view.netbird.dom-helpers as nb';
+'require view.netbird.health-common as health';
 
 // 状态 Tab —— 完整仪表盘（连接信息块 + Peers 表 + L.Poll 轮询）。
 // 数据层：get_status(5 态闸) + get_connection_info(running 顶层概览) + list_peers(peer details 数组)。
@@ -280,6 +281,7 @@ return view.extend({
 		var container = E('div', { 'class': 'cbi-map' }, [
 			E('h2', {}, _('NetBird') + ' — ' + _('Status'))
 		]);
+		container.appendChild(health.compact());
 
 		var backendWarn = renderIfaceBackendWarning(ifaceBackend,
 			ui.createHandlerFn(this, 'handleInstallIfaceBackend'));
