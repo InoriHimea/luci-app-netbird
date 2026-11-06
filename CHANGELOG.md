@@ -9,6 +9,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 - NBH-11 health result/configuration schemas and pure ucode aggregation: approved expectations retain missing observations, stale/unexecuted checks remain UNKNOWN in fixed counts, fallback drift stays degraded, and absent LAN proof cannot produce all-green health. No monitor or active probe is enabled by this change.
 - Synthetic A01/A02/A04/A10/A24 model replay, a native OpenWrt test entrypoint, and source/fleet compatibility evidence under `docs/health/`.
+- NBH-12 read-only IPv4 collection adapter with fixed argv, bounded command/output handling, explicit capability failures, tested legacy-ip text fallback, sanitized real agent samples, exact approved-peer selection, and endpoint generation comparison. No production monitor, configuration write, or active probe is enabled.
 
 ## 0.2.0-r7 — 2026-10-17
 

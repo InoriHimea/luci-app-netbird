@@ -54,6 +54,14 @@ The reason-code list is extensible within the schema's bounded uppercase syntax.
 
 ## Executable fixtures and evidence limits
 
-`tests/health/fixtures/A01.json` through A24 (A01/A02/A04/A10/A24) are explicitly synthetic. Raw route/rule/from/iif observations and approved intent accompany expected aggregate checks. They exercise this model's result semantics, not a claim that the not-yet-delivered collector/evaluator has parsed a real fault. In particular, equivalent-layout acceptance is not contingent on wt0/7120/105/110, and A24 does not identify a deleting actor from timestamps.
+`tests/health/fixtures/A01.json` through A24 (A01/A02/A04/A10/A24) are explicitly synthetic. Raw route/rule/from/iif observations and approved intent accompany expected aggregate checks. They exercise this model's result semantics, not real-fault or end-to-end evaluator acceptance. Separate collector tests preserve A01's Connected/orphaned-table evidence and A04's equivalent layout without requiring wt0/7120/105/110. A24 does not identify a deleting actor from timestamps.
 
 Native driver: `sh tests/health/run.sh --unit`. Schema examples: `config-valid.json` and `config-invalid.json`. Source/platform observations and actual execution evidence are in `baseline.md`. Production fault injection, deployment and real notification delivery remain outside this task's authorization.
+
+## Read-only collection boundary
+
+`health/collect.uc` collects IPv4 rules and all IPv4 routing tables, interface metadata, sanitized agent status, and nft table inventory. `complete` describes available, endpoint-consistent observations, never healthy business connectivity. `consistency=endpoint_comparison` compares boot ID, process PID/start ticks, parsed network evidence and firewall table handles before/after. It cannot exclude an intervening change-and-return (ABA), establish an atomic snapshot, prove firewall enforcement, or prove LAN forwarding. IPv6 and unsupported selectors/nexthops remain capability gaps, not inferred success.
+
+`health/runner.uc` accepts only internally chosen fixed system-tool argv. Its constant shell wrapper uses positional arguments, private temporary files, file-size limits and process-group cleanup; it is not an arbitrary-command API or sandbox for daemonizing tools. The collector admits at most 20 seconds of work, caps each command at 2 seconds including reserved cleanup time, rejects deadline overruns, and charges stdout plus stderr against 256KiB. Per-stream 64KiB limits fail closed. Filesystem scheduling and parsing are not an independent hard watchdog; the worker must enforce its own whole-cycle deadline.
+
+JSON syntax errors, truncation and general command failures do not trigger text fallback. Only recognized legacy ip JSON-option diagnostics permit it; unsupported link-text parsing stays UNKNOWN. Raw agent secrets and raw stderr never leave the adapter. Peer selection is exact by approved IPv4 address; absent or ambiguous peers remain unknown, and Idle remains an observation rather than a diagnosis.

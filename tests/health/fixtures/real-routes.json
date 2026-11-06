@@ -1,0 +1,351 @@
+[
+  {
+    "dst": "default",
+    "gateway": "10.10.10.1",
+    "dev": "eth0",
+    "protocol": "static",
+    "flags": []
+  },
+  {
+    "dst": "8.134.92.75",
+    "gateway": "10.10.10.1",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "10.0.88.164",
+    "gateway": "10.10.10.1",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "10.7.3.134",
+    "gateway": "10.10.10.1",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "10.10.10.0/24",
+    "dev": "eth0",
+    "protocol": "kernel",
+    "scope": "link",
+    "prefsrc": "10.10.10.13",
+    "flags": []
+  },
+  {
+    "dst": "10.10.10.10",
+    "gateway": "10.10.10.13",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "10.10.10.55",
+    "gateway": "10.10.10.13",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "10.10.10.56",
+    "gateway": "10.10.10.13",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "10.10.10.199",
+    "gateway": "10.10.10.13",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "10.42.0.0",
+    "gateway": "10.10.10.1",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "10.42.0.1",
+    "gateway": "10.10.10.1",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "10.100.55.53",
+    "gateway": "10.10.10.1",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "10.100.221.121",
+    "gateway": "10.10.10.1",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "10.110.120.0/24",
+    "dev": "wt0",
+    "flags": []
+  },
+  {
+    "dst": "10.110.120.115",
+    "gateway": "10.10.10.1",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "10.110.120.223",
+    "gateway": "10.10.10.1",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "10.155.0.0/16",
+    "dev": "wt0",
+    "flags": []
+  },
+  {
+    "dst": "10.156.0.0/16",
+    "dev": "br-lan",
+    "protocol": "kernel",
+    "scope": "link",
+    "prefsrc": "10.156.56.100",
+    "flags": []
+  },
+  {
+    "dst": "10.243.71.103",
+    "gateway": "10.10.10.1",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "43.167.208.207",
+    "gateway": "10.10.10.1",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "59.172.145.163",
+    "gateway": "10.10.10.1",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "59.173.55.157",
+    "gateway": "10.10.10.1",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "100.125.0.0/16",
+    "dev": "wt0",
+    "protocol": "kernel",
+    "scope": "link",
+    "prefsrc": "100.125.61.255",
+    "flags": []
+  },
+  {
+    "dst": "116.211.233.171",
+    "gateway": "10.10.10.1",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "116.232.114.67",
+    "gateway": "10.10.10.1",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "172.17.0.0/16",
+    "dev": "docker0",
+    "protocol": "kernel",
+    "scope": "link",
+    "prefsrc": "172.17.0.1",
+    "flags": [
+      "linkdown"
+    ]
+  },
+  {
+    "dst": "172.18.0.0/16",
+    "dev": "br-74a8e5fbf67d",
+    "protocol": "kernel",
+    "scope": "link",
+    "prefsrc": "172.18.0.1",
+    "flags": [
+      "linkdown"
+    ]
+  },
+  {
+    "dst": "192.168.0.0/16",
+    "dev": "wt0",
+    "flags": []
+  },
+  {
+    "dst": "192.168.0.211",
+    "gateway": "10.10.10.1",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "192.168.3.51",
+    "gateway": "10.10.10.1",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "192.168.51.3",
+    "dev": "wt0",
+    "flags": []
+  },
+  {
+    "dst": "192.168.51.222",
+    "gateway": "10.10.10.1",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "192.168.51.250",
+    "gateway": "10.10.10.1",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "dst": "192.168.58.110",
+    "gateway": "10.10.10.1",
+    "dev": "eth0",
+    "flags": []
+  },
+  {
+    "type": "local",
+    "dst": "10.10.10.13",
+    "dev": "eth0",
+    "table": "local",
+    "protocol": "kernel",
+    "scope": "host",
+    "prefsrc": "10.10.10.13",
+    "flags": []
+  },
+  {
+    "type": "broadcast",
+    "dst": "10.10.10.255",
+    "dev": "eth0",
+    "table": "local",
+    "protocol": "kernel",
+    "scope": "link",
+    "prefsrc": "10.10.10.13",
+    "flags": []
+  },
+  {
+    "type": "local",
+    "dst": "10.156.56.100",
+    "dev": "br-lan",
+    "table": "local",
+    "protocol": "kernel",
+    "scope": "host",
+    "prefsrc": "10.156.56.100",
+    "flags": []
+  },
+  {
+    "type": "broadcast",
+    "dst": "10.156.255.255",
+    "dev": "br-lan",
+    "table": "local",
+    "protocol": "kernel",
+    "scope": "link",
+    "prefsrc": "10.156.56.100",
+    "flags": []
+  },
+  {
+    "type": "local",
+    "dst": "100.125.61.255",
+    "dev": "wt0",
+    "table": "local",
+    "protocol": "kernel",
+    "scope": "host",
+    "prefsrc": "100.125.61.255",
+    "flags": []
+  },
+  {
+    "type": "broadcast",
+    "dst": "100.125.255.255",
+    "dev": "wt0",
+    "table": "local",
+    "protocol": "kernel",
+    "scope": "link",
+    "prefsrc": "100.125.61.255",
+    "flags": []
+  },
+  {
+    "type": "local",
+    "dst": "127.0.0.0/8",
+    "dev": "lo",
+    "table": "local",
+    "protocol": "kernel",
+    "scope": "host",
+    "prefsrc": "127.0.0.1",
+    "flags": []
+  },
+  {
+    "type": "local",
+    "dst": "127.0.0.1",
+    "dev": "lo",
+    "table": "local",
+    "protocol": "kernel",
+    "scope": "host",
+    "prefsrc": "127.0.0.1",
+    "flags": []
+  },
+  {
+    "type": "broadcast",
+    "dst": "127.255.255.255",
+    "dev": "lo",
+    "table": "local",
+    "protocol": "kernel",
+    "scope": "link",
+    "prefsrc": "127.0.0.1",
+    "flags": []
+  },
+  {
+    "type": "local",
+    "dst": "172.17.0.1",
+    "dev": "docker0",
+    "table": "local",
+    "protocol": "kernel",
+    "scope": "host",
+    "prefsrc": "172.17.0.1",
+    "flags": []
+  },
+  {
+    "type": "broadcast",
+    "dst": "172.17.255.255",
+    "dev": "docker0",
+    "table": "local",
+    "protocol": "kernel",
+    "scope": "link",
+    "prefsrc": "172.17.0.1",
+    "flags": [
+      "linkdown"
+    ]
+  },
+  {
+    "type": "local",
+    "dst": "172.18.0.1",
+    "dev": "br-74a8e5fbf67d",
+    "table": "local",
+    "protocol": "kernel",
+    "scope": "host",
+    "prefsrc": "172.18.0.1",
+    "flags": []
+  },
+  {
+    "type": "broadcast",
+    "dst": "172.18.255.255",
+    "dev": "br-74a8e5fbf67d",
+    "table": "local",
+    "protocol": "kernel",
+    "scope": "link",
+    "prefsrc": "172.18.0.1",
+    "flags": [
+      "linkdown"
+    ]
+  }
+]

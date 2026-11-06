@@ -1,0 +1,237 @@
+[
+  {
+    "ifindex": 1,
+    "ifname": "lo",
+    "flags": [
+      "LOOPBACK",
+      "UP",
+      "LOWER_UP"
+    ],
+    "mtu": 65536,
+    "operstate": "UNKNOWN",
+    "link_type": "loopback"
+  },
+  {
+    "ifindex": 2,
+    "ifname": "eth0",
+    "flags": [
+      "BROADCAST",
+      "MULTICAST",
+      "UP",
+      "LOWER_UP"
+    ],
+    "mtu": 1500,
+    "operstate": "UP",
+    "link_type": "ether"
+  },
+  {
+    "ifindex": 3,
+    "ifname": "eth1",
+    "flags": [
+      "BROADCAST",
+      "MULTICAST",
+      "UP",
+      "LOWER_UP"
+    ],
+    "mtu": 1500,
+    "master": "br-lan",
+    "operstate": "UP",
+    "link_type": "ether",
+    "linkinfo": {
+      "info_slave_kind": "bridge"
+    }
+  },
+  {
+    "ifindex": 4,
+    "ifname": "ip6tnl0",
+    "flags": [
+      "NOARP"
+    ],
+    "mtu": 1452,
+    "operstate": "DOWN",
+    "link_type": "tunnel6",
+    "linkinfo": {
+      "info_kind": "ip6tnl"
+    }
+  },
+  {
+    "ifindex": 5,
+    "ifname": "tunl0",
+    "flags": [
+      "NOARP"
+    ],
+    "mtu": 1480,
+    "operstate": "DOWN",
+    "link_type": "ipip",
+    "linkinfo": {
+      "info_kind": "ipip"
+    }
+  },
+  {
+    "ifindex": 6,
+    "ifname": "sit0",
+    "flags": [
+      "NOARP"
+    ],
+    "mtu": 1480,
+    "operstate": "DOWN",
+    "link_type": "sit",
+    "linkinfo": {
+      "info_kind": "sit"
+    }
+  },
+  {
+    "ifindex": 7,
+    "ifname": "dummy0",
+    "flags": [
+      "BROADCAST",
+      "NOARP"
+    ],
+    "mtu": 1500,
+    "operstate": "DOWN",
+    "link_type": "ether",
+    "linkinfo": {
+      "info_kind": "dummy"
+    }
+  },
+  {
+    "ifindex": 8,
+    "ifname": "gre0",
+    "flags": [
+      "NOARP"
+    ],
+    "mtu": 1476,
+    "operstate": "DOWN",
+    "link_type": "gre",
+    "linkinfo": {
+      "info_kind": "gre"
+    }
+  },
+  {
+    "ifindex": 9,
+    "ifname": "gretap0",
+    "flags": [
+      "BROADCAST",
+      "MULTICAST"
+    ],
+    "mtu": 1462,
+    "operstate": "DOWN",
+    "link_type": "ether",
+    "linkinfo": {
+      "info_kind": "gretap"
+    }
+  },
+  {
+    "ifindex": 10,
+    "ifname": "erspan0",
+    "flags": [
+      "BROADCAST",
+      "MULTICAST"
+    ],
+    "mtu": 1450,
+    "operstate": "DOWN",
+    "link_type": "ether",
+    "linkinfo": {
+      "info_kind": "erspan"
+    }
+  },
+  {
+    "ifindex": 11,
+    "ifname": "ip6gre0",
+    "flags": [
+      "NOARP"
+    ],
+    "mtu": 1448,
+    "operstate": "DOWN",
+    "link_type": "gre6",
+    "linkinfo": {
+      "info_kind": "ip6gre"
+    }
+  },
+  {
+    "ifindex": 12,
+    "ifname": "siit0",
+    "flags": [
+      "BROADCAST",
+      "MULTICAST",
+      "NOARP"
+    ],
+    "mtu": 1500,
+    "operstate": "DOWN",
+    "link_type": "ether"
+  },
+  {
+    "ifindex": 13,
+    "ifname": "teql0",
+    "flags": [
+      "NOARP"
+    ],
+    "mtu": 1500,
+    "operstate": "DOWN",
+    "link_type": "void"
+  },
+  {
+    "ifindex": 14,
+    "ifname": "br-lan",
+    "flags": [
+      "BROADCAST",
+      "MULTICAST",
+      "UP",
+      "LOWER_UP"
+    ],
+    "mtu": 1500,
+    "operstate": "UP",
+    "link_type": "ether",
+    "linkinfo": {
+      "info_kind": "bridge"
+    }
+  },
+  {
+    "ifindex": 16,
+    "ifname": "docker0",
+    "flags": [
+      "NO-CARRIER",
+      "BROADCAST",
+      "MULTICAST",
+      "UP"
+    ],
+    "mtu": 1500,
+    "operstate": "DOWN",
+    "link_type": "ether",
+    "linkinfo": {
+      "info_kind": "bridge"
+    }
+  },
+  {
+    "ifindex": 17,
+    "ifname": "br-74a8e5fbf67d",
+    "flags": [
+      "NO-CARRIER",
+      "BROADCAST",
+      "MULTICAST",
+      "UP"
+    ],
+    "mtu": 1500,
+    "operstate": "DOWN",
+    "link_type": "ether",
+    "linkinfo": {
+      "info_kind": "bridge"
+    }
+  },
+  {
+    "ifindex": 28,
+    "ifname": "wt0",
+    "flags": [
+      "POINTOPOINT",
+      "NOARP",
+      "UP",
+      "LOWER_UP"
+    ],
+    "mtu": 1280,
+    "operstate": "UNKNOWN",
+    "link_type": "none",
+    "linkinfo": {
+      "info_kind": "wireguard"
+    }
+  }
+]

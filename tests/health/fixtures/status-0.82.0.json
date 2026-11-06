@@ -1,0 +1,205 @@
+{
+  "cliVersion": "0.82.0",
+  "daemonVersion": "0.82.0",
+  "daemonStatus": "Connected",
+  "usesKernelInterface": true,
+  "lazyConnectionEnabled": false,
+  "netbirdIp": "100.64.0.1/16",
+  "management": {
+    "connected": true
+  },
+  "signal": {
+    "connected": true
+  },
+  "peers": {
+    "total": 37,
+    "connected": 23,
+    "details": [
+      {
+        "netbirdIp": "100.64.1.1",
+        "status": "Connecting",
+        "connectionType": "-"
+      },
+      {
+        "netbirdIp": "100.64.1.2",
+        "status": "Connecting",
+        "connectionType": "-"
+      },
+      {
+        "netbirdIp": "100.64.1.3",
+        "status": "Connected",
+        "connectionType": "P2P"
+      },
+      {
+        "netbirdIp": "100.64.1.4",
+        "status": "Connecting",
+        "connectionType": "-"
+      },
+      {
+        "netbirdIp": "100.64.1.5",
+        "status": "Connecting",
+        "connectionType": "-"
+      },
+      {
+        "netbirdIp": "100.64.1.6",
+        "status": "Connected",
+        "connectionType": "P2P"
+      },
+      {
+        "netbirdIp": "100.64.1.7",
+        "status": "Connecting",
+        "connectionType": "-"
+      },
+      {
+        "netbirdIp": "100.64.1.8",
+        "status": "Idle",
+        "connectionType": "-"
+      },
+      {
+        "netbirdIp": "100.64.1.9",
+        "status": "Connecting",
+        "connectionType": "-"
+      },
+      {
+        "netbirdIp": "100.64.1.10",
+        "status": "Idle",
+        "connectionType": "-"
+      },
+      {
+        "netbirdIp": "100.64.1.11",
+        "status": "Connected",
+        "connectionType": "P2P"
+      },
+      {
+        "netbirdIp": "100.64.1.12",
+        "status": "Connected",
+        "connectionType": "P2P"
+      },
+      {
+        "netbirdIp": "100.64.1.13",
+        "status": "Connected",
+        "connectionType": "Relayed"
+      },
+      {
+        "netbirdIp": "100.64.1.14",
+        "status": "Connecting",
+        "connectionType": "-"
+      },
+      {
+        "netbirdIp": "100.64.1.15",
+        "status": "Connecting",
+        "connectionType": "-"
+      },
+      {
+        "netbirdIp": "100.64.1.16",
+        "status": "Connected",
+        "connectionType": "P2P"
+      },
+      {
+        "netbirdIp": "100.64.1.17",
+        "status": "Connected",
+        "connectionType": "Relayed"
+      },
+      {
+        "netbirdIp": "100.64.1.18",
+        "status": "Connecting",
+        "connectionType": "-"
+      },
+      {
+        "netbirdIp": "100.64.1.19",
+        "status": "Connected",
+        "connectionType": "P2P"
+      },
+      {
+        "netbirdIp": "100.64.1.20",
+        "status": "Connected",
+        "connectionType": "P2P"
+      },
+      {
+        "netbirdIp": "100.64.1.21",
+        "status": "Connected",
+        "connectionType": "P2P"
+      },
+      {
+        "netbirdIp": "100.64.1.22",
+        "status": "Connected",
+        "connectionType": "Relayed"
+      },
+      {
+        "netbirdIp": "100.64.1.23",
+        "status": "Connected",
+        "connectionType": "Relayed"
+      },
+      {
+        "netbirdIp": "100.64.1.24",
+        "status": "Connected",
+        "connectionType": "Relayed"
+      },
+      {
+        "netbirdIp": "100.64.1.25",
+        "status": "Connected",
+        "connectionType": "P2P"
+      },
+      {
+        "netbirdIp": "100.64.1.26",
+        "status": "Connected",
+        "connectionType": "P2P"
+      },
+      {
+        "netbirdIp": "100.64.1.27",
+        "status": "Connected",
+        "connectionType": "P2P"
+      },
+      {
+        "netbirdIp": "100.64.1.28",
+        "status": "Connected",
+        "connectionType": "P2P"
+      },
+      {
+        "netbirdIp": "100.64.1.29",
+        "status": "Connecting",
+        "connectionType": "-"
+      },
+      {
+        "netbirdIp": "100.64.1.30",
+        "status": "Idle",
+        "connectionType": "-"
+      },
+      {
+        "netbirdIp": "100.64.1.31",
+        "status": "Connected",
+        "connectionType": "P2P"
+      },
+      {
+        "netbirdIp": "100.64.1.32",
+        "status": "Connected",
+        "connectionType": "P2P"
+      },
+      {
+        "netbirdIp": "100.64.1.33",
+        "status": "Connected",
+        "connectionType": "P2P"
+      },
+      {
+        "netbirdIp": "100.64.1.34",
+        "status": "Connecting",
+        "connectionType": "-"
+      },
+      {
+        "netbirdIp": "100.64.1.35",
+        "status": "Connected",
+        "connectionType": "Relayed"
+      },
+      {
+        "netbirdIp": "100.64.1.36",
+        "status": "Connected",
+        "connectionType": "P2P"
+      },
+      {
+        "netbirdIp": "100.64.1.37",
+        "status": "Connected",
+        "connectionType": "P2P"
+      }
+    ]
+  }
+}

@@ -9,3 +9,6 @@ command -v ucode >/dev/null 2>&1 || { echo 'ucode is required; run in an isolate
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 ucode "$ROOT/tests/health/model.uc"
 ucode "$ROOT/tests/health/fixtures.uc" "$ROOT"/tests/health/fixtures/A*.json
+ucode "$ROOT/tests/health/runner.uc"
+ucode "$ROOT/tests/health/parsers.uc" "$ROOT/tests/health/fixtures"
+ucode "$ROOT/tests/health/collector.uc" "$ROOT/tests/health/fixtures"

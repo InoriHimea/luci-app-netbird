@@ -1,0 +1,44 @@
+[
+  {
+    "priority": 0,
+    "src": "all",
+    "table": "local"
+  },
+  {
+    "priority": 12100,
+    "src": "10.156.0.0",
+    "srclen": 16,
+    "dst": "192.168.0.0",
+    "dstlen": 16,
+    "iif": "br-lan",
+    "table": "netbird"
+  },
+  {
+    "priority": 12101,
+    "src": "10.156.0.0",
+    "srclen": 16,
+    "dst": "10.155.0.0",
+    "dstlen": 16,
+    "iif": "br-lan",
+    "table": "netbird"
+  },
+  {
+    "priority": 12102,
+    "src": "10.156.0.0",
+    "srclen": 16,
+    "dst": "10.110.120.0",
+    "dstlen": 24,
+    "iif": "br-lan",
+    "table": "netbird"
+  },
+  {
+    "priority": 32766,
+    "src": "all",
+    "table": "main"
+  },
+  {
+    "priority": 32767,
+    "src": "all",
+    "table": "default"
+  }
+]
