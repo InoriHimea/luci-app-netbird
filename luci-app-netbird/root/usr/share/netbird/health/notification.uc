@@ -6,10 +6,12 @@ import { read_config } from './settings.uc';
 import { hostname, permitted_address } from './config.uc';
 import { opaque_id } from './jobs.uc';
 import { monotonic_ms, run_command } from './runner.uc';
-function create_notifications(root, settings, sink_root, clock) {
+import { maintenance_state } from './maintenance.uc';
+function create_notifications(root, settings, sink_root, clock, rate_root) {
     settings ??= read_config;
     sink_root ??= '/etc/netbird-health/sinks';
     clock ??= monotonic_ms;
+    rate_root ??= root;
     function sink(config) {
         if (config?.notification?.owner != 'local' || !config.notification.sink_ref)
             return { ok: false, reason: 'NOTIFICATION_NOT_CONFIGURED' };
@@ -124,6 +126,86 @@ function create_notifications(root, settings, sink_root, clock) {
             return { ok: true, dirty: true };
         });
     }
+    function preflight(approved, expected_revision, automatic) {
+        let current = settings();
+        if (!current || current.revision != expected_revision || current.notification.owner != 'local' ||
+            current.notification.sink_ref != approved.ref)
+            return { state: 'failed', delivery_state: 'not_submitted', error: 'CONFIG_CHANGED' };
+        if (maintenance_state().state != 'idle' || (automatic &&
+            (current.monitor?.enabled !== true || current.node?.expected_connection_intent != 'connected')))
+            return { state: 'failed', delivery_state: 'not_submitted', error: 'NOTIFICATION_INTENT_SUPPRESSED' };
+        return null;
+    }
+    function transport(approved, payload, expected_revision, automatic) {
+        let rejected = preflight(approved, expected_revision, automatic);
+        if (rejected) return rejected;
+        if ((rate_root == '/etc/netbird-health/alerts' && !private_dir('/etc/netbird-health')) || !private_dir(rate_root))
+            return { state: 'failed', delivery_state: 'not_submitted', error: 'STORAGE_UNAVAILABLE' };
+        let boot_file = open('/proc/sys/kernel/random/boot_id', 'r');
+        let boot = boot_file ? trim(boot_file.read(128) || '') : null;
+        if (boot_file) boot_file.close();
+        if (!match(boot || '', /^[0-9a-f-]{36}$/))
+            return { state: 'failed', delivery_state: 'not_submitted', error: 'BOOT_ID_UNAVAILABLE' };
+        let rate_path = rate_root + '/transport-rate.json', st = lstat(rate_path), last = read_json(rate_path, 2048), now = clock();
+        if (st && (st.type != 'file' || st.uid != 0 || st.mode != 0600 || last?.schema !== 1 ||
+            type(last.boot_id) != 'string' || type(last.ms) != 'int'))
+            return { state: 'failed', delivery_state: 'not_submitted', error: 'RATE_STATE_INVALID' };
+        if (last?.boot_id == boot && (now < last.ms || now - last.ms < 30000))
+            return { state: 'failed', delivery_state: 'not_submitted', error: 'RATE_LIMITED' };
+        if (!atomic_json(rate_root, 'transport-rate.json', { schema: 1, boot_id: boot, ms: now }, 2048))
+            return { state: 'failed', delivery_state: 'not_submitted', error: 'STORAGE_UNAVAILABLE' };
+        let delivery, staging = root + '/notification-transport.new';
+        try {
+            let stale = lstat(staging);
+            if (stale && (stale.type != 'file' || stale.uid != 0 || stale.mode != 0600 || !unlink(staging)))
+                return { state: 'failed', delivery_state: 'not_submitted', error: 'STORAGE_UNAVAILABLE' };
+            let file = open(staging, 'wx', 0600);
+            if (!file) return { state: 'failed', delivery_state: 'not_submitted', error: 'STORAGE_UNAVAILABLE' };
+            let sink = approved.data;
+            let text = 'url = "https://' + sink.host + ':' + sink.port + '/message"\n' +
+                'header = "X-Gotify-Key: ' + sink.token + '"\n' +
+                'header = "Content-Type: application/json"\n';
+            let written = file.write(text); file.close();
+            rejected = written == length(text) ? preflight(approved, expected_revision, automatic) :
+                { state: 'failed', delivery_state: 'not_submitted', error: 'STORAGE_UNAVAILABLE' };
+            if (rejected) { unlink(staging); return rejected; }
+            let result = run_command(['/usr/bin/curl', '-q', '--config', staging,
+                '--proto', '=https', '--noproxy', '*', '--max-redirs', '0', '--max-time', '4',
+                '--connect-timeout', '2', '--silent', '--output', '/dev/null', '--write-out', '%{http_code}',
+                '--resolve', sink.host + ':' + sink.port + ':' + sink.address,
+                '--request', 'POST', '--data-binary', payload], 5000);
+            let status = result?.ok && match(result.stdout, /^[0-9]{3}$/) ? int(result.stdout) : null;
+            delivery = status >= 200 && status < 300 ? { state: 'done', delivery_state: 'accepted', http_status: status, error: null } :
+                status != null ? { state: 'failed', delivery_state: 'rejected', http_status: status, error: 'HTTP_REJECTED' } :
+                { state: 'unknown', delivery_state: 'unknown', http_status: null, error: 'DELIVERY_UNCONFIRMED' };
+            delivery.transport_reason = result?.reason || null;
+            delivery.exit_code = result?.exit_code ?? null;
+            delivery.output_bytes = result?.output_bytes ?? 0;
+            delivery.duration_ms = result?.duration_ms ?? 0;
+        }
+        catch (e) { delivery = { state: 'unknown', delivery_state: 'unknown', error: 'DELIVERY_UNCONFIRMED' }; }
+        unlink(staging);
+        return delivery;
+    }
+    function send_alert(event) {
+        let config = settings(), approved = sink(config);
+        if (!approved.ok || event.owner != 'local' || event.sink_ref != approved.ref)
+            return { state: 'failed', delivery_state: 'not_submitted', error: approved.reason || 'OWNER_OR_SINK_CHANGED' };
+        if (!private_dir(root)) return { state: 'failed', delivery_state: 'not_submitted', error: 'STORAGE_UNAVAILABLE' };
+        let lease = open(root + '/notification-send.lock', 'a', 0600);
+        if (!lease || !lease.lock('xn')) {
+            if (lease) lease.close();
+            return { state: 'failed', delivery_state: 'not_submitted', error: 'NOTIFICATION_BUSY' };
+        }
+        let message = sprintf('%J', { event_id: event.id, node_id: event.node_id, kind: event.kind,
+            sampled_at: event.created_at, overall: event.overall, categories: event.categories,
+            upstream_down: event.upstream_down, aggregation: event.aggregation,
+            evidence_run_id: event.evidence_run_id, detail_count: event.detail_count, details: event.details });
+        let payload = sprintf('%J', { title: 'NetBird health ' + event.kind, message, priority: 5 });
+        let result = length(payload) <= 16384 ? transport(approved, payload, config.revision, true) :
+            { state: 'failed', delivery_state: 'not_submitted', error: 'MESSAGE_TOO_LARGE' };
+        lease.close(); return result;
+    }
     function run_pending() {
         if (!private_dir(root)) return { ok: false, reason: 'STORAGE_UNAVAILABLE' };
         let lease = open(root + '/notification-send.lock', 'a', 0600);
@@ -136,40 +218,10 @@ function create_notifications(root, settings, sink_root, clock) {
         });
         if (!claimed.ok) { lease.close(); return claimed; }
         let job = claimed.job, config = settings(), approved = sink(config), delivery;
-        let staging = root + '/notification-transport.new';
-        try {
-            if (!approved.ok || config.revision != job.config_revision || approved.ref != job.sink_ref)
-                delivery = { state: 'failed', delivery_state: 'not_submitted', error: 'CONFIG_CHANGED' };
-            else {
-                let stale = lstat(staging);
-                if (stale && (stale.type != 'file' || stale.uid != 0 || stale.mode != 0600 || !unlink(staging)))
-                    delivery = { state: 'failed', delivery_state: 'not_submitted', error: 'STORAGE_UNAVAILABLE' };
-                let file = delivery ? null : open(staging, 'wx', 0600);
-                if (!delivery && !file) delivery = { state: 'failed', delivery_state: 'not_submitted', error: 'STORAGE_UNAVAILABLE' };
-                if (file) {
-                    let sink = approved.data;
-                    let transport = 'url = "https://' + sink.host + ':' + sink.port + '/message"\n' +
-                        'header = "X-Gotify-Key: ' + sink.token + '"\n' +
-                        'header = "Content-Type: application/json"\n';
-                    let written = file.write(transport); file.close();
-                    let result = written == length(transport) ? run_command(['/usr/bin/curl', '--config', staging,
-                        '--proto', '=https', '--noproxy', '*', '--max-redirs', '0', '--max-time', '4',
-                        '--connect-timeout', '2', '--silent', '--output', '/dev/null', '--write-out', '%{http_code}',
-                        '--resolve', sink.host + ':' + sink.port + ':' + sink.address,
-                        '--request', 'POST', '--data-binary', '{"title":"NetBird health diagnostic test","message":"Explicit notification delivery test.","priority":5}'], 5000) : null;
-                    let status = result?.ok && match(result.stdout, /^[0-9]{3}$/) ? int(result.stdout) : null;
-                    delivery = status >= 200 && status < 300 ? { state: 'done', delivery_state: 'accepted', http_status: status, error: null } :
-                        status != null ? { state: 'failed', delivery_state: 'rejected', http_status: status, error: 'HTTP_REJECTED' } :
-                        { state: 'unknown', delivery_state: 'unknown', http_status: null, error: 'DELIVERY_UNCONFIRMED' };
-                    delivery.transport_reason = result?.reason || null;
-                    delivery.exit_code = result?.exit_code ?? null;
-                    delivery.output_bytes = result?.output_bytes ?? 0;
-                    delivery.duration_ms = result?.duration_ms ?? 0;
-                }
-            }
-        }
-        catch (e) { delivery = { state: 'unknown', delivery_state: 'unknown', error: 'DELIVERY_UNCONFIRMED' }; }
-        unlink(staging);
+        if (!approved.ok || config.revision != job.config_revision || approved.ref != job.sink_ref)
+            delivery = { state: 'failed', delivery_state: 'not_submitted', error: 'CONFIG_CHANGED' };
+        else delivery = transport(approved,
+            '{"title":"NetBird health diagnostic test","message":"Explicit notification delivery test.","priority":5}', config.revision, false);
         let finished = transact((state, now) => {
             let current = find(state, job.id);
             if (!current || state.active != job.id || current.state != 'running') return { ok: false, reason: 'JOB_NOT_RUNNING' };
@@ -179,9 +231,9 @@ function create_notifications(root, settings, sink_root, clock) {
         });
         lease.close(); return finished;
     }
-    return { enqueue, get, run_pending, pending, launch_failed };
+    return { enqueue, get, run_pending, pending, launch_failed, send_alert };
 }
-let notification = create_notifications('/tmp/netbird-health'), worker = null, dispatch;
+let notification = create_notifications('/tmp/netbird-health', null, null, null, '/etc/netbird-health/alerts'), worker = null, dispatch;
 function worker_done() {
     worker = null;
     // A new revision may have queued work after the previous terminal publish

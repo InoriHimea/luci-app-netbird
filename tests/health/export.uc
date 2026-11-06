@@ -44,6 +44,15 @@ check(large.size > 16384 && length(assembled) == large.size && length(restored.s
     'multi-chunk evidence reconstructs complete bounded JSON');
 check(restored.sampled_run.boot_id == result.run.boot_id && restored.sampled_run.run_id == result.run.run_id,
     'public boot and run identities are not confused with credentials');
+result.run.checks = [];
+result.run.observer = { state: 'normal', failure: null, run_id: result.run.run_id, token: 'MUST_NOT_ESCAPE' };
+result.run.alert = { owner: 'local', state: 'abnormal', receipt_verified: false, delivery_state: 'unknown',
+    categories: ['CONTROL_PLANE'], sink: { token: 'MUST_NOT_ESCAPE' },
+    recent: { id: 'event:failure:1', state: 'unknown', error: 'Bearer MUST_NOT_ESCAPE', token: 'MUST_NOT_ESCAPE' } };
+let nested = exports.create(result), nested_text = b64dec(exports.get(nested.id, 0).content_base64), nested_result = json(nested_text);
+check(index(nested_text, 'MUST_NOT_ESCAPE') < 0 && nested_result.sampled_run.alert.recent.error == '[REDACTED]' &&
+    nested_result.sampled_run.alert.receipt_verified === false && nested_result.sampled_run.alert.delivery_state == 'unknown',
+    'nested alert credentials cannot escape or turn unconfirmed delivery into a receipt');
 for (let name in lsdir(root)) unlink(root + '/' + name);
 rmdir(root);
 print('export: ', n, ' assertions passed\n');

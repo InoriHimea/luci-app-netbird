@@ -8,6 +8,8 @@ import { aggregate } from './model.uc';
 import { difference } from './boundary.uc';
 import { read_json, atomic_json, private_dir, keep_history } from './storage.uc';
 import { read_config } from './settings.uc';
+import { production_alerts } from './alert-runtime.uc';
+import { observe } from './alerts.uc';
 const ROOT = '/tmp/netbird-health';
 if (!private_dir(ROOT)) exit(2);
 // Separate from the supervisor lock: a replacement supervisor cannot overlap
@@ -84,14 +86,22 @@ let result = { sequence, sampled_at, duration_ms: run.monotonic_duration_ms,
     baseline_revision: config.node.baseline_revision, snapshot, run, probes,
     attribution: 'cause_undetermined' };
 result.boundary = difference(previous, result);
+run.observer = observe(run, config, snapshot).observer;
+let alerts = production_alerts(), recorded = alerts?.record(result);
+run.alert = recorded?.ok ? recorded.summary : { owner: config.notification.owner,
+    state: 'unknown', reason: recorded?.reason || 'ALERT_STORAGE_UNAVAILABLE', receipt_verified: false };
+run.delivery_state = recorded?.ok ? recorded.summary.delivery_state : 'unknown';
 let limit = config.monitor.history_limit;
 limit = type(limit) == 'int' && limit >= 1 && limit <= 1000 ? limit : 20;
 // Reserve one maximum-sized publication before any crashable rename. A crash
 // after history rename but before pruning cannot grow retained history forever.
 if (!keep_history(ROOT, limit - 1, 4194304 - 524288)) exit(4);
+// Preserve the first anomaly before advancing the latest pointer. If this
+// publication fails, the next cycle must still see the non-anomalous predecessor.
+if (run.overall != 'healthy' && run.overall != 'disabled' &&
+    (!previous?.run || index(['healthy', 'disabled'], previous.run.overall) >= 0) &&
+    !atomic_json(ROOT, 'first-failure.json', result)) exit(4);
 if (!atomic_json(ROOT, 'latest.json', result)) exit(4);
 if (run.overall == 'healthy') atomic_json(ROOT, 'recent-success.json', result);
-if (run.overall != 'healthy' && run.overall != 'disabled' &&
-    (!previous?.run || previous.run.overall == 'healthy')) atomic_json(ROOT, 'first-failure.json', result);
 if (!atomic_json(ROOT, sprintf('history-%010d.json', sequence), result)) exit(4);
 keep_history(ROOT, limit);

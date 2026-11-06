@@ -26,11 +26,18 @@ return view.extend({
   var box = E('div', { 'class': 'cbi-map nb-health', 'id': 'nb-health-page' });
   var summaryBox = E('section', { 'aria-live': 'polite' }), issueBox = E('section'), evidenceBox = E('section');
   var eventBox = E('section'), message = E('p', { 'role': 'status', 'aria-live': 'polite' });
+  var alertBox = E('section', { 'id': 'nb-health-alert-state', 'aria-live': 'polite' });
   var configError = E('p', { 'class': 'alert-message warning' });
   var editor = E('textarea', { 'id': 'nb-health-config', 'rows': 20, 'spellcheck': 'false', 'aria-label': _('Approved health configuration JSON') });
   var path = E('select', { 'id': 'nb-health-path', 'aria-label': _('Approved path for immediate check') });
   var buttons = [], jobs = {}, config = null, current = null, failure = _('Loading cached evidence'), busy = false, reading = false, attached = false;
   var armExpiry = health.expiryGuard(box, draw);
+  var armObserverExpiry = health.expiryGuard(box, draw);
+  function independentFresh(value) {
+   var now = Date.now() / 1000;
+   return !!(value && value.fresh === true && Number.isFinite(value.sampled_at) && Number.isFinite(value.max_age) &&
+    now >= value.sampled_at && now - value.sampled_at <= value.max_age);
+  }
   function say(value) { message.textContent = String(value); }
   function updateControls() {
    buttons.forEach(function (entry) {
@@ -48,6 +55,14 @@ return view.extend({
    var expandedEvents = new Set(Array.from(eventBox.querySelectorAll('details[open]')).map(function (node) { return node.getAttribute('data-event-id'); }));
    var summary = current && current.summary, valid = !failure && health.fresh(summary);
    dom.content(summaryBox, health.summaryNode(summary, failure));
+   var observer = summary && summary.observer, notification = summary && summary.notification;
+   armObserverExpiry(observer && { run: { flags: {} }, fresh: observer.fresh, scope: 'full_approved_baseline',
+    sampled_at: observer.sampled_at, max_age: observer.max_age });
+   dom.content(alertBox, [ E('h3', {}, _('Observer and notification state (independent of health)')),
+    E('p', {}, _('Notification acceptance is not a verified user receipt. Central/local/none has one owner; automatic takeover is disabled. Retries may have at-least-once risk.')),
+    E('pre', {}, health.literal({ observer: independentFresh(observer) ? observer : { state: 'unknown', failure: null },
+     notification: notification ? Object.assign({}, notification, independentFresh(notification) ? {} : { state: 'unknown', fresh: false }) :
+      { state: 'unknown', receipt_verified: false } })) ]);
    var items = current ? current.checks : [];
    var issues = items.filter(function (item) { return !valid || !item.fresh || item.status !== 'PASS'; });
    dom.content(issueBox, [ E('h3', {}, _('Issues / unverified obligations')), E('p', {},
@@ -164,6 +179,7 @@ return view.extend({
   box.appendChild(E('p', {}, _('Browser polling reads cached results only. Backend scheduling survives closing this page. No automatic route repair is provided.')));
   box.appendChild(E('p', {}, _('Actions require separate run / configuration / export / notification permissions. Disabled controls do not grant authority.')));
   box.appendChild(summaryBox); box.appendChild(message);
+  box.appendChild(alertBox);
   box.appendChild(E('div', { 'class': 'nb-health-actions' }, [ path,
    button(_('Check now (full approved baseline)'), 0, function () { return startCheck(path.value).then(health.checked).then(function (data) { track(data, 'check'); }); }),
    button(_('Export redacted evidence'), 2, download), button(_('Pause / resume inspection'), 1, confirmPause),

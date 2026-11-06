@@ -319,8 +319,69 @@
         "submitted",
         "delivered",
         "failed",
+        "not_submitted",
+        "accepted",
+        "rejected",
         "unknown"
       ]
+    },
+    "observer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "failure", "run_id", "boot_id", "sampled_at", "config_revision", "node_id"],
+      "properties": {
+        "state": { "enum": ["normal", "abnormal", "unknown"] },
+        "failure": { "type": ["string", "null"], "maxLength": 96 },
+        "run_id": { "type": "string", "maxLength": 128 },
+        "boot_id": { "type": "string", "maxLength": 96 },
+        "sampled_at": { "type": "integer" },
+        "config_revision": { "type": "integer", "minimum": 0 },
+        "node_id": { "type": "string", "maxLength": 96 }
+      }
+    },
+    "alert": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "state", "receipt_verified"],
+      "properties": {
+        "owner": { "enum": ["central", "local", "none"] },
+        "state": { "enum": ["normal", "abnormal", "unknown", "suppressed"] },
+        "reason": { "type": "string", "maxLength": 96 },
+        "failures": { "type": "integer", "minimum": 0, "maximum": 20 },
+        "successes": { "type": "integer", "minimum": 0, "maximum": 20 },
+        "episode_id": { "type": ["string", "null"], "maxLength": 32 },
+        "first_run_id": { "type": ["string", "null"], "maxLength": 128 },
+        "pending": { "type": "integer", "minimum": 0, "maximum": 32 },
+        "dropped_events": { "type": "integer", "minimum": 0 },
+        "categories": { "type": "array", "maxItems": 7, "uniqueItems": true,
+          "items": { "enum": ["CONTROL_PLANE", "ROUTE_RULE", "FORWARD_PATH", "BUSINESS_ENDPOINT", "REDUNDANCY", "MONITOR_SELF", "NOTIFICATION_DELIVERY"] } },
+        "upstream_down": { "type": "boolean" },
+        "aggregation": { "type": ["string", "null"], "maxLength": 96 },
+        "run_id": { "type": ["string", "null"], "maxLength": 128 },
+        "boot_id": { "type": ["string", "null"], "maxLength": 96 },
+        "sampled_at": { "type": ["integer", "null"] },
+        "config_revision": { "type": ["integer", "null"], "minimum": 0 },
+        "delivery_state": { "enum": ["not_requested", "pending", "not_submitted", "submitted", "accepted", "rejected", "unknown"] },
+        "receipt_verified": { "const": false },
+        "delivery_problem": { "enum": [null, "NOTIFICATION_DELIVERY"] },
+        "retry_risk": { "const": "at_least_once_possible" },
+        "ownership_takeover": { "const": false },
+        "recent": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["id", "kind", "state", "delivery_state", "attempts", "error", "http_status", "receipt_verified"],
+          "properties": {
+            "id": { "type": "string", "maxLength": 64 },
+            "kind": { "enum": ["failure", "recovery", "reminder"] },
+            "state": { "enum": ["queued", "suppressed", "submitted", "unknown", "done", "failed", "cancelled"] },
+            "delivery_state": { "enum": ["not_submitted", "submitted", "accepted", "rejected", "unknown"] },
+            "attempts": { "type": "integer", "minimum": 0, "maximum": 8 },
+            "error": { "type": ["string", "null"], "maxLength": 96 },
+            "http_status": { "type": ["integer", "null"], "minimum": 0, "maximum": 599 },
+            "receipt_verified": { "const": false }
+          }
+        }
+      }
     },
     "expected_count": {
       "type": "integer",

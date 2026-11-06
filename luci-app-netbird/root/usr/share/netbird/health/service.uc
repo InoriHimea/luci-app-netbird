@@ -6,6 +6,7 @@ import { create_schedule, next_check, finish_check, request_check, route_event }
 import { monotonic_ms, cleanup_commands } from './runner.uc';
 import { read_config } from './settings.uc';
 import { create_jobs } from './jobs.uc';
+import { production_alerts } from './alert-runtime.uc';
 const ROOT = '/tmp/netbird-health';
 if (!private_dir(ROOT)) exit(2);
 let lock = open(ROOT + '/service.lock', 'a', 0600);
@@ -22,6 +23,7 @@ let stop_reason = null;
 let state = create_schedule(boot, monotonic_ms() / 1000, config.monitor.interval);
 let child = null, listener = null, event_status = 'disabled', stopping = false;
 let jobs = create_jobs(ROOT), active_job = null;
+let alerts = production_alerts(), alert_child = null, next_alert_launch = 0;
 let event_started_at = time(), event_overrun = false, overrun_observable = false;
 let next_cleanup = monotonic_ms() / 1000 + 5;
 uloop.init();
@@ -63,6 +65,16 @@ let tick = uloop.interval(250, () => {
     }
     let now = monotonic_ms() / 1000;
     if (!state.active && now >= next_cleanup) { cleanup_commands(); next_cleanup = now + 5; }
+    // Delivery runs independently of collection and its hard deadline.
+    // Central-owned incidents never launch a local transport.
+    if (alerts && !alert_child && now >= next_alert_launch && alerts.pending()) {
+        next_alert_launch = now + 5;
+        try {
+            alert_child = uloop.process('/usr/bin/ucode', ['/usr/share/netbird/health/alert-worker.uc'], null,
+                () => { alert_child = null; if (stopping && !child) uloop.end(); });
+        }
+        catch (e) { alert_child = null; }
+    }
     let request = read_json(ROOT + '/request.json', 1024);
     if (request) { unlink(ROOT + '/request.json'); request_check(state, monotonic_ms() / 1000); }
     let reason = next_check(state, monotonic_ms() / 1000);
@@ -80,10 +92,14 @@ let tick = uloop.interval(250, () => {
             child = null;
             let latest = code == 0 ? read_json(ROOT + '/latest.json', 524288) : null;
             jobs.finish(active_job, latest?.run, code == 0 ? null : 'CYCLE_FAILED');
+            if (code != 0 && alerts) alerts.record({ snapshot: { complete: false, reason: 'CYCLE_FAILED' },
+                run: { run_id: boot + ':monitor:' + monotonic_ms(), boot_id: boot,
+                    node_id: config.node.stable_node_id, config_revision: config.revision,
+                    finished_at: time(), overall: 'unknown', checks: [], flags: {} } });
             active_job = null;
             finish_check(state, monotonic_ms() / 1000);
             publish(stopping ? 'stopped' : 'idle', stop_reason || (code == 0 ? null : 'CYCLE_FAILED'));
-            if (stopping) uloop.end();
+            if (stopping && !alert_child) uloop.end();
         });
     if (!child) {
         jobs.finish(active_job, null, 'WORKER_START_FAILED'); active_job = null;
@@ -95,7 +111,7 @@ function stop() {
     // Do not kill the independent deadline host or clear its cycle lock. Its
     // group is drained before another worker can acquire the kernel lock.
     publish('stopping', stop_reason || (child ? 'BOUNDED_WORKER_DRAINING' : null));
-    if (!child) { publish('stopped', stop_reason); uloop.end(); }
+    if (!child && !alert_child) { publish('stopped', stop_reason); uloop.end(); }
 }
 let term = uloop.signal(15, stop), interrupt = uloop.signal(2, stop);
 publish('idle', null);

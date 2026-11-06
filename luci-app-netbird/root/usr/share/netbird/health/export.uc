@@ -32,6 +32,18 @@ function evidence(result) {
     let run = fields(result.run, RUN_FIELDS), checks = [];
     for (let item in slice(result.run.checks, 0, 64)) push(checks, fields(item, CHECK_FIELDS));
     run.checks = checks;
+    if (result.run.observer) run.observer = fields(result.run.observer,
+        ['state', 'failure', 'run_id', 'boot_id', 'sampled_at', 'config_revision', 'node_id']);
+    if (result.run.alert) {
+        let source = result.run.alert;
+        run.alert = fields(source, ['owner', 'state', 'reason', 'failures', 'successes', 'episode_id',
+            'first_run_id', 'pending', 'dropped_events', 'upstream_down', 'aggregation', 'run_id', 'boot_id',
+            'sampled_at', 'config_revision', 'delivery_state', 'receipt_verified', 'delivery_problem',
+            'retry_risk', 'ownership_takeover']);
+        run.alert.categories = map(slice(source.categories || [], 0, 7), value => scalar(value, false));
+        run.alert.recent = source.recent ? fields(source.recent,
+            ['id', 'kind', 'state', 'delivery_state', 'attempts', 'error', 'http_status', 'receipt_verified']) : null;
+    }
     return { schema_version: 1, content: 'sampled_original_not_current_health_proof',
         sampled_at: result.sampled_at, sequence: result.sequence, sampled_run: run,
         included_checks: length(checks), total_checks: length(result.run.checks),

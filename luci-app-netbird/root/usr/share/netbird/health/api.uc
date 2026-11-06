@@ -6,6 +6,7 @@ import { cached_view, refresh_page } from './cache.uc';
 import { create_pages } from './pages.uc';
 import { create_jobs } from './jobs.uc';
 import { get_notification_job } from './notification.uc';
+import { public_state } from './alert-runtime.uc';
 const ROOT = '/tmp/netbird-health';
 let pages = create_pages(ROOT + '/pages'), jobs = create_jobs(ROOT);
 function boot_id() {
@@ -24,6 +25,18 @@ function get_summary() {
     delete view.run.checks;
     view.check_count = length(checks);
     view.schema_version = 1;
+    let config = read_config(), boot = boot_id(), now = time();
+    let observer = read_json(ROOT + '/observer.json', 2048), state = read_json(ROOT + '/alerts.json', 524288);
+    let observer_fresh = observer?.boot_id == boot && observer?.config_revision == config?.revision &&
+        observer?.node_id == config?.node?.stable_node_id && type(observer?.sampled_at) == 'int' &&
+        now >= observer.sampled_at && now - observer.sampled_at <= view.max_age;
+    view.observer = observer_fresh ? observer : { state: 'unknown', failure: null, reason: 'OBSERVER_STALE_OR_UNAVAILABLE' };
+    view.observer.fresh = observer_fresh; view.observer.max_age = view.max_age;
+    view.notification = config && state?.node_id == config.node.stable_node_id ? public_state(state, config.notification) :
+        { state: 'unknown', reason: 'ALERT_STATE_UNAVAILABLE', receipt_verified: false };
+    view.notification.fresh = observer_fresh;
+    view.notification.max_age = view.max_age;
+    if (!observer_fresh) view.notification.state = 'unknown';
     return view;
 }
 function get_checks(args) {
