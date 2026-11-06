@@ -28,7 +28,9 @@ function observe(run, config, snapshot) {
         add('CONTROL_PLANE', 'node:control_plane', 'CONTROL_PLANE_DISCONNECTED', 'critical');
     let intent = config.monitor.enabled !== true ? 'disabled' :
         config.node.expected_connection_intent != 'connected' ? 'intentional_disconnect' :
-        run.flags?.maintenance === true ? 'maintenance' : null;
+        run.flags?.maintenance === true ? 'maintenance' :
+        run.convergence?.checking === true ? 'network_convergence' :
+        run.convergence?.reason == 'CONVERGENCE_EVENT_DURING_CYCLE' ? 'network_generation_changed' : null;
     let state = intent ? 'suppressed' : length(details) ? 'abnormal' : unknown || run.overall == 'unknown' ? 'unknown' : 'normal';
     return { state, intent, categories, details, upstream_down: upstream,
         aggregation: upstream ? 'upstream_with_downstream_details' : 'single_incident_with_details',

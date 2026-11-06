@@ -85,6 +85,7 @@ return view.extend({
     if (!data.config || data.config.revision !== data.revision) throw new Error(_('Invalid configuration revision'));
     config = data.config;
     dom.content(configError, _('Only netbird_health is saved. NetBird, network and firewall are not restarted. Approval identity is an administrator-supplied label, not authenticated actor proof.'));
+    configError.appendChild(document.createTextNode(' ' + _('Monitor timing: grace_period 0–600s (boot-relative), convergence_timeout 5–600s (default 60), event_debounce 1–10s (default 2). Event floods and service reloads never renew an open deadline.')));
     if (fill) editor.value = JSON.stringify(config, null, 2);
     var selected = path.value;
     dom.content(path, [ E('option', { 'value': '' }, _('Select an approved enabled path')) ].concat(config.paths.filter(function (item) { return item.enabled && item.approval.approved; })

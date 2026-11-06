@@ -40,12 +40,13 @@ function get_summary() {
     return view;
 }
 function get_checks(args) {
-    if (args.cursor) return refresh_page(pages.next('checks', args.cursor), read_config(), boot_id(), time());
+    if (args.cursor) return refresh_page(pages.next('checks', args.cursor), read_config(), boot_id(), time(),
+        read_json(ROOT + '/service.json', 4096));
     let view = cached();
     if (!view.ok) return view;
     return pages.first('checks', view.run.checks, { run_id: view.run.run_id,
         config_revision: view.run.config_revision, current_config_revision: view.current_config_revision,
-        sampled_at: view.sampled_at, boot_id: view.boot_id, baseline_revision: view.baseline_revision,
+        sampled_at: view.sampled_at, boot_id: view.boot_id, baseline_revision: view.baseline_revision, event_sequence: view.event_sequence,
         max_age: view.max_age, fresh: view.fresh, reason: view.reason, scope: view.scope }, args.limit ?? 50);
 }
 function get_events(args) {

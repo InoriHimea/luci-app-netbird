@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: Apache-2.0
+import { create_convergence, convergence_event, assess_convergence } from '../../luci-app-netbird/root/usr/share/netbird/health/convergence.uc';
+let n = 0;
+function check(ok, label) { if (!ok) die(`FAIL: ${label}\n`); printf('ok %d - %s\n', ++n, label); }
+let monitor = { grace_period: 30, convergence_timeout: 20, event_debounce: 2 };
+let good = [];
+for (let category in ['rules', 'routes', 'forward', 'endpoint', 'collection'])
+    push(good, { id: category, category, status: 'PASS', fresh: true, executed: true, required: true });
+let s = create_convergence('boot-a', 10, monitor);
+let missing = json(sprintf('%J', good)); missing[0].status = 'FAIL';
+check(assess_convergence(s, missing, 11).phase == 'startup_grace', 'boot startup permits bounded grace without deleting failed evidence');
+check(assess_convergence(s, missing, 30).phase == 'failed', 'startup grace expires at its boot-anchored deadline');
+let restarted = create_convergence('boot-a', 31, monitor, s);
+check(assess_convergence(restarted, missing, 31).phase == 'failed', 'supervisor restart cannot renew startup grace');
+check(assess_convergence(s, good, 12).phase == 'ready', 'complete fresh required structure and business evidence can converge early');
+s.episode_open = false;
+convergence_event(s, 100, monitor);
+let sequence = s.event_sequence;
+check(assess_convergence(s, missing, 101).phase == 'converging', 'network event opens finite convergence episode');
+let partial = json(sprintf('%J', good)); partial[1].status = 'FAIL';
+check(assess_convergence(s, partial, 115).phase == 'converging', 'rules restored before routes must not report ready');
+for (let now = 101; now <= 121; now++) convergence_event(s, now, monitor);
+check(s.deadline_at == 120 && s.event_sequence > sequence, 'event flood updates generation but never extends the original deadline');
+check(assess_convergence(s, missing, 121).phase == 'failed', 'missing rule after convergence deadline remains a fault');
+partial[1].status = 'UNKNOWN';
+check(assess_convergence(s, partial, 121).phase == 'unknown', 'expired capability gap is unknown rather than fabricated network failure');
+check(assess_convergence(s, good, 122, true).phase == 'unknown', 'event during collection invalidates a potentially green result');
+check(assess_convergence(s, good, 99).phase == 'unknown', 'monotonic reversal fails closed');
+let empty = assess_convergence(s, [], 122);
+check(empty.phase == 'unknown' && empty.reason == 'CONVERGENCE_BASELINE_INCOMPLETE', 'empty or business-free baseline cannot prove recovery');
+let no_business = slice(good, 0, 3);
+check(assess_convergence(s, no_business, 122).phase == 'unknown', 'structure alone cannot prove representative business readiness');
+let stale = json(sprintf('%J', good)); stale[3].fresh = false;
+check(assess_convergence(s, stale, 122).phase == 'unknown', 'stale business PASS cannot complete convergence');
+let unexecuted = json(sprintf('%J', good)); unexecuted[2].executed = false;
+check(assess_convergence(s, unexecuted, 122).phase == 'unknown', 'unexecuted forwarding PASS cannot complete convergence');
+let rebooted = create_convergence('boot-b', 1, monitor, s);
+check(rebooted.boot_id == 'boot-b' && rebooted.deadline_at == 30, 'new boot discards prior event episode but anchors grace at boot zero');
+let shortened = create_convergence('boot-a', 122, { grace_period: 5, convergence_timeout: 5 }, s);
+check(shortened.deadline_at <= 105, 'configuration reload can shorten but cannot renew an existing episode');
+printf('PASS: %d convergence assertions\n', n);

@@ -57,6 +57,18 @@
           "minimum": 0,
           "maximum": 600
         },
+        "convergence_timeout": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 600,
+          "default": 60
+        },
+        "event_debounce": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 2
+        },
         "history_limit": {
           "type": "integer",
           "minimum": 1,

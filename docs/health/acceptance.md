@@ -40,6 +40,15 @@ Evidence keys:
 
 No P0 case is declared NOT_APPLICABLE merely because its runtime/platform/probe is absent. Real-topology NOT_RUN items above remain limitations, not hidden passes. P1 A25–A32 belongs to E01–E05 and is not included in this P0 denominator.
 
+## E01 supplemental denominator (outside the frozen T08 delivery)
+
+| Case | Verified-layer verdict | Observed evidence | Remaining boundary |
+|---|---|---|---|
+| A25 | PASS, isolated kernel and bounded state | Connected fixture plus actual approved prefix but missing query rule selects WAN with source/iif; required failure survives wait and remains failed after the actual deadline. | Actual NetBird/production LAN fault NOT_RUN; Connected/process/firewall are explicit fixtures. |
+| A26 | PASS, isolated kernel and bounded state | Query rule restored before route still falls through to WAN; finite wait expires to failure. Route restoration selects the approved table/egress but cannot complete READY without representative business evidence. | Production network restart and real business convergence NOT_RUN. |
+
+Native RTNL callbacks, persistent failed/no-start workers, generation-publication fencing, current-schema publication and real LuCI rendering supplement these two cases; [baseline.md](baseline.md) distinguishes each layer. The actual shared-module browser regression covers all five phases and monotonic wait expiry during wall-clock rollback. These additions do not alter the archived r8 package/manifest evidence, close T09 site acceptance or stand in for E02–E05/A27–A32.
+
 ## Seven deliverable groups
 
 1. Code and executed unit/integration/UI/native evidence: T01–T07 commits and B; K and P contain new T08 original observations. Actual current SDK native lifecycle/publication and paired-language receipts are described in [release-r8.md](release-r8.md).

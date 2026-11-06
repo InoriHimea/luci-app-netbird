@@ -12,6 +12,17 @@ let c = base(); c.monitor.interval = 0;
 check(!valid(c), 'bounded sampling interval');
 c = base(); c.monitor.enabled = 'false';
 check(!valid(c), 'typed boolean, not UCI truthiness');
+for (let bound in [{ key: 'grace_period', low: 0, high: 600 },
+    { key: 'convergence_timeout', low: 5, high: 600 }, { key: 'event_debounce', low: 1, high: 10 }]) {
+    for (let value in [bound.low, bound.high]) {
+        c = base(); c.monitor[bound.key] = value;
+        check(valid(c), 'valid timing boundary: ' + bound.key);
+    }
+    for (let value in [bound.low - 1, bound.high + 1, '5', 5.5]) {
+        c = base(); c.monitor[bound.key] = value;
+        check(!valid(c), 'invalid timing cannot renew or busy-loop convergence: ' + bound.key);
+    }
+}
 c = base(); c.paths[0].ingress_interface = 'br-lan;reboot';
 check(!valid(c), 'interface injection');
 c = base(); c.paths[0].normalized_cidr = '198.51.100.7/24';

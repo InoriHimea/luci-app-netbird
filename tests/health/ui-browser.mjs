@@ -141,3 +141,64 @@ export async function runHealthUiRegression(page, baseline) {
   await page.setRequestInterception(false);
  }
 }
+
+// A separate owned blank page; executes the actual shared LuCI modules, with
+// only framework/transport adapters. This is not an API or real-LAN acceptance.
+export async function runConvergenceComponentRegression(page, sources) {
+ await page.setContent('<!doctype html><title>Network convergence component smoke</title><h1>Actual shared health component</h1><p>Isolated component fixture, not a full LuCI/API integration.</p><main id="surface"></main>');
+ return page.evaluate(async ({ health: source, dom: domSource, css }) => {
+  window._ = value => value;
+  window.E = (tag, attrs, children) => {
+   const node = document.createElement(tag);
+   for (const [key, value] of Object.entries(attrs || {})) node.setAttribute(key, value);
+   function add(child) {
+    if (Array.isArray(child)) child.forEach(add);
+    else if (child != null) node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+   }
+   add(children); return node;
+  };
+  window.L = { Class: { extend: value => value }, resource: () => 'data:text/css,' + encodeURIComponent(css), url: value => value };
+  const nb = new Function('ui', domSource)({});
+  const health = new Function('rpc', 'dom', 'poll', 'nb', source)(
+   { declare: () => () => Promise.reject(new Error('RPC forbidden in component regression')) },
+   { content: (node, child) => node.replaceChildren(child) }, { add: () => {}, remove: () => {} }, nb);
+  const ensure = (condition, message) => { if (!condition) throw new Error(message); };
+  const now = Date.now() / 1000;
+  const base = { fresh: true, scope: 'full_approved_baseline', sampled_at: now - 10, max_age: 60,
+   convergence_remaining_ms: 1000, run: { overall: 'unhealthy', flags: { checking: true, stale: false },
+    coverage: { local_structure: 'unhealthy', forward_lookup: 'healthy', router_probe: 'healthy', lan_probe: 'unknown', external_observer: 'unknown' },
+    expected_count: 4, executed_count: 4, pass_count: 3, fail_count: 1, unknown_count: 0,
+    not_applicable_count: 0, disabled_count: 0, run_id: 'component-only', config_revision: 1 } };
+  const labels = { startup_grace: 'Startup grace (bounded)', converging: 'Network convergence wait (bounded)',
+   ready: 'Complete required structure and business evidence ready', failed: 'Network convergence failed', unknown: 'Network convergence unknown' };
+  const phases = [];
+  for (const [phase, label] of Object.entries(labels)) {
+   const data = structuredClone(base);
+   data.run.convergence = { phase, reason: 'fixture-' + phase, checking: ['startup_grace', 'converging'].includes(phase) };
+   ensure(health.summaryNode(data, null).textContent.includes(label), 'First render omitted phase ' + phase);
+   phases.push(phase);
+  }
+  const data = structuredClone(base), surface = document.querySelector('#surface');
+  data.run.convergence = { phase: 'converging', reason: 'NETWORK_CONVERGING', checking: true };
+  let paints = 0;
+  const arm = health.expiryGuard(surface, paint);
+  function paint() { paints++; surface.replaceChildren(health.summaryNode(data, null)); arm(data); }
+  paint();
+  ensure(surface.textContent.includes('Waiting for complete network convergence'), 'Initial bounded wait absent');
+  const realNow = Date.now;
+  try {
+   Date.now = () => realNow() - 500;
+   await new Promise((resolve, reject) => {
+    const deadline = performance.now() + 4000;
+    function check() {
+     if (surface.textContent.includes('Unknown; wait expired') && !surface.textContent.includes('Waiting for complete network convergence')) return resolve();
+     if (performance.now() >= deadline) return reject(new Error('Wall rollback renewed bounded convergence wait'));
+     setTimeout(check, 20);
+    }
+    check();
+   });
+  } finally { Date.now = realNow; }
+  ensure(surface.textContent.includes('Unhealthy'), 'Wait expiry hid fresh failed evidence');
+  return { phases, paints, monotonicExpiry: true, freshFailureRetained: true };
+ }, sources);
+}

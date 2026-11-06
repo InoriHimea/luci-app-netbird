@@ -10,6 +10,7 @@ import { read_json, atomic_json, private_dir, keep_history } from './storage.uc'
 import { read_config } from './settings.uc';
 import { production_alerts } from './alert-runtime.uc';
 import { observe } from './alerts.uc';
+import { assess_convergence } from './convergence.uc';
 const ROOT = '/tmp/netbird-health';
 if (!private_dir(ROOT)) exit(2);
 // Separate from the supervisor lock: a replacement supervisor cannot overlap
@@ -25,6 +26,7 @@ if (type(config.node?.stable_node_id) != 'string' ||
     !match(config.node.stable_node_id, /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$/) ||
     type(config.revision) != 'int' || config.revision < 0 || config.revision > 2147483647) exit(2);
 let started_at = time(), started = monotonic_ms(), deadline = started + budget * 1000;
+let convergence_start = read_json(ROOT + '/convergence-control.json', 4096);
 let snapshot = collect(null, config.paths), probes = [], checks = [];
 if (type(snapshot.boot_id) != 'string' || !match(snapshot.boot_id, /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$/)) exit(4);
 for (let endpoint in config.endpoints) {
@@ -80,6 +82,21 @@ run.config_revision = config.revision;
 run.checks = checks;
 run.events_cursor = null;
 run.delivery_state = 'not_requested';
+// Linearize observed network events against convergence, alert votes and the
+// durable publication. The independent cycle host also bounds this lock lease.
+let generation_lock = open(ROOT + '/convergence.lock', 'a', 0600);
+if (!generation_lock || !generation_lock.lock('x')) exit(4);
+let convergence_end = read_json(ROOT + '/convergence-control.json', 4096);
+let control_valid = convergence_start?.schema == 1 && convergence_start.boot_id == snapshot.boot_id &&
+    convergence_start.config_revision == config.revision &&
+    type(convergence_start.event_sequence) == 'int' &&
+    index(['int', 'double'], type(convergence_start.last_now)) >= 0 &&
+    index(['int', 'double'], type(convergence_start.started_at)) >= 0 &&
+    index(['int', 'double'], type(convergence_start.deadline_at)) >= 0;
+run.convergence = assess_convergence(control_valid ? convergence_start : null, checks,
+    monotonic_ms() / 1000, sprintf('%J', convergence_start) != sprintf('%J', convergence_end));
+run.flags.checking = run.convergence.checking;
+if (run.overall == 'healthy' && run.convergence.phase != 'ready') run.overall = 'unknown';
 let previous = read_json(ROOT + '/latest.json', 524288);
 let sequence = type(previous?.sequence) == 'int' && previous.sequence < 9999999999 ? previous.sequence + 1 : 1;
 let result = { sequence, sampled_at, duration_ms: run.monotonic_duration_ms,

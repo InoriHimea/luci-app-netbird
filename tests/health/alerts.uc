@@ -84,4 +84,20 @@ state = null; config.notification.reminder = true; step(bad); step(bad); step(ba
 for (let i = 0; i < 5; i++) { now += 3600000; step(bad); }
 check(state.episode.reminders == 3 && length(state.events) == 4,
     'optional reminders stop after three per incident even across repeated hourly samples');
+state = null; config.notification.reminder = false;
+run.checks[0] = { id: 'missing-rule', category: 'rules', code: 'RULE_MISSING', status: 'FAIL', severity: 'critical', fresh: true, executed: true };
+run.overall = 'unhealthy'; run.convergence = { checking: true, phase: 'converging' };
+let waiting = observe(run, config, snapshot);
+check(waiting.state == 'suppressed' && waiting.intent == 'network_convergence' && length(waiting.details) > 0,
+    'bounded convergence pauses votes without discarding required-rule failure evidence');
+step(waiting); step(waiting); step(waiting);
+check(state.failures == 0 && !length(state.events), 'bounded wait never consumes consecutive failure votes or queues a notification');
+run.convergence.checking = false; run.convergence.phase = 'failed';
+let expired = observe(run, config, snapshot); step(expired); step(expired); step(expired);
+check(state.failures == 3 && length(state.events) == 1 && state.events[0].kind == 'failure',
+    'expired convergence resumes actual failure voting rather than permanently suppressing the incident');
+state = null; run.convergence = { phase: 'unknown', checking: false, reason: 'CONVERGENCE_EVENT_DURING_CYCLE' };
+let mixed = observe(run, config, snapshot); step(mixed); step(mixed); step(mixed);
+check(mixed.intent == 'network_generation_changed' && state.failures == 0 && !length(state.events) && length(mixed.details) > 0,
+    'mixed-generation failures retain diagnostics but cannot consume incident votes');
 print('alerts: ', n, ' assertions passed\n');

@@ -71,6 +71,23 @@
       "minimum": 0,
       "maximum": 2147483647
     },
+    "convergence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "reason", "checking", "event_sequence", "started_at", "deadline_at"],
+      "properties": {
+        "phase": { "enum": ["startup_grace", "converging", "ready", "failed", "unknown"] },
+        "reason": {
+          "enum": ["STARTUP_GRACE", "NETWORK_CONVERGING", "CONVERGENCE_READY", "CONVERGENCE_FAILED",
+            "CONVERGENCE_CONTEXT_INVALID", "CONVERGENCE_EVENT_DURING_CYCLE",
+            "CONVERGENCE_EVIDENCE_UNKNOWN", "CONVERGENCE_BASELINE_INCOMPLETE"]
+        },
+        "checking": { "type": "boolean" },
+        "event_sequence": { "type": "integer", "minimum": 0 },
+        "started_at": { "type": "number", "minimum": 0 },
+        "deadline_at": { "type": "number", "minimum": 0 }
+      }
+    },
     "overall": {
       "enum": [
         "healthy",
