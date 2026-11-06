@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: Apache-2.0
+import { create_schedule, request_check, route_event, next_check, finish_check } from '../../luci-app-netbird/root/usr/share/netbird/health/scheduler.uc';
+let n = 0;
+function check(ok, label) { if (!ok) die(`FAIL: ${label}\n`); printf('ok %d - %s\n', ++n, label); }
+let s = create_schedule('boot-a', 100, 60);
+check(next_check(s, 100) == 'periodic' && s.active, 'initial cycle starts independently of browser');
+request_check(s); request_check(s);
+check(next_check(s, 101) == null, 'manual requests during a cycle coalesce with active job');
+finish_check(s, 102);
+check(next_check(s, 103) == null, 'coalesced clicks do not create queued cycles');
+check(next_check(s, 159) == null && next_check(s, 160) == 'periodic', 'period uses monotonic start cadence');
+route_event(s, 161); route_event(s, 162);
+finish_check(s, 163);
+check(next_check(s, 163) == null && next_check(s, 164) == 'event', 'events during collection receive a debounced follow-up');
+finish_check(s, 165);
+route_event(s, 166); route_event(s, 167); route_event(s, 168); route_event(s, 169); route_event(s, 170);
+check(next_check(s, 170) == null && next_check(s, 171) == 'event', 'continuous event flood cannot postpone checks indefinitely');
+finish_check(s, 172);
+request_check(s, 172);
+check(next_check(s, 172) == null, 'click just after a fast job returns that recent job');
+request_check(s, 174); request_check(s, 174);
+check(next_check(s, 174) == 'manual' && next_check(s, 174) == null, 'multiple idle clicks create only one active task');
+finish_check(s, 174.1);
+request_check(s, 174.2);
+check(next_check(s, 174.2) == null, 'burst after short manual completion does not enqueue a second job');
+check(next_check(s, 1) == 'clock_boundary' && s.clock_boundary, 'monotonic reversal creates an explicit boundary');
+finish_check(s, 2);
+let bad = create_schedule('boot-b', 0, 0);
+check(bad.interval == 60, 'invalid period cannot create busy loop');
+check(create_schedule('boot-b', 0, 30).interval == 30 && create_schedule('boot-b', 0, 3600).interval == 3600, 'both approved period boundaries supported');
+printf('PASS: %d scheduler assertions\n', n);

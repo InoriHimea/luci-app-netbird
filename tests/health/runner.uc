@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-import { run_command } from '../../luci-app-netbird/root/usr/share/netbird/health/runner.uc';
-import { access, readfile, unlink } from 'fs';
+import { run_command, cleanup_commands } from '../../luci-app-netbird/root/usr/share/netbird/health/runner.uc';
+import { access, readfile, unlink, mkdtemp, open, rmdir } from 'fs';
 let count = 0;
 function check(value, label) {
     if (!value) die(`FAIL: ${label}\n`);
@@ -30,4 +30,18 @@ r = run_command(['/bin/sh', '-c', 'printf "ip: invalid option -- j\\n" >&2; exit
 check(!r.json_unsupported, 'unrecognized diagnostic does not authorize fallback');
 r = run_command(['/bin/sh', '-c', 'printf \'Option "-j" is unknown, try "ip -help".\\n\' >&2; exit 255'], 1000);
 check(!r.ok && r.json_unsupported, 'known ip JSON capability diagnostic preserved');
+let abandoned = mkdtemp('/tmp/netbird-health-cmd.XXXXXX');
+let file = open(abandoned + '/out', 'wx', 0600); file.write('partial'); file.close();
+check(cleanup_commands() && !access(abandoned), 'abandoned private files are reclaimed after owner death');
+let lease = open('/tmp/netbird-health/commands.lock', 'a', 0600);
+lease.lock('s');
+let active = mkdtemp('/tmp/netbird-health-cmd.XXXXXX');
+check(!cleanup_commands() && access(active), 'janitor cannot race a live owner or armed guard');
+lease.close();
+check(cleanup_commands() && !access(active), 'released lease permits interrupted allocation cleanup');
+let foreign = mkdtemp('/tmp/netbird-health-cmd.XXXXXX');
+file = open(foreign + '/unrecognized', 'wx', 0600); file.close();
+cleanup_commands();
+check(access(foreign + '/unrecognized'), 'janitor refuses unexpected directory contents');
+unlink(foreign + '/unrecognized'); rmdir(foreign);
 printf('PASS: %d runner assertions\n', count);

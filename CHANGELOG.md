@@ -11,6 +11,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 - Synthetic A01/A02/A04/A10/A24 model replay, a native OpenWrt test entrypoint, and source/fleet compatibility evidence under `docs/health/`.
 - NBH-12 read-only IPv4 collection adapter with fixed argv, bounded command/output handling, explicit capability failures, tested legacy-ip text fallback, sanitized real agent samples, exact approved-peer selection, and endpoint generation comparison. No production monitor, configuration write, or active probe is enabled.
 - NBH-13 approved IPv4 rule-chain/route evaluation and bounded source/ingress-aware kernel lookups, explicit table output, native/fallback drift separation, scoped expiring route exceptions, selected-peer/probe provenance and separate LAN coverage. Isolated real-kernel A01/A02/A04 checks retain WAN mismatch, fallback degradation and equivalent-layout success without network mutation on production routers.
+- NBH-14 default-off independent health service: monotonic scheduling, single active cycle, coalesced requests and debounced route/rule/link events, independently guarded nested deadlines, crash-safe private tmp snapshots and bounded history. Router-originated TCP, verified HTTPS, IPv4 ICMP datagram and credential-free RDP checks preserve actual-source evidence and unavailable LAN/engine/watchdog observations. Existing agent/update/settings/watchdog state is observed without reconnecting or changing configuration.
 
 ## 0.2.0-r7 — 2026-10-17
 

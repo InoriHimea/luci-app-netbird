@@ -25,7 +25,7 @@ LUCI_DEPENDS:=
 # 22.03 的 luci-base 不依赖它们(靠 firewall4 间接装上),精简或 fw3 固件上会缺。
 # conntrack:网络页「删除转发规则即时断开已建连接」靠 conntrack 定向 flush;缺它会静默
 # 退化为只挡新流、已建流持续。列入依赖使该行为在所有部署一致可靠。
-LUCI_EXTRA_DEPENDS:=rpcd (>=0), rpcd-mod-ucode (>=0), ucode (>=0), ucode-mod-fs (>=0), ucode-mod-uci (>=0), luci-base (>=0), conntrack (>=0)
+LUCI_EXTRA_DEPENDS:=rpcd (>=0), rpcd-mod-ucode (>=0), ucode (>=0), ucode-mod-fs (>=0), ucode-mod-uci (>=0), ucode-mod-uloop (>=0), ucode-mod-socket (>=0), luci-base (>=0), conntrack (>=0)
 LUCI_PKGARCH:=all
 LUCI_URL:=https://github.com/InoriHimea/luci-app-netbird
 LUCI_MAINTAINER:=looong-cat <foxhis11@gmail.com>

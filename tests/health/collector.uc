@@ -6,6 +6,7 @@ let n = 0;
 function check(ok, label) { if (!ok) die(`FAIL: ${label}\n`); printf('ok %d - %s\n', ++n, label); }
 let mode = 'stable', links = 0;
 let self_pid = split(readfile('/proc/self/stat'), ' ')[0], nft_calls = 0, text_calls = 0;
+let rule_calls = 0;
 function runner(argv, timeout) {
     let command = join(' ', argv), out = '';
     if (index(command, 'status') >= 0) out = readfile(fixtures + '/status-0.82.0.json');
@@ -37,6 +38,7 @@ function runner(argv, timeout) {
         if (index(command, 'link') >= 0) out = '[{"ifindex":9,"ifname":"mesh-alt","flags":["UP"],"mtu":1280,"operstate":"UNKNOWN"}]';
     }
     if (mode == 'budget') return { ok: true, stdout: out, output_bytes: 65535, exit_code: 0 };
+    if (mode == 'rule-churn' && index(command, 'rule') >= 0 && rule_calls++) out = '[{"priority":32766,"src":"all","table":"main"}]';
     if (mode == 'timeout' && index(command, 'status') >= 0) return { ok: false, reason: 'TIMEOUT', stdout: '', exit_code: null, duration_ms: 2000 };
     return { ok: true, stdout: out, exit_code: 0, duration_ms: 1 };
 }
@@ -72,4 +74,7 @@ mode = 'churn'; links = 0; r = collect(runner, [path]);
 check(!r.complete && !r.lookups.business.ok && r.lookups.business.reason == 'GENERATION_CHANGED', 'later generation change invalidates successful kernel lookup');
 mode = 'stable'; r = collect(runner, [path, path]);
 check(!r.complete && !r.lookups.business.ok, 'duplicate path identity cannot replace bound evidence');
+mode = 'rule-churn'; rule_calls = 0; r = collect(runner);
+check(!r.complete && r.boundaries.before.processes[0].pid == r.boundaries.after.processes[0].pid && r.boundaries.before.rules.records[0].priority == 0 && r.boundaries.after.rules.records[0].priority == 32766, 'same daemon PID cannot hide rule reconstruction');
+check(r.engine.state == 'unknown' && r.attribution == 'cause_undetermined', 'unobserved engine identity and actor remain unknown');
 printf('PASS: %d collector assertions\n', n);

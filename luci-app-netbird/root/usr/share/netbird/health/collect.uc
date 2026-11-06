@@ -3,6 +3,7 @@ import { access, open } from 'fs';
 import { run_command, monotonic_ms } from './runner.uc';
 import { parse_agent, parse_ip } from './parsers.uc';
 import { lookup_path } from './lookup.uc';
+import { maintenance_state } from './maintenance.uc';
 
 function executable(candidates) {
     for (let p in candidates) if (access(p, 'x')) return p;
@@ -93,7 +94,8 @@ function collect(execute, paths) {
     function snapshot() {
         let pid = command(['/bin/busybox', 'pidof', 'netbird']);
         return { processes: pid.ok ? process_identity(pid.stdout) : null,
-            rules: ip_data('rules'), routes: ip_data('routes'), links: ip_data('links'), firewall: firewall_inventory() };
+            rules: ip_data('rules'), routes: ip_data('routes'), links: ip_data('links'), firewall: firewall_inventory(),
+            maintenance: maintenance_state() };
     }
     let before = snapshot();
     let status = command(['/usr/bin/netbird', 'status', '--json']);
@@ -129,6 +131,9 @@ function collect(execute, paths) {
         reason: expired ? 'COMMAND_TIMEOUT' : !generation_available ? 'GENERATION_UNAVAILABLE' : !stable ? 'GENERATION_CHANGED' : complete ? null : 'COLLECTION_INCOMPLETE',
         boot_id: before_boot, duration_ms: monotonic_ms() - started,
         generation,
+        boundaries: { before, after },
+        engine: { state: 'unknown', reason: 'ENGINE_IDENTITY_UNAVAILABLE' },
+        attribution: 'cause_undetermined',
         agent, rules: before.rules, routes: before.routes, links: before.links, firewall, lookups };
 }
 export { collect };
