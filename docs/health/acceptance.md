@@ -64,9 +64,26 @@ These cases do not close T09 site acceptance, authorize deployment/automatic rec
 | Case | Verified-layer verdict | Observed evidence | Remaining boundary |
 |---|---|---|---|
 | A30 | PASS, isolated native workers/supervisor and actual LuCI/HTTP | Default OFF and separately authenticated explicit consent; Cancel and health Save do not enable. Seven automatic worker guard cases have zero effects. Three native source cycles spanning over60s submit one fixed restart recorder via the real host/worker. Read-only HTTP cannot authorize it. | Pre-action structure/Connected is synthetic; restart is an inert recorder. Actual VPN/LAN/production enablement NOT_RUN. |
-| A31 | PASS, isolated policy/persistence and native failed attempt | One charged incident remains sealed through continued fault, off/on and supervisor recreation; at least30min cross-incident budget and boot/clock boundaries are exercised. Real native post-check UNKNOWN is not restored. One persistent failure event retains central/local/none ownership and survives runtime-state loss without duplication. | Physical power loss, production notification receipt and real NetBird recovery NOT_RUN. E05 dependency still pending. |
+| A31 | PASS, isolated policy/persistence and native failed attempt | One charged incident remains sealed through continued fault, off/on and supervisor recreation; at least30min cross-incident budget and boot/clock boundaries are exercised. Real native post-check UNKNOWN is not restored. One persistent failure event retains central/local/none ownership and survives runtime-state loss without duplication. | Physical power loss, production notification receipt and real NetBird recovery NOT_RUN. E05 isolated regression/package evidence is recorded below. |
 
-Independent reviews have no remaining blockers after a reproduced source-time voting fix. These rows do not close E05/A32 or T09 production/site acceptance and do not authorize automatic rollout.
+Independent reviews have no remaining blockers after a reproduced source-time voting fix. E05 adds the isolated A32/package layer below; T09 production/site acceptance and automatic rollout remain separate gates.
+
+## E05 supplemental denominator and causal matrix
+
+| Case | Verified-layer verdict | Observed evidence | Remaining boundary |
+|---|---|---|---|
+| A32 | PASS, independent OpenWrt guest kernel plus real native process evidence | Permanent before/after-reboot entrypoints exit0; actual boot ID changes, temporary105/110/12100 vanish, and forward lookup remains failed until owned structure is restored. Running deletion retains boot/daemon PID. Event/controller logs, source/iif lookups, process starts and a153-second cross-boot gap are retained. | No physical appliance power cycle, connected-engine identity, actual user-LAN/business proof or production fault is claimed. Frozen P0 NOT_RUN rows remain NOT_RUN. |
+
+| Scenario | Actual observation | Causal classification and limit |
+|---|---|---|
+| Whole-guest reboot | `ffd92b9e…`→`f448ac36…`; unpersisted105/110/12100 disappear; monotonic cross-boot gap null. Owned restoration changes forward FAIL→PASS, overall remains UNKNOWN. | Controlled whole-kernel restart is known; not a shared-kernel container restart or hardware power-loss test. |
+| Network-only restart | Native netifd restart within one boot/PID2770 window removes temporary rules; kernel events and failed forwarding are captured. | Same-window correlation. No audit identifies which process deleted a particular rule; product attribution remains undetermined. |
+| Agent-only restart | Separate actual offline NetBird0.77.0 daemon PID2960/start128469→3062/start128837; boot, actual rules/routes unchanged; management/signal false. Corrected bounded-stop entrypoint exits0. | Controlled real daemon restart, not an inert process substitute. Engine lifecycle remains UNKNOWN; no connected VPN or authenticated Peer. |
+| Running rule deletion | Explicit owned105/110 deletes preserve boot and inert PID3245; actual route lookup selects the wrong path and required forwarding fails. | Controller's specific deletion is known in the harness. Kernel event text alone still does not identify an external deleter. |
+| Control-plane state before structure | Explicit Connected fixture plus query rules without the remote table route remains required FAIL. Restoring the route makes forward PASS but not overall healthy. | Synthetic control state, actual kernel forwarding. No real control-plane reconnection or LAN transport is inferred. |
+| Multiple recoverers | Existing current-source native manual/watchdog/settings/updater contention and automatic guard/one-shot evidence, including the immutable E04 aggregate. | Verified native ownership/effect counts with inert lifecycle effects; not a claim that production scripts were migrated or a real Mesh recovered. |
+
+A25–A31 retain their individual evidence and limits above; neither A32 nor real offline daemon execution upgrades their unexecuted production layers to PASS. The independent guest/owned instances are removed, and the identity-bearing guest disk is not delivered. New0.2.0-r9 main/Chinese APK/IPK, actual APK upgrade/rollback/preservation, hashes and exact-range bundle contract are described in [release-r9.md](release-r9.md). APK trust and24.10 IPK runtime remain separate unresolved gates.
 
 
 ## Seven deliverable groups
