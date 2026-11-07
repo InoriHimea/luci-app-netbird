@@ -119,11 +119,37 @@ function advance(previous, observation, config, context) {
     state.observation = copy(observation);
     return { ok: true, state, duplicate: false };
 }
+function automatic_failure(previous, episode, config, context) {
+    if (episode?.phase != 'finished' || index(['FAILED', 'PARTIAL', 'UNKNOWN'], episode.outcome) < 0 ||
+        !match(episode.id || '', /^[0-9a-f]{32}$/) || !match(episode.reason || '', /^[A-Z][A-Z0-9_]{0,63}$/))
+        return { ok: false, reason: 'AUTOMATIC_FAILURE_INVALID' };
+    let state = previous ? copy(previous) : initial(config.node.stable_node_id);
+    if (state.automatic_failure_id == episode.id) return { ok: true, state, duplicate: true };
+    while (length(state.events) >= 32) {
+        let removed = shift(state.events);
+        if (removed.state == 'queued') state.dropped_events++;
+    }
+    let owner = config.notification.owner;
+    push(state.events, { id: episode.id + ':automatic_failure:0', episode_id: episode.id, kind: 'automatic_failure',
+        owner, sink_ref: config.notification.sink_ref, config_revision: config.revision,
+        node_id: config.node.stable_node_id, run_id: context.run_id, created_at: context.wall,
+        boot_id: context.boot_id, next_ms: context.now_ms, attempts: 0,
+        state: owner == 'none' ? 'suppressed' : 'queued', delivery_state: 'not_submitted',
+        receipt_verified: false, paused: false, error: owner == 'none' ? 'OWNER_NONE' : null,
+        categories: ['AUTOMATIC_RECOVERY'],
+        details: [{ category: 'AUTOMATIC_RECOVERY', id: episode.id, code: episode.reason, severity: 'error' }],
+        detail_count: 1, evidence_run_id: context.run_id, overall: 'unknown', upstream_down: false,
+        aggregation: 'Automatic attempt ' + episode.outcome + '; no further retry for this incident.',
+        retry_risk: 'at_least_once_possible' });
+    state.automatic_failure_id = episode.id;
+    return { ok: true, state, duplicate: false };
+}
 function durable(state) {
     // Streaks/current observations live in tmpfs. Only incident/queue transitions
     // are persisted, not every normal sample or wall-clock tick.
     return { schema: 1, node_id: state.node_id, episode: state.episode?.announced ? state.episode : null,
-        events: state.events, dropped_events: state.dropped_events, last_send: state.last_send || null };
+        events: state.events, dropped_events: state.dropped_events, last_send: state.last_send || null,
+        automatic_failure_id: state.automatic_failure_id || null };
 }
 function restore(saved, node) {
     let state = initial(node);
@@ -131,6 +157,7 @@ function restore(saved, node) {
     if (saved.schema !== 1 || saved.node_id != node || type(saved.events) != 'array' || length(saved.events) > 32) return null;
     state.episode = copy(saved.episode); state.events = copy(saved.events); state.dropped_events = saved.dropped_events || 0;
     state.last_send = copy(saved.last_send || null);
+    state.automatic_failure_id = saved.automatic_failure_id || null;
     return state;
 }
-export { observe, advance, durable, restore };
+export { observe, advance, automatic_failure, durable, restore };

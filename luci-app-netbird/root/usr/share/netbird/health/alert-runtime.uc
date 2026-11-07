@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { open, lstat } from 'fs';
 import { private_dir, read_json, atomic_json } from './storage.uc';
-import { observe, advance, durable, restore } from './alerts.uc';
+import { observe, advance, automatic_failure, durable, restore } from './alerts.uc';
 import { read_config } from './settings.uc';
 import { opaque_id } from './jobs.uc';
 import { monotonic_ms } from './runner.uc';
@@ -57,6 +57,7 @@ function create_alerts(root, persistent, settings, clock, sender, guard) {
                             state.events = recovered.events;
                             state.episode = recovered.episode || (state.episode?.announced === false ? state.episode : null);
                             state.dropped_events = recovered.dropped_events; state.last_send = recovered.last_send;
+                            state.automatic_failure_id = recovered.automatic_failure_id;
                         }
                     }
                     if (!state || state.schema !== 1 || state.node_id != config.node.stable_node_id ||
@@ -90,6 +91,11 @@ function create_alerts(root, persistent, settings, clock, sender, guard) {
         });
         if (sampled.ok) atomic_json(root, 'observer.json', sampled.state.observation.observer, 2048);
         return sampled;
+    }
+    function record_automatic_failure(episode) {
+        return transaction((state, config, now) => automatic_failure(state, episode, config,
+            { run_id: state.last_run_id || 'automatic:' + episode.id,
+                boot_id: state.boot_id, now_ms: now, wall: time() }));
     }
     function pending() {
         let state = read_json(root + '/alerts.json', LIMIT), now = clock();
@@ -153,7 +159,7 @@ function create_alerts(root, persistent, settings, clock, sender, guard) {
         return config && state ? { ok: true, alert: public_state(state, config.notification) } :
             { ok: false, reason: 'ALERT_STATE_UNAVAILABLE' };
     }
-    return { record, pending, run_pending, summary };
+    return { record, record_automatic_failure, pending, run_pending, summary };
 }
 function production_alerts() {
     if (!private_dir('/etc/netbird-health')) return null;

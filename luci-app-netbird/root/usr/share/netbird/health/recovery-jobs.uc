@@ -21,6 +21,7 @@ function create_recovery_jobs(root, clock, boot) {
             if (!identifier(item?.id) || ids[item.id] || !actor_valid(item.actor) ||
                 !revision_valid(item.revision) || type(item.created_ms) != 'int' || item.created_ms < 0 ||
                 type(item.expires_ms) != 'int' || item.expires_ms != item.created_ms + 120000) return false;
+            if (item.mode != null && index(['manual', 'automatic'], item.mode) < 0) return false;
             ids[item.id] = true;
         }
         for (let job in state.jobs) {
@@ -30,6 +31,7 @@ function create_recovery_jobs(root, clock, boot) {
                 type(job.deadline_ms) != 'int' || job.deadline_ms != job.created_ms + 90000 ||
                 type(job.before) != 'object' || index(['RESTORED', 'PARTIAL', 'FAILED', 'UNKNOWN'], job.outcome) < 0)
                 return false;
+            if (job.mode != null && index(['manual', 'automatic'], job.mode) < 0) return false;
             ids[job.id] = true;
         }
         return true;
@@ -72,13 +74,15 @@ function create_recovery_jobs(root, clock, boot) {
         catch (e) { result = { ok: false, reason: 'RECOVERY_STATE_INVALID' }; }
         lock.close(); return result;
     }
-    function prepare(actor, revision) {
-        if (!actor_valid(actor) || !revision_valid(revision)) return { ok: false, reason: 'RECOVERY_ARGUMENT_INVALID' };
+    function prepare(actor, revision, mode) {
+        mode ??= 'manual';
+        if (!actor_valid(actor) || !revision_valid(revision) || index(['manual', 'automatic'], mode) < 0)
+            return { ok: false, reason: 'RECOVERY_ARGUMENT_INVALID' };
         return transact((state, now) => {
             let id = opaque_id();
             if (!identifier(id)) return { ok: false, reason: 'ID_UNAVAILABLE' };
             while (length(state.approvals) >= 8) shift(state.approvals);
-            push(state.approvals, { id, actor, revision, created_ms: now, expires_ms: now + 120000 });
+            push(state.approvals, { id, actor, revision, mode, created_ms: now, expires_ms: now + 120000 });
             return { ok: true, id, actor, revision, expires_in_ms: 120000,
                 operation: 'managed_agent_restart', automatic_retry: false, dirty: true };
         });
@@ -98,7 +102,7 @@ function create_recovery_jobs(root, clock, boot) {
             let snapshot = evidence(before);
             if (!snapshot || length(sprintf('%J', snapshot)) > SNAPSHOT_LIMIT)
                 return { ok: false, reason: 'RECOVERY_EVIDENCE_UNAVAILABLE' };
-            let job = { id, actor, revision, boot_id: boot, created_ms: now, created_at: time(),
+            let job = { id, actor, revision, mode: approval.mode ?? 'manual', boot_id: boot, created_ms: now, created_at: time(),
                 deadline_ms: now + 90000, state: 'queued', outcome: 'UNKNOWN', reason: 'QUEUED', before: snapshot };
             while (length(state.jobs) >= 2) shift(state.jobs);
             push(state.jobs, job);

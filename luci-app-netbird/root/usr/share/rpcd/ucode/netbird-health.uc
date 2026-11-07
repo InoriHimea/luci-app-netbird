@@ -4,6 +4,7 @@ import { prepare_export } from '/usr/share/netbird/health/export.uc';
 import { test_notification } from '/usr/share/netbird/health/notification.uc';
 import { authenticated_actor } from '/usr/share/netbird/health/actor.uc';
 import * as recovery from '/usr/share/netbird/health/recovery.uc';
+import * as automatic from '/usr/share/netbird/health/automatic-api.uc';
 const envelope = loadfile('/usr/share/rpcd/ucode/lib/envelope.uc')();
 const CODE = envelope.CODE;
 function handler(method) {
@@ -37,6 +38,8 @@ return {
         get_checks: { args: { cursor: '', limit: 0 }, call: handler(health.get_checks) },
         get_events: { args: { cursor: '', limit: 0 }, call: handler(health.get_events) },
         get_config: { args: {}, call: handler(health.get_config) },
+        get_automatic: { args: {}, call: handler(automatic.get_automatic) },
+        set_automatic: { args: { enabled: false, expected_revision: 0, confirmed: false }, call: authenticated(automatic.set_automatic) },
         start_check: { args: { path_id: '' }, call: handler(health.start_check) },
         get_job: { args: { id: '' }, call: handler(health.get_job) },
         prepare_export: { args: { id: '', offset: 0 }, call: handler(prepare_export) },

@@ -3,7 +3,7 @@
     "description": "Read cached NetBird health results and non-secret approved configuration",
     "read": {
       "ubus": {
-        "luci.netbird.health": ["get_summary", "get_checks", "get_events", "get_config", "get_job"]
+        "luci.netbird.health": ["get_summary", "get_checks", "get_events", "get_config", "get_job", "get_automatic"]
       }
     }
   },
@@ -35,6 +35,12 @@
     "description": "Confirm and query one audited managed NetBird restart; distinct from read-only checks",
     "write": {
       "ubus": { "luci.netbird.health": ["prepare_recovery", "start_recovery", "get_recovery_job"] }
+    }
+  },
+  "luci-app-netbird-health-automatic": {
+    "description": "Explicitly authorize or revoke bounded automatic recovery independently of health settings",
+    "write": {
+      "ubus": { "luci.netbird.health": ["set_automatic"] }
     }
   }
 }

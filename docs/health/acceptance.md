@@ -59,6 +59,16 @@ Native RTNL callbacks, persistent failed/no-start workers, generation-publicatio
 
 These cases do not close T09 site acceptance, authorize deployment/automatic recovery or satisfy E04/E05/A30–A32. See [baseline.md](baseline.md) for executed native/browser layers and explicit limits.
 
+## E04 supplemental denominator (outside frozen T08 delivery)
+
+| Case | Verified-layer verdict | Observed evidence | Remaining boundary |
+|---|---|---|---|
+| A30 | PASS, isolated native workers/supervisor and actual LuCI/HTTP | Default OFF and separately authenticated explicit consent; Cancel and health Save do not enable. Seven automatic worker guard cases have zero effects. Three native source cycles spanning over60s submit one fixed restart recorder via the real host/worker. Read-only HTTP cannot authorize it. | Pre-action structure/Connected is synthetic; restart is an inert recorder. Actual VPN/LAN/production enablement NOT_RUN. |
+| A31 | PASS, isolated policy/persistence and native failed attempt | One charged incident remains sealed through continued fault, off/on and supervisor recreation; at least30min cross-incident budget and boot/clock boundaries are exercised. Real native post-check UNKNOWN is not restored. One persistent failure event retains central/local/none ownership and survives runtime-state loss without duplication. | Physical power loss, production notification receipt and real NetBird recovery NOT_RUN. E05 dependency still pending. |
+
+Independent reviews have no remaining blockers after a reproduced source-time voting fix. These rows do not close E05/A32 or T09 production/site acceptance and do not authorize automatic rollout.
+
+
 ## Seven deliverable groups
 
 1. Code and executed unit/integration/UI/native evidence: T01–T07 commits and B; K and P contain new T08 original observations. Actual current SDK native lifecycle/publication and paired-language receipts are described in [release-r8.md](release-r8.md).

@@ -8,6 +8,7 @@ import { read_config } from './settings.uc';
 import { create_jobs } from './jobs.uc';
 import { production_alerts } from './alert-runtime.uc';
 import { convergence_policy, create_convergence, convergence_event, assess_convergence } from './convergence.uc';
+import { create_automatic_runtime } from './automatic-runtime.uc';
 const ROOT = '/tmp/netbird-health';
 if (!private_dir(ROOT)) exit(2);
 let lock = open(ROOT + '/service.lock', 'a', 0600);
@@ -37,6 +38,7 @@ initial_gate.close();
 let child = null, listener = null, event_status = 'disabled', stopping = false;
 let jobs = create_jobs(ROOT), active_job = null;
 let alerts = production_alerts(), alert_child = null, next_alert_launch = 0;
+let automatic = create_automatic_runtime(config, boot, alerts?.record_automatic_failure), automatic_result = null;
 let event_started_at = time(), event_overrun = false, overrun_observable = false;
 let next_cleanup = monotonic_ms() / 1000 + 5;
 uloop.init();
@@ -46,7 +48,7 @@ function publish(phase, reason) {
         event_started_at, event_overrun, overrun_observable,
         convergence: convergence_result, event_sequence: convergence.event_sequence,
         interval: state.interval, active: state.active, config_revision: config.revision,
-        job_id: active_job, attribution: 'cause_undetermined' });
+        job_id: active_job, automatic: automatic_result, attribution: 'cause_undetermined' });
 }
 function finish_cycle(budget, failed) {
     let now = monotonic_ms() / 1000;
@@ -142,6 +144,7 @@ let tick = uloop.interval(250, () => {
             else convergence_result = assess_convergence(convergence, [], monotonic_ms() / 1000, false);
             convergence.last_now = monotonic_ms() / 1000;
             store_control();
+            if (!stopping) automatic_result = automatic.observe(latest);
             if (code != 0 && alerts) alerts.record({ snapshot: { complete: false, reason: 'CYCLE_FAILED' },
                 run: { run_id: boot + ':monitor:' + monotonic_ms(), boot_id: boot,
                     node_id: config.node.stable_node_id, config_revision: config.revision,

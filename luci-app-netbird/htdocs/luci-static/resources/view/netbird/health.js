@@ -16,8 +16,10 @@ var notify = rpc.declare({ object: 'luci.netbird.health', method: 'test_notifica
 var prepareRecovery = rpc.declare({ object: 'luci.netbird.health', method: 'prepare_recovery', params: ['expected_revision'], expect: {} });
 var startRecovery = rpc.declare({ object: 'luci.netbird.health', method: 'start_recovery', params: ['id', 'expected_revision', 'confirmed'], expect: {} });
 var getRecoveryJob = rpc.declare({ object: 'luci.netbird.health', method: 'get_recovery_job', params: ['id'], expect: {} });
+var getAutomatic = rpc.declare({ object: 'luci.netbird.health', method: 'get_automatic', expect: {} });
+var setAutomatic = rpc.declare({ object: 'luci.netbird.health', method: 'set_automatic', params: ['enabled', 'expected_revision', 'confirmed'], expect: {} });
 var access = rpc.declare({ object: 'session', method: 'access', params: ['scope', 'object', 'function'], expect: { access: false } });
-var methods = ['start_check', 'set_config', 'prepare_export', 'test_notification', 'start_recovery'];
+var methods = ['start_check', 'set_config', 'prepare_export', 'test_notification', 'start_recovery', 'set_automatic'];
 
 return view.extend({
  load: function () {
@@ -31,6 +33,7 @@ return view.extend({
   var eventBox = E('section'), message = E('p', { 'role': 'status', 'aria-live': 'polite' });
   var alertBox = E('section', { 'id': 'nb-health-alert-state', 'aria-live': 'polite' });
   var recoveryBox = E('section', { 'id': 'nb-health-recovery-result', 'aria-live': 'polite' });
+  var automaticBox = E('section', { 'id': 'nb-health-automatic', 'aria-live': 'polite' }), automaticState = null;
   var recoveryId = E('input', { 'type': 'text', 'maxlength': 32, 'aria-label': _('Recovery job ID for result query') });
   var recoveryStorageKey = 'netbird-health-recovery-job';
   try { recoveryId.value = window.localStorage.getItem(recoveryStorageKey) || ''; } catch (e) {}
@@ -71,6 +74,9 @@ return view.extend({
     E('pre', {}, health.literal({ observer: independentFresh(observer) ? observer : { state: 'unknown', failure: null },
      notification: notification ? Object.assign({}, notification, independentFresh(notification) ? {} : { state: 'unknown', fresh: false }) :
       { state: 'unknown', receipt_verified: false } })) ]);
+   dom.content(automaticBox, [ E('h3', {}, _('Optional automatic recovery — independent consent')),
+    E('p', {}, _('Default OFF. Saving inspection settings never enables recovery. A verified layout and sustained structural fault are required; a business timeout alone cannot trigger a restart. One attempt per incident, at least 30 minutes between incidents. Missing LAN evidence is never restored.')),
+    E('pre', {}, health.literal(automaticState || { state: 'unknown' })) ]);
    var items = current ? current.checks : [];
    var issues = items.filter(function (item) { return !valid || !item.fresh || item.status !== 'PASS'; });
    dom.content(issueBox, [ E('h3', {}, _('Issues / unverified obligations')), E('p', {},
@@ -105,9 +111,10 @@ return view.extend({
   function refresh() {
    if (reading) return Promise.resolve();
    reading = true;
-   return health.snapshot().then(function (data) { current = data; failure = null; })
-    .catch(function (error) { failure = error.message; })
-    .finally(function () { reading = false; draw(); });
+   return Promise.all([
+    health.snapshot().then(function (data) { current = data; failure = null; }).catch(function (error) { failure = error.message; }),
+    getAutomatic().then(health.checked).then(function (data) { automaticState = data.automatic; }).catch(function () { automaticState = null; })
+   ]).finally(function () { reading = false; draw(); });
   }
   function action(permission, fn) {
    return function () {
@@ -159,6 +166,25 @@ return view.extend({
      E('button', { 'class': 'btn', 'click': function () { ui.hideModal(); resolve(); } }, _('Cancel')),
      E('button', { 'class': 'btn cbi-button-positive', 'click': function () { ui.hideModal(); resolve(Promise.resolve().then(function () { return save(next); })); } }, _('Confirm'))
     ]);
+   });
+  }
+  function confirmAutomatic(enabled) {
+   if (enabled && !config) throw new Error(_('Health configuration unavailable.'));
+   var revision = config ? config.revision : 0;
+   return new Promise(function (resolve) {
+    var agreed = E('input', { 'type': 'checkbox' }), submitted = false;
+    var confirm = E('button', { 'class': 'btn cbi-button-negative', 'disabled': true, 'click': function () {
+     if (submitted || !agreed.checked) return;
+     submitted = true; confirm.disabled = true; ui.hideModal();
+     resolve(setAutomatic(enabled, revision, true).then(health.checked).then(function (data) {
+      automaticState = data.automatic; say(_('Automatic recovery consent saved. No immediate restart was requested.')); draw();
+     }));
+    } }, _('Confirm independent automatic recovery consent'));
+    agreed.addEventListener('change', function () { confirm.disabled = !agreed.checked; });
+    ui.showModal(enabled ? _('Enable bounded automatic recovery?') : _('Disable automatic recovery?'), [
+     E('p', {}, enabled ? _('Future sustained verified structural faults may restart the managed agent once and interrupt Mesh connectivity. This does not authorize route rewriting, login, or unbounded retries.') : _('Revokes late automatic workers. Existing incident charges and cooldown remain; an already executed restart cannot be undone.')),
+     E('label', {}, [ agreed, ' ', _('I explicitly authorize this independent switch change.') ]),
+     E('button', { 'class': 'btn', 'click': function () { ui.hideModal(); resolve(); } }, _('Cancel')), confirm ]);
    });
   }
   function queryRecovery() {
@@ -223,7 +249,7 @@ return view.extend({
    });
   }
   box.appendChild(E('h2', {}, _('NetBird — Health inspection')));
-  box.appendChild(E('p', {}, _('Browser polling reads cached results only. Backend scheduling survives closing this page. No automatic route repair is provided.')));
+  box.appendChild(E('p', {}, _('Browser polling reads cached results only. Backend scheduling survives closing this page. Optional bounded recovery is disabled unless separately authorized. No automatic route rewriting is provided.')));
   box.appendChild(E('p', {}, _('Actions require separate run / configuration / export / notification / recovery permissions. Disabled controls do not grant authority.')));
   box.appendChild(summaryBox); box.appendChild(message);
   box.appendChild(alertBox);
@@ -241,6 +267,10 @@ return view.extend({
    button(_('Recover: restart managed agent…'), 4, confirmRecovery, true), recoveryId,
    button(_('Query recovery job only (no restart)'), 4, queryRecovery, false) ]));
   box.appendChild(recoveryBox);
+  box.appendChild(automaticBox);
+  box.appendChild(E('div', { 'class': 'nb-health-actions' }, [
+   button(_('Enable automatic recovery…'), 5, function () { return confirmAutomatic(true); }, true),
+   button(_('Disable automatic recovery…'), 5, function () { return confirmAutomatic(false); }, false) ]));
   box.appendChild(issueBox); box.appendChild(evidenceBox); box.appendChild(eventBox);
   var configuration = E('details', { 'id': 'nb-health-configuration' }, [ E('summary', {}, _('Approved monitoring configuration (JSON)')), configError,
    E('label', { 'for': 'nb-health-config' }, _('Complete configuration: monitor interval, paths, endpoints, approval and notification ownership. No secrets.')),

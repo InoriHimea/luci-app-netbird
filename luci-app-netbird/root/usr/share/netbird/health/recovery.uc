@@ -45,6 +45,9 @@ function start_recovery(args, actor) {
     let claimed = jobs.claim(args.id, actor, config.revision, args.confirmed,
         read_json('/tmp/netbird-health/latest.json', 524288));
     if (!claimed.ok || claimed.coalesced) return claimed;
+    return dispatch_recovery(claimed);
+}
+function dispatch_recovery(claimed) {
     let id = claimed.job.id;
     try {
         uloop.init();
@@ -61,4 +64,4 @@ function start_recovery(args, actor) {
 function get_recovery_job(args, actor) {
     return valid_args(args, ['id']) ? jobs.get(args.id, actor) : { ok: false, reason: 'RECOVERY_ARGUMENT_INVALID' };
 }
-export { prepare_recovery, start_recovery, get_recovery_job };
+export { prepare_recovery, start_recovery, get_recovery_job, dispatch_recovery };
