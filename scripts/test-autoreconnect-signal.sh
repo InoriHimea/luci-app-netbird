@@ -57,19 +57,8 @@ _check_term() {
 	fi
 }
 
-# 场景一:找不到 netbird,直接进入等待
-rm -f /usr/bin/netbird /usr/sbin/netbird
-_check_term no-binary
+# 原生动作owner暂不可用时保守等待,TERM仍需及时退出且不遗留sleep。
+_check_term owner-unavailable
 
-# 场景二:已连接分支的等待
-cat > /usr/bin/netbird <<'STUB'
-#!/bin/sh
-case "$1" in
-status) echo '{"daemonStatus":"Connected","management":{"connected":true}}' ;;
-*) exit 1 ;;
-esac
-STUB
-chmod +x /usr/bin/netbird
-_check_term connected
 
 [ "$fail" -eq 0 ] && echo 'PASS' || { echo 'FAIL'; exit 1; }

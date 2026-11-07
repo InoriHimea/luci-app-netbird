@@ -58,14 +58,14 @@ function create_action_journal(root, clock, boot) {
         if (type(id) != 'string' || !match(id, /^[0-9a-f]{32}$/) ||
             type(owner) != 'string' || !match(owner, /^[a-z][a-z0-9_-]{0,47}$/) ||
             type(actor) != 'string' || !match(actor, /^[A-Za-z0-9_.@+-]{1,96}$/) ||
-            index(['restart', 'settings', 'lifecycle', 'update'], kind) < 0)
+            index(['restart', 'settings', 'lifecycle', 'update', 'control'], kind) < 0)
             return { ok: false, reason: 'ACTION_ARGUMENT_INVALID' };
         return transact((state, now) => {
             for (let item in state.events) if (item.id == id)
                 return { ok: false, reason: 'ACTION_ALREADY_RESERVED', id };
             // Configuration is user intent, including an explicit service stop.
             // It must not be turned into a silently deferred recovery request.
-            if (kind != 'settings') {
+            if (kind != 'settings' && kind != 'control') {
                 if (length(state.attempts) && now - state.attempts[length(state.attempts) - 1] < COOLDOWN_MS)
                     return { ok: false, reason: 'ACTION_COOLDOWN' };
                 if (length(state.attempts) >= 3) return { ok: false, reason: 'ACTION_BUDGET_EXHAUSTED' };
@@ -73,8 +73,11 @@ function create_action_journal(root, clock, boot) {
             let event = { id, owner, actor, kind, boot_id: boot, started_ms: now,
                 started_at: time(), phase: 'reserved', outcome: 'UNKNOWN' };
             while (length(state.events) >= 64) shift(state.events);
-            push(state.events, event); push(state.attempts, now);
-            while (length(state.attempts) > 3) shift(state.attempts);
+            push(state.events, event);
+            if (kind != 'control') {
+                push(state.attempts, now);
+                while (length(state.attempts) > 3) shift(state.attempts);
+            }
             return { ok: true, id, dirty: true };
         });
     }
@@ -97,6 +100,22 @@ function create_action_journal(root, clock, boot) {
             return { ok: false, reason: 'ACTION_UNKNOWN' };
         });
     }
-    return { reserve, finish };
+    // A legacy operation may contain several commands. Report its handler
+    // result, never invent a command exit/drain or a health verdict.
+    function finish_operation(id, outcome) {
+        if (type(id) != 'string' || !match(id, /^[0-9a-f]{32}$/) ||
+            index(['handler_ok', 'handler_failed', 'interrupted'], outcome) < 0)
+            return { ok: false, reason: 'ACTION_ARGUMENT_INVALID' };
+        return transact((state, now) => {
+            for (let item in state.events) if (item.id == id) {
+                if (item.phase != 'reserved') return { ok: false, reason: 'ACTION_ALREADY_FINISHED' };
+                item.phase = 'operation_finished'; item.finished_ms = now; item.finished_at = time();
+                item.operation = { outcome };
+                return { ok: true, id, dirty: true };
+            }
+            return { ok: false, reason: 'ACTION_UNKNOWN' };
+        });
+    }
+    return { reserve, finish, finish_operation };
 }
 export { create_action_journal };

@@ -284,8 +284,8 @@ function create(ctx) {
         let old_link = st && st.type == 'link' ? trim(run('readlink ' + q(o.target)).out) : '';
         if (old_link && (!match(old_link, /^\/[A-Za-z0-9_./-]+$/) || !target_stat)) return fail('The original binary symlink cannot be safely preserved.');
         let worker = owner(ctx.pid());
-        if ((st || o.was_running) && (worker.group != worker.pid || worker.session != worker.pid))
-            return fail('Use start_binary_update/start_binary_source_switch or an isolated setsid worker for existing binaries.');
+        if (worker.group != worker.pid || worker.session != worker.pid)
+            return fail('Use start_binary_update/start_binary_source_switch or an isolated setsid worker for all binary installations.');
         let candidate = stat(o.candidate);
         if (!candidate || candidate.size < 1 || ctx.version(o.candidate) != o.version)
             return fail('Candidate version verification failed.');
@@ -426,7 +426,7 @@ function create(ctx) {
             return { ok: true, data: public_status() };
         // Killing only the ucode leader is insufficient: an orphan cp/tar may
         // still be writing a staged file after SIGKILL/OOM. Drain its whole group.
-        if (!retry_self && (s.had_target || s.was_running) && !stop_group(s.owner)) {
+        if (!retry_self && !stop_group(s.owner)) {
             s.phase = 'rollback_failed'; s.paused = true;
             s.message = 'Could not stop isolated transaction writers; preserve files and repair locally before recovery.';
             try { save(s); } catch (e) {}
@@ -434,14 +434,26 @@ function create(ctx) {
         }
         let lock = dir + '/recovery.lock';
         let lock_owner = read_json(lock + '/owner');
+        let previous_owner = s.owner;
         if (access(lock, 'f') && !alive(lock_owner)) {
             if (!stop_group(lock_owner)) return fail('An interrupted recovery still has live writer processes.');
+            previous_owner = lock_owner || previous_owner;
             run('rm -rf ' + q(lock));
         }
         if (run('mkdir -m 0700 ' + q(lock)).code != 0) return fail('Recovery already in progress.');
         writefile(lock + '/owner', sprintf('%J', owner(ctx.pid())));
         let result;
-        try { result = rollback(s, s.failure || 'Update interrupted before commit', !!(o && o.boot)); }
+        try { result = ctx.recover_owned(previous_owner, function() {
+            let current = load();
+            if (!pending(current) || (current.phase == 'rollback_failed' && !(o && o.retry)))
+                return { ok: !current || !current.paused, data: public_status() };
+            if (type(s.transaction_id) != 'string' || !length(s.transaction_id) ||
+                current.transaction_id != s.transaction_id || current.schema != s.schema ||
+                current.target != s.target || current.staged != s.staged || current.real_profile != s.real_profile)
+                return fail('Transaction changed before recovery acquired ownership; no files were restored.');
+            s = current;
+            return rollback(s, s.failure || 'Update interrupted before commit', !!(o && o.boot));
+        }); }
         catch (e) { result = fail(`${e}`); }
         run('rm -rf ' + q(lock));
         let after = load();

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { run_command, cleanup_commands } from '../../luci-app-netbird/root/usr/share/netbird/health/runner.uc';
+import { run_command, run_legacy_command, cleanup_commands } from '../../luci-app-netbird/root/usr/share/netbird/health/runner.uc';
 import { access, readfile, unlink, mkdtemp, open, rmdir } from 'fs';
 let count = 0;
 function check(value, label) {
@@ -32,6 +32,17 @@ check(!access('/tmp/nbh-orphan'), 'timeout drains descendant process group');
 r = run_command(['/bin/sh', '-c', '(sleep 1; touch /tmp/nbh-orphan) & exit 0'], 1000);
 sleep(1200);
 check(r.ok && !access('/tmp/nbh-orphan'), 'successful parent cannot leave descendants');
+let legacy_dir = mkdtemp('/tmp/nbh-legacy.XXXXXX');
+r = run_legacy_command('(sleep 1; touch ' + legacy_dir + '/late) & wait', 150);
+check(!r.ok && r.reason == 'TIMEOUT' && r.cleanup_confirmed, 'legacy timeout drains its session');
+sleep(1200);
+check(!access(legacy_dir + '/late'), 'legacy timed-out parent cannot leave a late writer');
+r = run_legacy_command('printf out; printf err >&2; exit 9', 1000);
+check(!r.ok && r.exit_code == 9 && r.stdout == 'outerr', 'legacy diagnostics and original failure exit survive containment');
+r = run_legacy_command('(sleep 1; touch ' + legacy_dir + '/late) & exit 0', 1000);
+sleep(1200);
+check(r.ok && r.cleanup_confirmed && !access(legacy_dir + '/late'), 'legacy successful parent cannot leave a late writer');
+rmdir(legacy_dir);
 check(!run_command(['/bin/true'], 0).ok, 'exhausted deadline never disables timeout');
 r = run_command(['/bin/sh', '-c', 'printf note >&2'], 1000);
 check(r.ok && r.output_bytes == 4 && !('stderr' in r), 'stderr counted without exposing contents');

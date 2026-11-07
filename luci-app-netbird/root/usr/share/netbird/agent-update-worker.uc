@@ -6,15 +6,21 @@ if (getenv('NB_AGENT_WORKER') != '1') {
     exit(2);
 }
 let command = ARGV[0] || 'status';
+let actor = ARGV[1];
+if (length(ARGV) > 2 || actor != null && (index(['run', 'scheduled'], command) < 0 ||
+    type(actor) != 'string' || !match(actor, /^[A-Za-z0-9_.@+-]{1,96}$/))) exit(2);
 if (index(['run', 'scheduled', 'recover', 'recover-retry', 'boot', 'deadline'], command) >= 0) {
     let m = match(readfile('/proc/self/stat') || '', /^([0-9]+) \(.*\) (.+)$/);
     let fields = m ? split(m[2], ' ') : [];
-    if (!m || fields[2] != m[1] || fields[3] != m[1])
-        exit(system('setsid ucode /usr/share/netbird/agent-update-worker.uc ' + command));
+    if (!m || fields[2] != m[1] || fields[3] != m[1]) {
+        let argv = ['/bin/busybox', 'setsid', '/usr/bin/ucode', '/usr/share/netbird/agent-update-worker.uc', command];
+        if (actor != null) push(argv, actor);
+        exit(system(argv));
+    }
 }
 try {
     let api = loadfile('/usr/share/rpcd/ucode/netbird.uc')();
-    let result = api.run(command);
+    let result = api.run(command, actor);
     if (command == 'guard') exit(result.ok && result.data && result.data.allowed ? 0 : 1);
     print(sprintf('%J\n', result));
     exit(result.ok ? 0 : 1);

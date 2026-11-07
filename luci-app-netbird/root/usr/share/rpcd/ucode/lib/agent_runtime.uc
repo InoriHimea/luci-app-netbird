@@ -114,9 +114,11 @@ function create(ctx) {
         let cmd = readfile('/proc/' + pid + '/cmdline') || '';
         return index(cmd, 'agent-update-worker.uc') >= 0;
     }
-    function spawn(mode) {
+    function spawn(mode, actor) {
         if (mode != 'run' && mode != 'scheduled') return { ok: false, message: 'Invalid worker mode.' };
-        let r = run('NB_AGENT_WORKER=1 NBLIB=' + q(ctx.lib) + ' setsid ucode /usr/share/netbird/agent-update-worker.uc ' + mode +
+        if (type(actor) != 'string' || !match(actor, /^[A-Za-z0-9_.@+-]{1,96}$/))
+            return { ok: false, message: 'Invalid worker actor.' };
+        let r = run('NB_AGENT_WORKER=1 NBLIB=' + q(ctx.lib) + ' setsid ucode /usr/share/netbird/agent-update-worker.uc ' + mode + ' ' + q(actor) +
             ' </dev/null >/tmp/luci-netbird-agent-update.log 2>&1 & echo $!');
         let pid = trim(r.out);
         if (!match(pid, /^[1-9][0-9]*$/) || writefile('/tmp/luci-netbird-agent-update.pid', pid) != length(pid))

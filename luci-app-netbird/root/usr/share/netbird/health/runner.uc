@@ -17,7 +17,8 @@ const GUARD = 'import {open,unlink} from "fs"; '
 const LAUNCH = 'umask 077; echo $$ > "$1/pid"; ulimit -f 128 || exit 125; d="$1"; '
     + '/usr/bin/ucode -e "$2" "$3" "$$" "$d" </dev/null >/dev/null 2>&1 & g=$!; '
     + 'while [ ! -f "$d/armed" ]; do kill -0 "$g" 2>/dev/null || exit 125; done; '
-    + 'export NB_HEALTH_DEADLINE_MS="$3"; shift 3; exec "$@" > "$d/out" 2> "$d/err"';
+    + 'if [ "$4" != "-" ]; then /usr/bin/ucode /usr/share/netbird/legacy-command-fence.uc "$4" "$$" || exit 125; fi; '
+    + 'export NB_HEALTH_DEADLINE_MS="$3"; shift 4; exec "$@" > "$d/out" 2> "$d/err"';
 // Only trusted system tools are allowed: no daemonization/setsid descendants.
 const DRAIN = 'kill -0 "-$1" 2>/dev/null || exit 0; kill -9 "-$1" 2>/dev/null';
 const GROUP_GONE = 'kill -0 "-$1" 2>/dev/null && exit 1; exit 0';
@@ -35,12 +36,12 @@ function bounded_read(path, size) {
 // Internal primitive: fixed system tools and caller-validated operands only.
 // Collection callers are read-only; the notification worker owns the explicit
 // approved POST. Never pass arbitrary RPC commands, paths or targets here.
-function execute_command(argv, timeout_ms, absolute_deadline) {
+function execute_command(argv, timeout_ms, absolute_deadline, action_id) {
     let start = monotonic_ms();
     let result = { ok: false, reason: 'RUNNER_ERROR', exit_code: null,
         stdout: '', output_bytes: 0, json_unsupported: false, duration_ms: 0,
         invoked: false, cleanup_confirmed: false };
-    if (type(timeout_ms) != 'int' || timeout_ms <= 0 || timeout_ms > 120000)
+    if (type(timeout_ms) != 'int' || timeout_ms <= 0 || timeout_ms > 600000)
         return result;
     if (type(argv) != 'array' || !length(argv) || type(argv[0]) != 'string')
         return result;
@@ -70,7 +71,8 @@ function execute_command(argv, timeout_ms, absolute_deadline) {
     let rc = null, pid = '', drained = false;
     try {
         let budget = max(1, timeout_ms - min(100, int(timeout_ms / 4)));
-        let cmd = ['/bin/busybox', 'setsid', '/bin/sh', '-c', LAUNCH, 'health-command', dir, GUARD, '' + (start + budget)];
+        let cmd = ['/bin/busybox', 'setsid', '/bin/sh', '-c', LAUNCH, 'health-command', dir, GUARD,
+            '' + (start + budget), action_id || '-'];
         for (let arg in argv) push(cmd, arg);
         // Native ucode system(argv, timeout) passes blocked SIGCHLD to the
         // child; ash's bounded command-substitution waits can then deadlock.
@@ -142,6 +144,14 @@ function run_command(argv, timeout_ms) {
     // selected by a collector or supplied through health configuration/RPC.
     return execute_command(argv, type(timeout_ms) == 'int' && timeout_ms <= 20000 ? timeout_ms : 0);
 }
+function run_legacy_command(command, timeout_ms, action_id) {
+    // Private legacy shell adapter; never exposed as a health RPC command.
+    // Merge output inside the session, preserving existing shell redirections.
+    if (type(command) != 'string' || !length(command) || action_id != null &&
+        (type(action_id) != 'string' || !match(action_id, /^[0-9a-f]{32}$/)))
+        return execute_command([], 0);
+    return execute_command(['/bin/sh', '-c', 'exec 2>&1; ' + command], timeout_ms, null, action_id);
+}
 function run_action_command(action) {
     // The outer native reload already owns procd's service lock. Re-enter only
     // its existing settings body, not rc.common/procd's locking wrapper.
@@ -181,4 +191,4 @@ function cleanup_commands() {
     lease.close();
     return true;
 }
-export { run_command, run_action_command, run_recovery_worker, monotonic_ms, cleanup_commands };
+export { run_command, run_action_command, run_recovery_worker, run_legacy_command, monotonic_ms, cleanup_commands };

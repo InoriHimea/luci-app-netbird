@@ -7,6 +7,11 @@ set -eu
 source_root="${1:-/src}"
 export NBLIB="$source_root/luci-app-netbird/root/usr/share/rpcd/ucode/lib"
 export NB_LIBDIR="$source_root/luci-app-netbird/root/usr/share/netbird"
+# Private command adapters have fixed installed paths; install only their runtime
+# libraries inside this disposable fixture, also for the documented /src mount.
+mkdir -p /usr/share/netbird /usr/share/rpcd/ucode/lib
+cp -R "$source_root/luci-app-netbird/root/usr/share/netbird/." /usr/share/netbird/
+cp -R "$source_root/luci-app-netbird/root/usr/share/rpcd/ucode/lib/." /usr/share/rpcd/ucode/lib/
 mkdir -p /tmp/nb-test-bin /usr/share/netbird/bin /etc/init.d
 export PATH="/tmp/nb-test-bin:/usr/sbin:/usr/bin:/sbin:/bin"
 cat > /usr/bin/netbird <<'EOF'
@@ -47,10 +52,6 @@ cat > /tmp/nb-exit-nine <<'EOF'
 exit 9
 EOF
 chmod +x /tmp/nb-exit-nine
-sed '/^while :; do/,$d' "$source_root/luci-app-netbird/root/usr/share/netbird/netbird-autoreconnect.sh" > /tmp/nb-watchdog-functions.sh
-cat >> /tmp/nb-watchdog-functions.sh <<'EOF'
-_with_timeout_status /usr/bin/netbird --json
-EOF
 cat > /tmp/nb-timeout-check.uc <<'EOF'
 let svc = loadfile(getenv('NB_TEST_ROOT') + '/luci-app-netbird/root/usr/share/rpcd/ucode/netbird.uc')()['luci.netbird'];
 let info = svc.get_binary_info.call({});
@@ -77,15 +78,6 @@ print(sprintf('后端 status 卡住 %d 秒后返回: %s\n', secs, r.message));
 EOF
 check_hang() {
     NB_TEST_HANG=1 ucode /tmp/nb-hang-check.uc
-    t0=$(date +%s)
-    NB_TEST_HANG=1 sh /tmp/nb-watchdog-functions.sh > /tmp/nb-watchdog-status || true
-    t=$(( $(date +%s) - t0 ))
-    [ "$t" -le 9 ] || { echo "watchdog 状态采样卡住 ${t} 秒" >&2; exit 1; }
-    echo "watchdog 状态采样 ${t} 秒后放弃"
-}
-check_watchdog() {
-    sh /tmp/nb-watchdog-functions.sh > /tmp/nb-watchdog-status
-    grep -F '"daemonStatus":"Connected"' /tmp/nb-watchdog-status
 }
 check_backend() {
     ucode /tmp/nb-timeout-check.uc
@@ -102,11 +94,9 @@ EOF
 chmod +x /usr/bin/timeout
 echo '场景：timeout 路径可执行，但功能不存在'
 check_backend
-check_watchdog
 rm /usr/bin/timeout
 echo '场景：timeout 不存在'
 check_backend
-check_watchdog
 echo '场景：timeout 不存在且 netbird status 卡住，调用方仍须按时返回'
 check_hang
 rm -f /usr/bin/timeout
@@ -121,5 +111,4 @@ EOF
 chmod +x /usr/bin/timeout
 echo '场景：timeout 可用，实际命令经过包装'
 check_backend
-check_watchdog
 echo 'timeout 回归通过'

@@ -4,6 +4,7 @@ import { lstat } from 'fs';
 import { private_dir } from './storage.uc';
 import { maintenance_state } from './maintenance.uc';
 import { run_command } from './runner.uc';
+import { watchdog_coordinated } from './watchdog-coordination.uc';
 function recovery_eligibility(held) {
     let state = maintenance_state();
     if (state.state == 'unknown' || state.markers.update_settings || state.markers.settings ||
@@ -22,7 +23,8 @@ function recovery_eligibility(held) {
         if (type(watchdog.instances) != 'object') return { ok: false, reason: 'RECOVERER_STATE_UNKNOWN' };
         for (let name in keys(watchdog.instances)) {
             let instance = watchdog.instances[name];
-            if (instance.running !== false) return { ok: false, reason: 'WATCHDOG_RECOVERER_CONFLICT' };
+            if (instance.running !== false && !watchdog_coordinated(instance))
+                return { ok: false, reason: 'WATCHDOG_RECOVERER_CONFLICT' };
         }
     }
     if (!private_dir('/tmp/netbird-health') || !private_dir('/tmp/netbird-health/recovery-uci'))

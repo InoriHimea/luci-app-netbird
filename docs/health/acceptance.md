@@ -49,6 +49,16 @@ No P0 case is declared NOT_APPLICABLE merely because its runtime/platform/probe 
 
 Native RTNL callbacks, persistent failed/no-start workers, generation-publication fencing, current-schema publication and real LuCI rendering supplement these two cases; [baseline.md](baseline.md) distinguishes each layer. The actual shared-module browser regression covers all five phases and monotonic wait expiry during wall-clock rollback. These additions do not alter the archived r8 package/manifest evidence, close T09 site acceptance or stand in for E02–E05/A27–A32.
 
+## E02/E03 supplemental denominator (outside frozen T08 delivery)
+
+| Case | Verified-layer verdict | Observed evidence | Remaining boundary |
+|---|---|---|---|
+| A27 | PASS, isolated native RPC/HTTP/LuCI | Explicit cancel has zero restarts; confirmation, duplicate requests, connection loss and saved-ID reload retain one job/one restart. Read-only and missing/invalid SID requests cannot recover. Native actor propagation, private durable jobs and independent claim-relative deadline are exercised. | Actual production transport loss, VPN reconnection and physical power loss NOT_RUN. |
+| A28 | PASS, isolated real kernel with inert agent | Restart exit0 does not hide missing query rule/WAN source-iif selection: FAILED/POST_CHECK_FAILED with LAN UNKNOWN. Required structure, forwarding and business evidence are independent of command success. Pending settings prevent a success verdict. | Real NetBird/production LAN fault and recovery NOT_RUN. |
+| A29 | PASS, isolated native arbitration and process boundaries | Manual/watchdog/settings/updater competition has one down/up pair and one charge; immediate retry has zero effects. Real owner/helper SIGKILL, delayed first-install writers, stale recovery after backup cleanup, monotonic reversal, active-group fences and explicit stop/auth/intent boundaries are exercised. | Uncoordinated user scripts remain conflicts for new recovery; production script migration, live fault/physical D-state/power-cycle NOT_RUN. |
+
+These cases do not close T09 site acceptance, authorize deployment/automatic recovery or satisfy E04/E05/A30–A32. See [baseline.md](baseline.md) for executed native/browser layers and explicit limits.
+
 ## Seven deliverable groups
 
 1. Code and executed unit/integration/UI/native evidence: T01–T07 commits and B; K and P contain new T08 original observations. Actual current SDK native lifecycle/publication and paired-language receipts are described in [release-r8.md](release-r8.md).

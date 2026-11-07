@@ -2,11 +2,10 @@
 import * as health from '/usr/share/netbird/health/api.uc';
 import { prepare_export } from '/usr/share/netbird/health/export.uc';
 import { test_notification } from '/usr/share/netbird/health/notification.uc';
-import { connect } from 'ubus';
+import { authenticated_actor } from '/usr/share/netbird/health/actor.uc';
 import * as recovery from '/usr/share/netbird/health/recovery.uc';
 const envelope = loadfile('/usr/share/rpcd/ucode/lib/envelope.uc')();
 const CODE = envelope.CODE;
-const session_bus = connect(null, 2);
 function handler(method) {
     return function(request) {
         try {
@@ -28,20 +27,9 @@ function handler(method) {
     };
 }
 function authenticated(method) {
-    return function(request) {
-        let args = request.args || {}, sid = args.ubus_rpc_session;
-        if (!session_bus || type(sid) != 'string' || !match(sid, /^[0-9a-f]{32}$/))
-            return envelope.err(CODE.PERMISSION_DENIED, 'RECOVERY_DENIED');
-        // A synchronous call into our own rpcd cannot advance its session loop.
-        // Return the native deferred request, keeping SID only in this closure.
-        return session_bus.defer('session', 'get', { ubus_rpc_session: sid }, function(code, session) {
-            let actor = session?.values?.username;
-            if (code != 0 || type(actor) != 'string' || !match(actor, /^[A-Za-z0-9_.@+-]{1,96}$/)) {
-                request.reply(envelope.err(CODE.PERMISSION_DENIED, 'RECOVERY_DENIED')); return;
-            }
-            request.reply(handler(() => method(args, actor))({ args: {} }));
-        });
-    };
+    return authenticated_actor(function(request, actor) {
+        return handler(() => method(request.args || {}, actor))({ args: {} });
+    }, function() { return envelope.err(CODE.PERMISSION_DENIED, 'RECOVERY_DENIED'); }, false);
 }
 return {
     'luci.netbird.health': {

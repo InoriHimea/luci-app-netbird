@@ -38,11 +38,19 @@ const q = loadfile(lib + '/shell.uc')().shell_quote;
 const factory = loadfile(lib + '/agent_update.uc')().create;
 const base = '/etc/nb-auto-fixture';
 const state = '/etc/netbird-update';
+const native_sleep = sleep;
 let clock = 1000;
 let mode = '';
 let engine;
 function check(condition, message) { if (!condition) die(message); }
 function run(cmd) {
+    if (mode == 'pause-recovery' && cmd == 'mkdir -m 0700 ' + q(state + '/recovery.lock')) {
+        writefile(base + '/recovery-waiting', '1');
+        for (let i = 0; !access(base + '/recovery-resume', 'f'); i++) {
+            check(i < 300, 'timed out waiting for competing recovery');
+            native_sleep(100);
+        }
+    }
     if (mode == 'space' && index(cmd, 'df -k ') == 0)
         return { code: 0, out: 'Filesystem 1K-blocks Used Available Use% Mounted on\nfixture 10000 9999 1 99% /\n' };
     if (mode == 'interrupt-copy' && index(cmd, 'cp ' + q(base + '/candidate') + ' ') == 0) {
@@ -57,6 +65,15 @@ function run(cmd) {
     return { code: fd.close(), out: text };
 }
 function version(path) { return trim(run(q(path) + ' version 2>/dev/null').out); }
+function recover_owned(previous, fn) {
+    let gate = loadfile(lib + '/action_lock.uc')().create();
+    let acquired = gate.acquire_recovery(previous);
+    if (!acquired.ok) return { ok: false, message: acquired.reason };
+    let result;
+    try { result = fn(); }
+    catch (e) { gate.release(); die(e); }
+    gate.release(); return result;
+}
 function process_id() { return trim(run('printf "%s" "$PPID"').out); }
 function sample() {
     if (!access(base + '/running', 'f')) return { ok: false };
@@ -93,7 +110,7 @@ function reset(test_mode) {
     engine = factory({ run: run, quote: q, version: version, sample: sample, probe: probe,
         running: function() { return !!access(base + '/running', 'f'); },
         now: function() { return clock + 1700000000; }, uptime: function() { return clock; },
-        sleep: sleep, pid: process_id });
+        sleep: sleep, pid: process_id, recover_owned });
 }
 function install() {
     return engine.install({ candidate: base + '/candidate', target: '/usr/bin/netbird', version: '0.80.0',
@@ -102,11 +119,22 @@ function install() {
 }
 let action = ARGV[0] || 'matrix';
 if (action == 'interrupt' || action == 'interrupt-copy') { reset(action); install(); die('Worker did not get killed.'); }
-if (action == 'boot' || action == 'recover' || action == 'recover-copy') {
-    mode = ''; clock = 2000;
+if (action == 'nonisolated-first') {
+    reset('');
+    check(run('rm -f /usr/bin/netbird ' + q(base + '/running')).code == 0, 'first-install reset failed');
+    let result = engine.install({ candidate: base + '/candidate', target: '/usr/bin/netbird', version: '0.80.0',
+        active: false, was_running: false });
+    check(!result.ok && index(result.message || '', 'isolated') >= 0, 'nonisolated first install was accepted');
+    check(!access(state + '/transaction.json', 'f') && !access('/usr/bin/netbird', 'f') &&
+        !access('/usr/bin/netbird.nb-new', 'f'), 'rejected first install published transaction or target bytes');
+    print('PASS: nonisolated first install rejected before transaction or target writes\n');
+    exit(0);
+}
+if (action == 'boot' || action == 'recover' || action == 'recover-copy' || action == 'recover-stale') {
+    mode = action == 'recover-stale' ? 'pause-recovery' : ''; clock = 2000;
     engine = factory({ run: run, quote: q, version: version, sample: sample, probe: probe,
         running: function() { return !!access(base + '/running', 'f'); },
-        now: function() { return clock + 1700000000; }, uptime: function() { return clock; }, sleep: sleep, pid: process_id });
+        now: function() { return clock + 1700000000; }, uptime: function() { return clock; }, sleep: sleep, pid: process_id, recover_owned });
     let result = engine.recover({ boot: action == 'boot' });
     check(result.ok, sprintf('recovery failed: %J', result));
     check(version('/usr/bin/netbird') == '0.78.1', 'recovery did not restore the old executable');
@@ -219,3 +247,25 @@ setsid ucode /etc/nb-auto-fixture/test.uc recover-copy
 sleep 4
 ucode -e 'import {readfile} from "fs"; if (json(readfile("/etc/nb-auto-fixture/profile/default.json")).PrivateKey != "private-fixture") die("orphan writer corrupted the restored identity");'
 printf 'PASS: orphan writer group drained before recovery; no late identity corruption\n'
+ucode /etc/nb-auto-fixture/test.uc nonisolated-first
+set +e
+setsid ucode /etc/nb-auto-fixture/test.uc interrupt
+result=$?
+set -e
+[ "$result" -eq 137 ] || exit 1
+rm -f /etc/nb-auto-fixture/recovery-waiting /etc/nb-auto-fixture/recovery-resume
+setsid ucode /etc/nb-auto-fixture/test.uc recover-stale > /tmp/nb-stale-recovery.out 2>&1 &
+late_recovery=$!
+tries=0
+while [ ! -f /etc/nb-auto-fixture/recovery-waiting ]; do
+    tries=$((tries + 1))
+    [ "$tries" -lt 30 ] || { cat /tmp/nb-stale-recovery.out; exit 1; }
+    sleep 1
+done
+setsid ucode /etc/nb-auto-fixture/test.uc recover
+terminal=$(sha256sum /etc/netbird-update/transaction.json)
+touch /etc/nb-auto-fixture/recovery-resume
+if ! wait "$late_recovery"; then cat /tmp/nb-stale-recovery.out; exit 1; fi
+[ "$terminal" = "$(sha256sum /etc/netbird-update/transaction.json)" ] || { echo 'Late recovery changed terminal transaction'; exit 1; }
+cat /tmp/nb-stale-recovery.out
+printf 'PASS: delayed recovery reloads terminal transaction without replaying rollback\n'

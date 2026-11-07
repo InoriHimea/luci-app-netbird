@@ -7,6 +7,9 @@ export NBLIB="$source_root/luci-app-netbird/root/usr/share/rpcd/ucode/lib"
 export NB_LIBDIR="$source_root/luci-app-netbird/root/usr/share/netbird"
 export NB_TEST_ROOT="$source_root"
 mkdir -p /tmp/nb-regression-bin /tmp/nb-fixture /usr/share/netbird/bin /etc/config /etc/init.d /etc/netbird-fixture
+cp -R "$source_root/luci-app-netbird/root/usr/share/netbird/." /usr/share/netbird/
+mkdir -p /usr/share/rpcd/ucode
+cp -R "$source_root/luci-app-netbird/root/usr/share/rpcd/ucode/lib" /usr/share/rpcd/ucode/
 printf '{"DisableDNS":true,"PrivateKey":"fixture-identity"}\n' > /etc/netbird-fixture/default.json
 export PATH="/tmp/nb-regression-bin:/usr/sbin:/usr/bin:/sbin:/bin"
 rm -f /usr/bin/netbird /usr/bin/apk /usr/bin/curl
@@ -110,7 +113,20 @@ import { open, readfile, unlink } from 'fs';
 import * as uci from 'uci';
 function check(condition, message) { if (!condition) die(message); }
 function put(path, value) { let f = open(path, 'w'); check(f != null, 'fixture open failed'); f.write(value); f.close(); }
-function service() { return loadfile(getenv('NB_TEST_ROOT') + '/luci-app-netbird/root/usr/share/rpcd/ucode/netbird.uc')()['luci.netbird']; }
+// Each case models a separately admitted root action. Quota/real-session
+// precedence is exercised without resets by test-watchdog-ownership.sh.
+function root_action(invoke) {
+    return function(args) {
+        unlink('/etc/netbird-actions/journal.json');
+        return invoke({ args: args || {}, info: { acl: { user: 'root' } } });
+    };
+}
+function service() {
+    let methods = loadfile(getenv('NB_TEST_ROOT') + '/luci-app-netbird/root/usr/share/rpcd/ucode/netbird.uc')()['luci.netbird'];
+    for (let name in ['set_binary_source', 'update_binary', 'update_luci_app'])
+        methods[name].call = root_action(methods[name].call);
+    return methods;
+}
 function configured() { return uci.cursor().get('netbird_bin', 'binary', 'binary_source'); }
 let svc = service();
 let info = svc.get_binary_info.call({});

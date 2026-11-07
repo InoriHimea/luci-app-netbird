@@ -135,12 +135,12 @@ function create(ctx) {
         return { ok: true, data: { version: version, published_at: published, current_version: current,
             eligible: !reason, reason: reason, asset_size: bytes } };
     }
-    function start(scheduled) {
+    function start(scheduled, actor) {
         if (engine.busy() || ctx.locked() || access(launch, 'f')) return fail('An update or binary operation is already in progress.');
         if (run('umask 077; mkdir ' + q(launch) + ' && date +%s > ' + q(launch + '/created')).code != 0) return fail('Could not reserve the update worker.');
         if (!engine.clear_cancel()) { run('rmdir ' + q(launch)); return fail('Could not clear the previous cancellation.'); }
         ctx.clear_cancel_download();
-        let r = ctx.spawn(scheduled ? 'scheduled' : 'run');
+        let r = ctx.spawn(scheduled ? 'scheduled' : 'run', scheduled ? 'scheduler' : actor || 'local-root');
         if (!r.ok) run('rm -rf ' + q(launch));
         return r;
     }
@@ -208,7 +208,7 @@ function create(ctx) {
         return { ok: true, data: { config: cfg, status: state, readiness: readiness(cfg), next_run: next_run(cfg) } };
     }
     return { config: config, status: status, set_config: save_config, readiness: readiness, admission: admission,
-        check: check, start: function() { return start(false); }, execute: execute, tick: tick, recover: recover,
+        check: check, start: function(actor) { return start(false, actor); }, execute: execute, tick: tick, recover: recover,
         cancel: function() { ctx.cancel_download(); return engine.cancel(); }, reset: engine.reset_failure,
         window_open: function() { let t = local_time(config()); return !!t && t.minute >= 180 && t.minute < 300; } };
 }

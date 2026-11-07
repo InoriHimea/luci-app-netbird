@@ -26,6 +26,12 @@
 
 import { popen, access, open, unlink, lsdir, stat, readfile, writefile } from 'fs';
 import * as uci from 'uci';
+import { register_watchdog } from '../../netbird/health/watchdog-coordination.uc';
+import { maintenance_state } from '../../netbird/health/maintenance.uc';
+import { authenticated_actor } from '../../netbird/health/actor.uc';
+import { create_action_journal } from '../../netbird/health/action-journal.uc';
+import { run_command } from '../../netbird/health/runner.uc';
+import { opaque_id } from '../../netbird/health/jobs.uc';
 
 const _LIB = getenv('NBLIB') || '/usr/share/rpcd/ucode/lib';
 let _shell    = loadfile(_LIB + '/shell.uc')();
@@ -41,6 +47,9 @@ let _guard_operation = null;
 let _binop_depth = 0;
 let _agent_sample = null;
 let _agent_profile_dir = null;
+let _action_context = null;
+let _action_journal = create_action_journal();
+let _worker_actor = null;
 
 let shell_quote          = _shell.shell_quote;
 let _to                  = _shell.with_timeout;
@@ -62,8 +71,8 @@ let classify_status_text = _cli.classify_status_text;
 // rpcd 层不抛异常：方法体内任何未预期异常经此包装转为 internal_error 信封。
 // 业务失败（已知 code）应在方法体内显式 return err(CODE.*, ...)，不抛异常。
 function _safe(fn) {
-    return function(req) {
-        try { return fn(req); }
+    return function(req, actor) {
+        try { return fn(req, actor); }
         catch (e) {
             let msg = (e != null && e.message != null) ? e.message : `${e}`;
             return err(CODE.INTERNAL_ERROR, msg);
@@ -71,13 +80,63 @@ function _safe(fn) {
     };
 }
 
+function _admit_action(kind, owner) {
+    if (!_action_context) return err(CODE.INSTALL_FAILED, 'ACTION_OWNER_REQUIRED');
+    if (_action_context.error) return err(CODE.INSTALL_FAILED, _action_context.error);
+    if (_action_context.reserved) return null;
+    let result = _action_journal.reserve(_action_context.id, owner, _action_context.actor, kind);
+    if (!result.ok) {
+        _action_context.error = result.reason;
+        return err(CODE.INSTALL_FAILED, result.reason);
+    }
+    _action_context.reserved = true;
+    if (!run_command(['/bin/busybox', 'sync'], 3000).ok) {
+        _action_context.error = 'ACTION_AUDIT_SYNC_FAILED';
+        return err(CODE.INSTALL_FAILED, _action_context.error);
+    }
+    return null;
+}
+function _finish_action(result) {
+    if (_action_context?.reserved) {
+        let recorded = _action_journal.finish_operation(_action_context.id, result?.ok ? 'handler_ok' : 'handler_failed');
+        if (!recorded.ok && result?.ok) return err(CODE.INSTALL_FAILED, 'ACTION_AUDIT_FINISH_FAILED');
+    }
+    return result;
+}
+
+function _native_write(fn) {
+    return authenticated_actor(_safe(function(req, actor) {
+        if (_binop_depth > 0)
+            return err(CODE.INSTALL_FAILED, 'Another action owns this RPC execution context.');
+        return fn(req, actor);
+    }), function() { return err(CODE.PERMISSION_DENIED, 'ACTION_ACTOR_DENIED'); }, true);
+}
+
+// Cancellation only publishes an intent flag. Taking the execution lease here
+// would prevent canceling the worker which currently owns that lease.
+function _cancel_intent(fn) {
+    return _native_write(function(req, actor) {
+        let id = opaque_id(), reserved = _action_journal.reserve(id, 'cancel-request', actor, 'control');
+        if (!reserved.ok) return err(CODE.INSTALL_FAILED, reserved.reason);
+        if (!run_command(['/bin/busybox', 'sync'], 3000).ok) {
+            _action_journal.finish_operation(id, 'handler_failed');
+            return err(CODE.INSTALL_FAILED, 'ACTION_AUDIT_SYNC_FAILED');
+        }
+        let result = fn(req), recorded = _action_journal.finish_operation(id, result.ok ? 'handler_ok' : 'handler_failed');
+        return !recorded.ok && result.ok ? err(CODE.INSTALL_FAILED, 'ACTION_AUDIT_FINISH_FAILED') : result;
+    });
+}
+
 // Lifecycle and network mutations share the binary-operation lock. In particular,
 // a watchdog must not change desired_connected while a trial is being evaluated.
-function _guard_write(fn) {
-    return _safe(function(req) {
+function _guard_write(fn, admission) {
+    return _native_write(function(req, actor) {
         if ((_agent && _agent.busy()) || access('/tmp/nb-agent-launch.lock', 'f'))
             return err(CODE.INSTALL_FAILED, 'Agent update maintenance is active; cancel or recover it before changing the connection.');
-        return _guard_operation(fn, req, true);
+        return _guard_operation(function(request) {
+            let denied = admission == 'deferred' ? null : _admit_action(admission || 'control', 'user-action');
+            return denied || fn(request);
+        }, req, true, null, actor);
     });
 }
 
@@ -1527,11 +1586,15 @@ function _daemon_running() {
 // BusyBox sleep 不接受小数秒，退避用整数 sleep 1。
 function _wait_daemon_gone() {
     for (let i = 0; i < 15; i++) {
-        if (!_daemon_running())
+        let state = probe_running_via_ubus();
+        if (state == null || state.error)
+            return false;
+        if (!state.running)
             return true;
         system('sleep 1');
     }
-    return !_daemon_running();
+    let state = probe_running_via_ubus();
+    return state != null && !state.error && !state.running;
 }
 
 // ── 二进制来源管理(release 真文件 + custom symlink 多版本)────────────────────────
@@ -1746,7 +1809,7 @@ function _do_cancel_binary_update(req) {
     return ok(_progress_status());
 }
 
-function _do_start_binary_update(req) {
+function _do_start_binary_update(req, actor) {
     if (_binary_job_busy() || access('/tmp/nb-agent-launch.lock', 'f'))
         return err(CODE.INSTALL_FAILED, 'Another binary operation is in progress; please wait and try again.');
 
@@ -1761,11 +1824,10 @@ function _do_start_binary_update(req) {
     _progress_phase('preparing', 'Preparing download...', '', 0);
 
     let expr =
-        'let mod = loadfile("/usr/share/rpcd/ucode/netbird.uc")(); ' +
-        'let svc = mod["luci.netbird"]; ' +
-        'let r = svc.update_binary.call({ args: ' + sprintf('%J', args) + ' }); ' +
+        'let api = loadfile("/usr/share/rpcd/ucode/netbird.uc")(); ' +
+        'let r = api.update_binary(' + sprintf('%J', args) + ', ' + sprintf('%J', actor) + '); ' +
         'print(sprintf("%J\\n", r));';
-    let cmd = 'NBLIB=' + shell_quote(_LIB) + ' setsid ucode -e ' + shell_quote(expr) +
+    let cmd = 'NB_AGENT_WORKER=1 NBLIB=' + shell_quote(_LIB) + ' setsid ucode -e ' + shell_quote(expr) +
               ' </dev/null > ' + shell_quote(_NB_DL_WORKER_LOG) + ' 2>&1 & echo $!';
     let r = _popen_simple(cmd);
     let pid = trim(r.out);
@@ -2170,10 +2232,18 @@ function _do_get_binary_info(req) {
 // Lifecycle and update callers share nonblocking kernel exclusion. The complete
 // legacy marker is published under that lease; killed owners enter bounded
 // orphan quarantine rather than being reclaimed on PID absence alone.
-function _binop_lock(owner) {
-    return _action_lock.acquire(owner || 'binary-operation').ok;
+function _binop_lock(owner, recovery_owner, actor) {
+    let acquired = recovery_owner ? _action_lock.acquire_recovery(recovery_owner) :
+        _action_lock.acquire(owner || 'binary-operation');
+    if (acquired.ok) {
+        _shell.set_owner(acquired.id);
+        _action_context = { id: acquired.id, actor: actor || 'local-root', reserved: false, error: null };
+    }
+    return acquired.ok;
 }
 function _binop_unlock() {
+    _action_context = null;
+    _shell.set_owner(null);
     return _action_lock.release();
 }
 // _sweep_binary_junk() — 清理历次二进制操作残留,防止累积撑爆存储(尤其 overlay)。
@@ -2194,17 +2264,18 @@ function _sweep_binary_junk() {
     }
 }
 // _binop_guard(fn, req) — 取锁 → 清理历史残留 → 执行 fn → 释放锁(成功/异常路径都释放)。取不到锁返回忙错误。
-function _binop_guard(fn, req, lifecycle) {
+function _binop_guard(fn, req, lifecycle, recovery_owner, actor) {
     if (_binop_depth > 0)
-        return fn(req);
-    if (_agent && _agent.busy())
+        return recovery_owner ? err(CODE.INSTALL_FAILED, 'Recovery cannot replace a live action owner.') : fn(req);
+    if (_agent && _agent.busy() && !recovery_owner)
         return err(CODE.INSTALL_FAILED, 'An agent transaction needs completion or recovery.');
-    if (!_binop_lock(lifecycle ? 'lifecycle' : 'binary-operation'))
+    if (!_binop_lock(lifecycle ? 'lifecycle' : 'binary-operation', recovery_owner, actor))
         return err(CODE.INSTALL_FAILED, 'Another binary operation is in progress; please wait and try again.');
     _binop_depth++;
     try {
         if (!lifecycle) _sweep_binary_junk();
-        let r = fn(req);
+        let denied = recovery_owner ? _admit_action('control', 'update-recovery') : null;
+        let r = _finish_action(denied || fn(req));
         if (!lifecycle) _sweep_binary_junk();
         _binop_depth--;
         _binop_unlock();
@@ -2212,6 +2283,7 @@ function _binop_guard(fn, req, lifecycle) {
     } catch (e) {
         // Never sweep a candidate or snapshots still needed by recovery.
         if (!lifecycle && !(_agent && _agent.busy())) _sweep_binary_junk();
+        _finish_action({ ok: false });
         _binop_depth--;
         _binop_unlock();
         return err(CODE.INTERNAL_ERROR, (e != null && e.message != null) ? e.message : `${e}`);
@@ -2521,6 +2593,8 @@ function _update_binary_locked(req) {
     // binary rollback. Unattended installs additionally require full health proof.
     if (baseline && !baseline.ok) baseline = null;
     _progress_phase('installing', 'Running persistent install transaction...', '', progress_total);
+    let denied = _admit_action(active ? 'update' : 'control', active ? 'agent-update' : 'binary-cache');
+    if (denied) return fail_work(denied.code, denied.message);
     let result = _agent.install({ candidate: new_bin, target: target_path, version: new_ver,
         active: active, was_running: active && _daemon_running(), strict: !!a.strict,
         profile_dir: a.strict ? cfg.profile_dir : _agent_profile_dir(), probe_url: a.strict ? cfg.probe_url : '', baseline: baseline });
@@ -2536,7 +2610,7 @@ function _update_binary_locked(req) {
     return result;
 }
 // _do_update_binary(req) — _update_binary_locked 的互斥包装(二进制操作串行,见 _binop_guard)。
-function _do_update_binary(req) { return _binop_guard(_update_binary_locked, req); }
+function _do_update_binary(req, actor) { return _binop_guard(_update_binary_locked, req, false, null, actor); }
 
 function _record_binary_source(source) {
     try {
@@ -2566,12 +2640,16 @@ function _set_binary_source_locked(req) {
     let version = _file_version(target);
     if (!version) return err(CODE.NOT_INSTALLED, 'The selected binary is not downloaded or cannot report its version.');
     if (active == source && (source == 'release' && _active_binary_path() == _NB_OPKG_BIN || source == 'custom' && _active_binary_path() == target)) {
+        let denied = _admit_action('control', 'source-selection');
+        if (denied) return denied;
         if (!_record_binary_source(source)) return err(CODE.INSTALL_FAILED, 'Could not save the binary source.');
         return ok({ source: source, already: true, active_source: active, running_version: version });
     }
     let running = _daemon_running();
     let baseline = running ? _agent_sample() : null;
     if (baseline && !baseline.ok) baseline = null;
+    let denied = _admit_action('update', 'source-switch');
+    if (denied) return denied;
     let result = _agent.install({ candidate: target, target: _NB_OPKG_BIN, version: version,
         active: true, was_running: running, strict: false, source: source,
         target_link: source == 'custom' ? target : '',
@@ -2581,9 +2659,9 @@ function _set_binary_source_locked(req) {
     if (result.ok) result.data = { source: source, active_source: _active_source(), running_version: version };
     return result;
 }
-function _do_set_binary_source(req) { return _binop_guard(_set_binary_source_locked, req); }
+function _do_set_binary_source(req, actor) { return _binop_guard(_set_binary_source_locked, req, false, null, actor); }
 
-function _do_start_source_switch(req) {
+function _do_start_source_switch(req, actor) {
     if (_binary_job_busy() || access('/tmp/nb-agent-launch.lock', 'f'))
         return err(CODE.INSTALL_FAILED, 'Another agent operation is in progress.');
     let a = req && req.args ? req.args : req || {};
@@ -2593,7 +2671,7 @@ function _do_start_source_switch(req) {
     _progress_reset();
     _agent.clear_cancel();
     _progress_phase('installing', 'Switching binary source with persistent recovery...', '', 0);
-    let expr = 'let api = loadfile("/usr/share/rpcd/ucode/netbird.uc")(); let r = api.switch_source(' + sprintf('%J', args) + '); print(sprintf("%J\\n", r));';
+    let expr = 'let api = loadfile("/usr/share/rpcd/ucode/netbird.uc")(); let r = api.switch_source(' + sprintf('%J', args) + ', ' + sprintf('%J', actor) + '); print(sprintf("%J\\n", r));';
     let r = _popen_simple('NB_AGENT_WORKER=1 NBLIB=' + shell_quote(_LIB) + ' setsid ucode -e ' + shell_quote(expr) +
         ' </dev/null >' + shell_quote(_NB_DL_WORKER_LOG) + ' 2>&1 & echo $!');
     let pid = trim(r.out);
@@ -2614,13 +2692,15 @@ function _delete_custom_binary_locked(req) {
         return err(CODE.NOT_INSTALLED, sprintf('Custom version v%s does not exist.', version));
     if (_active_source() == 'custom' && _active_binary_path() == path)
         return err(CODE.INVALID_INPUT, sprintf('v%s is in use and cannot be deleted; switch to another source or version first.', version));
+    let denied = _admit_action('control', 'binary-delete');
+    if (denied) return denied;
     let r = _popen_simple('rm -f ' + shell_quote(path) + ' 2>&1');
     if (r.code != 0 || access(path, 'f'))
         return err(CODE.INSTALL_FAILED, 'Failed to delete: ' + substr(r.out, 0, 200));
     return ok({ deleted: version });
 }
 // _do_delete_custom_binary(req) — _delete_custom_binary_locked 的互斥包装(见 _binop_guard)。
-function _do_delete_custom_binary(req) { return _binop_guard(_delete_custom_binary_locked, req); }
+function _do_delete_custom_binary(req, actor) { return _binop_guard(_delete_custom_binary_locked, req, false, null, actor); }
 
 // 用户显式连接且配置选择 release 时,补齐尚未就位的官方二进制。
 // 已有规范路径真文件时 no-op;后台 watchdog 不调用此下载兜底,也不执行定时升级。
@@ -2814,9 +2894,19 @@ function _do_install_iface_backend(req) {
         'If packages installed successfully, reboot the device and check again. Vendor kernels may still lack a matching module.');
 }
 
+
 // _do_up(req) — do_up 方法主体（流程见方法表 do_up 注释）；do_reconnect 复用。
-function _do_up(req) {
+function _do_up(req, from_watchdog) {
     let a = (req != null && req.args != null) ? req.args : (req || {});
+    from_watchdog = from_watchdog === true;
+    if (from_watchdog) {
+        // The shell's earlier read is not authorization. This executes under
+        // the shared action lease, before enabling helpers or invoking up.
+        let intent = uci.cursor();
+        if (intent.get('netbird', 'runtime', 'desired_connected') != '1' ||
+            intent.get('netbird', 'settings', 'service_enabled') == '0')
+            return err(CODE.CONNECT_FAILED, 'Automatic reconnect is no longer permitted by current connection intent.');
+    }
     let arg_url = (type(a.management_url) == 'string') ? a.management_url : '';
     let setup_key = (type(a.setup_key) == 'string') ? a.setup_key : '';  // 瞬时
 
@@ -2824,6 +2914,8 @@ function _do_up(req) {
     if (!mr.ok)
         return err(CODE.INVALID_INPUT, mr.message);
 
+    let denied = _admit_action('lifecycle', from_watchdog ? 'watchdog' : 'manual-connect');
+    if (denied) return denied;
     _ensure_helper_services();
 
     // 仅当 caller 显式传入合法 url 才持久化（非机密）
@@ -2834,7 +2926,7 @@ function _do_up(req) {
     // (失败则用 feed 兜底,绝不阻断本次连接)。release 就位后 no-op。注:首次会增加
     // ~数十秒下载耗时(前端 do_up 已是长调用,见上轮询说明)。watchdog 的周期重连只恢复
     // 已有连接、不做下载:rpcd 单线程,重连里的下载会让整个 LuCI 周期性停摆。
-    if (!(type(a.caller) == 'string' && a.caller == 'watchdog'))
+    if (!from_watchdog)
         _ensure_configured_binary();
 
     let bin = resolve_netbird_bin();
@@ -2875,7 +2967,6 @@ function _do_up(req) {
     // watchdog 发起的重连只是"执行已有意图",不应改写 desired_connected;只有用户发起的
     // 连接才预置 desired=1(表达意图,即便本次超时也让 watchdog 续连)。否则 watchdog 会反复
     // 把刚被认证 fatal/key 超时刻意清成 0 的 desired 重新写回 1,使刻意的停止无法生效。
-    let from_watchdog = (type(a.caller) == 'string' && a.caller == 'watchdog');
     if (reconnect_with_existing_identity && !from_watchdog)
         _set_desired_connected(true);
 
@@ -2975,6 +3066,49 @@ function _do_up(req) {
         'Check the Logs tab for the last NetBird message, then try again.');
 }
 
+// Root-only watchdog entry. Shell observations are never authorization to write.
+function _do_watchdog_step(req) {
+    let a = req?.args || {};
+    if (type(a.pid) != 'int' || type(a.recover) != 'bool' || !register_watchdog(a.pid))
+        return err(CODE.INVALID_INPUT, 'The running watchdog has not negotiated action ownership.');
+    let maintenance = maintenance_state();
+    if (maintenance.state == 'unknown' || maintenance.markers.settings || maintenance.markers.update_settings)
+        return ok({ state: 'maintenance' });
+    let c = uci.cursor(), desired = c.get('netbird', 'runtime', 'desired_connected');
+    if (c.get('netbird', 'settings', 'service_enabled') == '0' || desired == '0')
+        return ok({ state: 'stopped' });
+    let bin = resolve_netbird_bin();
+    if (bin == null) return ok({ state: 'not_installed' });
+    let sampled = fetch_status_json(bin), status = sampled.ok ? sampled.data : null;
+    let text = sampled.ok ? sprintf('%J', status) : _exec_short_verb(bin, 'status').stdout || '';
+    if (status?.management?.connected === true || match(text, /Management:\s*Connected/i)) {
+        // Adopt a pre-existing connection only when no explicit intent exists.
+        if (desired == null || desired == '' || c.get('netbird', 'runtime', 'last_error')) {
+            let denied = _admit_action('control', 'watchdog');
+            if (denied) return denied;
+        }
+        if (desired == null || desired == '') _set_desired_connected(true);
+        if (c.get('netbird', 'runtime', 'last_error')) _clear_runtime_error();
+        return ok({ state: 'connected' });
+    }
+    if (desired != '1') return ok({ state: 'stopped' });
+    let needs_login = status?.daemonStatus == 'NeedsLogin' || classify_status_text(text) == 'needs_login';
+    let auth = _classify_auth_failure(text);
+    if (needs_login || auth || match(text, /PermissionDenied|Unauthenticated/)) {
+        let denied = _admit_action('control', 'watchdog');
+        if (denied) return denied;
+        _set_desired_connected(false);
+        _persist_runtime_error(auth?.message || 'Authentication failed: the management server requires a valid identity.');
+        if (!needs_login) _exec_short_verb(bin, 'down');
+        return ok({ state: 'authentication_required' });
+    }
+    if (!a.recover) return ok({ state: 'disconnected' });
+    let result = _do_up({ args: { management_url: '', setup_key: '' } }, true);
+    if (_action_context?.error) return result;
+    return ok({ state: result.ok && result.data?.connected === true ? 'connected' : 'attempted',
+        result_code: result.code || null });
+}
+
 // _do_reconnect() — 在一次 RPC 内完成 down → up（空 key，沿用已有身份）。
 // 不能由前端串联 do_down + do_up：经 NetBird 隧道访问 LuCI 时，down 会切断承载后续请求的
 // 通道，第二个 RPC 到不了路由器；且 do_down 会把 desired_connected 清 0，watchdog 也不会恢复，
@@ -2984,12 +3118,14 @@ function _do_reconnect(req) {
     let bin = resolve_netbird_bin();
     if (bin == null)
         return err(CODE.NOT_INSTALLED, 'The netbird binary is not installed.');
+    let denied = _admit_action('lifecycle', 'manual-reconnect');
+    if (denied) return denied;
     _set_desired_connected(true);
     let r = _exec_short_verb(bin, 'down');
     // 与 do_down 一致：down 因「本就断开」非零退出视为成功；仅 popen 失败(-1)透传。
     if (r.code == -1)
         return err(CODE.CLI_ERROR, r.stdout || 'netbird down failed');
-    return _do_up({ args: { management_url: '', setup_key: '', caller: '' } });
+    return _do_up({ args: { management_url: '', setup_key: '' } });
 }
 
 // Instantiate adapters after all helpers: ucode does not hoist declarations.
@@ -3011,6 +3147,7 @@ _agent = loadfile(_LIB + '/agent_update.uc')().create({
     pid: function() { return trim(_popen_simple('printf "%s" "$PPID"').out); },
     canceled: _progress_canceled, source: function() { return _uci_binary('binary_source', 'release'); },
     set_source: _record_binary_source,
+    recover_owned: function(previous, fn) { return _binop_guard(fn, {}, true, previous || {}); },
 });
 _schedule = loadfile(_LIB + '/agent_schedule.uc')().create({
     run: function(cmd) { return _popen_simple(_to('sh -c ' + shell_quote(cmd), 30)); }, quote: shell_quote,
@@ -3019,8 +3156,8 @@ _schedule = loadfile(_LIB + '/agent_schedule.uc')().create({
     external_guarded: _runtime.external_guarded, worker_alive: _runtime.worker_alive,
     monitor_running: _runtime.monitor_running,
     spawn: _runtime.spawn, now: time, arch: function() { return _detect_arch().arch; },
-    locked: function() { return access(_NB_BINOP_LOCK, 'f') && !_binop_lock_stale(); },
-    lock: function(fn) { return _binop_guard(fn, {}); },
+    locked: function() { return _binop_depth == 0 && access(_NB_BINOP_LOCK, 'f') && !_binop_lock_stale(); },
+    lock: function(fn) { return _binop_guard(fn, {}, false, null, _worker_actor); },
     update: function(args) { return _update_binary_locked({ args: args }); },
     cancel_download: function() { _popen_simple('touch ' + shell_quote(_NB_DL_CANCEL)); },
     clear_cancel_download: _progress_reset,
@@ -3035,11 +3172,12 @@ _schedule = loadfile(_LIB + '/agent_schedule.uc')().create({
 
 // Private local CLI entry, never exposed as another rpcd/ubus object.
 if (getenv('NB_AGENT_WORKER') == '1')
-    return { switch_source: function(args) {
-        let result = _do_set_binary_source(args);
+    return { update_binary: _do_update_binary, switch_source: function(args, actor) {
+        let result = _do_set_binary_source(args, actor);
         _progress_phase(result.ok ? 'done' : 'failed', result.message || 'Binary source switched and verified.', '', 0);
         return result;
-    }, run: function(command) {
+    }, run: function(command, actor) {
+        _worker_actor = actor || (command == 'scheduled' ? 'scheduler' : 'local-root');
         if (command == 'run' || command == 'scheduled') return _schedule.execute(command == 'scheduled');
         if (command == 'tick') return _schedule.tick();
         if (command == 'recover' || command == 'boot') return _schedule.recover(command == 'boot');
@@ -3060,11 +3198,11 @@ return {
         check_agent_update: { args: {}, call: _safe(function() { return _schedule.check(); }) },
         set_agent_update_config: {
             args: { enabled: false, time: '', timezone: '', min_age_hours: 48, probe_url: '', profile_dir: '' },
-            call: _safe(function(req) { return _schedule.set_config(req); }),
+            call: _guard_write(function(req) { return _schedule.set_config(req); }),
         },
-        start_agent_update: { args: {}, call: _safe(function() { return _schedule.start(); }) },
-        cancel_agent_update: { args: {}, call: _safe(function() { return _schedule.cancel(); }) },
-        reset_agent_update_failure: { args: {}, call: _safe(function() { return _schedule.reset(); }) },
+        start_agent_update: { args: {}, call: _native_write(function(req, actor) { return _schedule.start(actor); }) },
+        cancel_agent_update: { args: {}, call: _cancel_intent(function() { return _schedule.cancel(); }) },
+        reset_agent_update_failure: { args: {}, call: _guard_write(function() { return _schedule.reset(); }) },
         // ==== 13 read ====（ACL read.ubus.luci.netbird 对齐）
 
         // 任何态都 ok:true；data.status 暴露 5 态字面量
@@ -3283,6 +3421,12 @@ return {
 
         // ==== 17 write ====（ACL write.ubus.luci.netbird 对齐）— zone 设备直绑设计已移除 setup_network
 
+        // No browser ACL: only the native procd watchdog negotiates this path.
+        watchdog_step: {
+            args: { pid: 0, recover: false },
+            call: _guard_write(_do_watchdog_step, 'deferred'),
+        },
+
         // do_up — 连接（拉起 WireGuard + 连管理端 + 建 P2P）。
         // args { management_url, setup_key } 均瞬时（setup_key 绝不入 UCI/backup）。
         // 流程：
@@ -3293,8 +3437,8 @@ return {
         //   5. 有界认证命令 exec，返回后同步轮询 management.connected（轮询确认）。
         //   6. setup_key 局部变量用完置空；超时 → connect_failed。
         do_up: {
-            args: { management_url: '', setup_key: '', caller: '' },
-            call: _guard_write(_do_up),
+            args: { management_url: '', setup_key: '' },
+            call: _guard_write(_do_up, 'deferred'),
         },
 
         // do_down — 仅断开当前会话，保留认证（与 do_logout 语义区别）。
@@ -3319,7 +3463,7 @@ return {
         // 与 do_down 不同：全程保持 desired_connected=1（「重连」表达的是保持连接的意图）。
         do_reconnect: {
             args: {},
-            call: _guard_write(_do_reconnect),
+            call: _guard_write(_do_reconnect, 'deferred'),
         },
 
         // do_login — 仅认证不拉起连接（与 do_up 区别）。
@@ -3398,8 +3542,11 @@ return {
                     let bin = resolve_netbird_bin();
                     if (bin != null)
                         _exec_short_verb(bin, 'down');     // 幂等,断开在途连接,忽略非零
-                    _run_init('stop');                     // 删配置前必须停 daemon(否则内存身份继续重连)
-                    _wait_daemon_gone();                   // stop 是异步的,确认退出后再删,避免 daemon 退出时写回身份
+                    let stopped = _run_init('stop');
+                    if (stopped.code != 0)
+                        return err(CODE.CLI_ERROR, 'Daemon stop failed; local identity was not removed.');
+                    if (!_wait_daemon_gone())
+                        return err(CODE.CLI_ERROR, 'Daemon exit could not be confirmed; local identity was not removed.');
                     let removed = _wipe_local_identity();
                     unlink(_NB_SETTINGS_APPLIED);           // daemon 配置随身份删除,下次须重新应用设置
                     if (removed < 0) {
@@ -3457,6 +3604,8 @@ return {
             args: {},
             call: _guard_write(function() {
                 let st = probe_state();
+                let denied = _admit_action(index(['service_disabled', 'service_stopped'], st.status) >= 0 ? 'lifecycle' : 'control', 'manual-start');
+                if (denied) return denied;
                 _ensure_helper_services();
 
                 // step 1 — already running 或 needs_login 都短路（双 early-return）
@@ -3489,7 +3638,7 @@ return {
                 }
 
                 return err(CODE.START_FAILED, `post-start state: ${st2.status}`);
-            }),
+            }, 'deferred'),
         },
         // OpenWRT 自动化（zone 直接绑定 netbird 设备，不建 network 接口）。幂等 named section,
         // 安全红线见各 _do_* 注释。注：zone 设备直绑设计已移除 setup_network（zone 直接 list device 绑定）。
@@ -3502,20 +3651,20 @@ return {
         // Official/custom downloads use the persistent transaction. Only active
         // targets restart the daemon; url empty selects the latest official version.
         // ACL: 方法名已加入 write.ubus.luci.netbird（一字不差）。
-        update_binary:         { args: { url: '', checksum: '' },  call: _safe(_do_update_binary) },
+        update_binary:         { args: { url: '', checksum: '' },  call: _native_write(_do_update_binary) },
         // start_binary_update — 为 LuCI 前端启动独立后台 worker 跑 update_binary,让 rpcd 可继续响应
         // 进度轮询/停止按钮。ACL: 方法名已加入 write.ubus.luci.netbird（一字不差）。
-        start_binary_update:   { args: { url: '', checksum: '' },  call: _safe(_do_start_binary_update) },
+        start_binary_update:   { args: { url: '', checksum: '' },  call: _native_write(_do_start_binary_update) },
         // cancel_binary_update — 请求停止当前二进制下载。下载器看到取消文件后清理并返回 download_canceled。
         // ACL: 方法名已加入 write.ubus.luci.netbird（一字不差）。
-        cancel_binary_update:  { args: {}, call: _safe(_do_cancel_binary_update) },
+        cancel_binary_update:  { args: {}, call: _cancel_intent(_do_cancel_binary_update) },
         // set_binary_source — 切换 daemon 运行的二进制来源(release/opkg/custom;custom 带 version);
         // 破坏性 → 前端确认。ACL: 方法名已加入 write.ubus.luci.netbird（一字不差）。
-        set_binary_source:     { args: { source: '', version: '' }, call: _safe(_do_set_binary_source) },
-        start_binary_source_switch: { args: { source: '', version: '' }, call: _safe(_do_start_source_switch) },
+        set_binary_source:     { args: { source: '', version: '' }, call: _native_write(_do_set_binary_source) },
+        start_binary_source_switch: { args: { source: '', version: '' }, call: _native_write(_do_start_source_switch) },
         // delete_custom_binary — 删非 active 的自定义下载版本(多版本盘面清理)。
         // ACL: 方法名已加入 write.ubus.luci.netbird（一字不差）。
-        delete_custom_binary:  { args: { version: '' }, call: _safe(_do_delete_custom_binary) },
+        delete_custom_binary:  { args: { version: '' }, call: _native_write(_do_delete_custom_binary) },
         // update_luci_app — 从本 fork 的版本固定 GitHub Release 资产安装完整 LuCI 包。
         // ACL: 方法名已加入 write.ubus.luci.netbird（一字不差）。
         update_luci_app:       { args: {}, call: _guard_write(_do_update_luci_app) },
@@ -3605,6 +3754,9 @@ return {
             args: {},
             call: _guard_write(function() {
                 let c = uci.cursor();
+                if (c.get('netbird', 'runtime', 'desired_connected') == '0' ||
+                    c.get('netbird', 'settings', 'service_enabled') == '0')
+                    return ok({ result: 'not-connected' });
                 let want = c.get('netbird', 'settings', 'exit_node');
                 want = (type(want) == 'string') ? trim(want) : '';
                 if (length(want) == 0)

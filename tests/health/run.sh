@@ -12,6 +12,7 @@ ucode "$ROOT/tests/health/model.uc"
 ucode "$ROOT/tests/health/fixtures.uc" "$ROOT"/tests/health/fixtures/A*.json
 ucode "$ROOT/tests/health/runner.uc"
 ucode "$ROOT/tests/health/action-lock.uc"
+ucode "$ROOT/tests/health/action-journal.uc"
 ucode "$ROOT/tests/health/parsers.uc" "$ROOT/tests/health/fixtures"
 ucode "$ROOT/tests/health/collector.uc" "$ROOT/tests/health/fixtures"
 ucode -L "$ROOT/luci-app-netbird/root/usr/share/*.uc" "$ROOT/tests/health/evaluate.uc"
