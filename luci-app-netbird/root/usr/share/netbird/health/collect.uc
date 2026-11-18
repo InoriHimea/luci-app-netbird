@@ -81,8 +81,8 @@ function collect(execute, paths) {
                     continue;
                 }
                 let table = entry.table;
-                if (type(table?.family) != 'string' || type(table?.name) != 'string'
-                    || !match(table.family, /^[a-z]+$/) || !match(table.name, /^[a-zA-Z0-9_.-]{1,64}$/)
+                if (index(['ip', 'ip6', 'inet', 'arp', 'bridge', 'netdev'], table?.family) < 0 || type(table?.name) != 'string'
+                    || !match(table.name, /^[a-zA-Z0-9_.-]{1,64}$/)
                     || type(table.handle) != 'int' || table.handle < 0) die('invalid');
                 push(tables, { family: table.family, name: table.name, handle: table.handle });
             }

@@ -155,8 +155,19 @@ function create(ctx) {
     }
     function invariants_changed(sample, baseline) {
         if (!sample || !sample.ok) return false;
-        for (let key in ['public_key', 'mesh_ip', 'management_url', 'dns_fingerprint'])
+        for (let key in ['public_key', 'mesh_ip', 'management_url'])
             if (sample[key] && sample[key] != baseline[key]) return true;
+        if (sample.dns_fingerprint && sample.dns_fingerprint != baseline.dns_fingerprint) {
+            // Discovery is empty while connecting; persistent DNS settings and
+            // the host resolver must still be unchanged throughout startup.
+            let current, previous;
+            try { current = json(sample.dns_fingerprint); previous = json(baseline.dns_fingerprint); }
+            catch (e) { return true; }
+            if (type(current) != 'object' || type(previous) != 'object' ||
+                current.disable_dns != previous.disable_dns ||
+                current.resolver_sha256 != previous.resolver_sha256) return true;
+            if (sample.management_connected && sample.signal_connected) return true;
+        }
         return false;
     }
     function expired(s) {

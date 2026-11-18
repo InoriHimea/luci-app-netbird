@@ -57,6 +57,12 @@ manifest and package downloads use that version's immutable tag through `cdn_bas
 the manifest must declare the same version. An r4/r5 device affected by a mirror's
 cached `latest` manifest needs one version-pinned/bootstrap upgrade to r6.
 
+## Local SDK input from Windows
+
+Use `python scripts/package-input.py <new-output.tar>` to stage the current package, then extract that archive into the SDK feed source directory. The archive includes explicit0755 directory entries,0644 regular files and0755 shebang scripts; UTF-8 text is LF-normalized, including scripts without a filename extension. Binary content is preserved and unexpected symlinks are rejected. Input metadata is deterministic and does not inherit a private staging directory's umask.
+
+Before installing a local candidate, inspect the actual package payload: shared directories must retain0755 and shell scripts must have LF shebangs. Perform a native package install with procd/rpcd and a non-root ubus client before touching a router. `opkg` exit0 alone does not prove that post-install scripts or RPC registration succeeded. The r10/r11 Wuhan trials exposed these staging failures and were not release successes; permissions were repaired from verifiedr7 metadata without restarting the agent.
+
 ## r7 deployment gate
 
 Build both OpenWrt branches and verify the version-pinned Release manifest/packages before

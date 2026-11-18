@@ -118,7 +118,7 @@ function probe_endpoint(e, timeout_ms) {
         connection.close(); result.state = 'PASS'; result.reason = null; return result;
     }
     // The surrounding worker deadline also bounds send/recv and name lookup.
-    let request = '\x03\x00\x00\x13\x0e\xe0\x00\x00\x00\x00\x00\x01\x00\x08\x00\x03\x00\x00\x00';
+    let request = '\x03\x00\x00\x13\x0e' + chr(224) + '\x00\x00\x00\x00\x00\x01\x00\x08\x00\x03\x00\x00\x00';
     if (connection.send(request) != length(request)) {
         connection.close(); result.reason = 'RDP_SEND_FAILED'; return result;
     }

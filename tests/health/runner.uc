@@ -1,11 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 import { run_command, run_legacy_command, cleanup_commands } from '../../luci-app-netbird/root/usr/share/netbird/health/runner.uc';
-import { access, readfile, unlink, mkdtemp, open, rmdir } from 'fs';
+import { access, unlink, popen, open, rmdir } from 'fs';
 let count = 0;
 function check(value, label) {
     if (!value) die(`FAIL: ${label}\n`);
     printf('ok %d - %s\n', ++count, label);
 }
+function test_dir(template) {
+    let child = popen('/bin/busybox mktemp -d ' + template, 'r');
+    if (!child) die('temporary test directory unavailable\n');
+    let path = trim(child.read('all') || '');
+    if (child.close() != 0 || !length(path)) die('temporary test directory unavailable\n');
+    return path;
+}
+let allocation = run_command(['/usr/bin/ucode', '-e',
+    'import { readlink, dirname, lstat } from "fs"; let d=dirname(readlink("/proc/self/fd/1")); '
+    + 'printf("%o\\n%s", lstat(d).mode & 0777, d);'], 1000);
+let allocation_lines = split(allocation.stdout, '\n');
+check(allocation.ok && allocation_lines[0] == '700' &&
+    match(allocation_lines[1] || '', /^\/tmp\/netbird-health-cmd\.[0-9a-f-]{36}$/) &&
+    !access(allocation_lines[1]), 'command directory is private and removed after execution');
 let r = run_command(['/bin/busybox', 'printf', '%s', '$(touch /tmp/nbh-injected);literal'], 1000);
 check(r.ok && r.stdout == '$(touch /tmp/nbh-injected);literal' && !access('/tmp/nbh-injected'), 'arguments remain literal');
 let quoted = "' ; touch /tmp/nbh-quote-injected; printf '";
@@ -32,7 +46,7 @@ check(!access('/tmp/nbh-orphan'), 'timeout drains descendant process group');
 r = run_command(['/bin/sh', '-c', '(sleep 1; touch /tmp/nbh-orphan) & exit 0'], 1000);
 sleep(1200);
 check(r.ok && !access('/tmp/nbh-orphan'), 'successful parent cannot leave descendants');
-let legacy_dir = mkdtemp('/tmp/nbh-legacy.XXXXXX');
+let legacy_dir = test_dir('/tmp/nbh-legacy.XXXXXX');
 r = run_legacy_command('(sleep 1; touch ' + legacy_dir + '/late) & wait', 150);
 check(!r.ok && r.reason == 'TIMEOUT' && r.cleanup_confirmed, 'legacy timeout drains its session');
 sleep(1200);
@@ -50,16 +64,16 @@ r = run_command(['/bin/sh', '-c', 'printf "ip: invalid option -- j\\n" >&2; exit
 check(!r.json_unsupported, 'unrecognized diagnostic does not authorize fallback');
 r = run_command(['/bin/sh', '-c', 'printf \'Option "-j" is unknown, try "ip -help".\\n\' >&2; exit 255'], 1000);
 check(!r.ok && r.json_unsupported, 'known ip JSON capability diagnostic preserved');
-let abandoned = mkdtemp('/tmp/netbird-health-cmd.XXXXXX');
+let abandoned = test_dir('/tmp/netbird-health-cmd.XXXXXX');
 let file = open(abandoned + '/out', 'wx', 0600); file.write('partial'); file.close();
 check(cleanup_commands() && !access(abandoned), 'abandoned private files are reclaimed after owner death');
 let lease = open('/tmp/netbird-health/commands.lock', 'a', 0600);
 lease.lock('s');
-let active = mkdtemp('/tmp/netbird-health-cmd.XXXXXX');
+let active = test_dir('/tmp/netbird-health-cmd.XXXXXX');
 check(!cleanup_commands() && access(active), 'janitor cannot race a live owner or armed guard');
 lease.close();
 check(cleanup_commands() && !access(active), 'released lease permits interrupted allocation cleanup');
-let foreign = mkdtemp('/tmp/netbird-health-cmd.XXXXXX');
+let foreign = test_dir('/tmp/netbird-health-cmd.XXXXXX');
 file = open(foreign + '/unrecognized', 'wx', 0600); file.close();
 cleanup_commands();
 check(access(foreign + '/unrecognized'), 'janitor refuses unexpected directory contents');

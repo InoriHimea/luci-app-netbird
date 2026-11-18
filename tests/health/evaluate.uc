@@ -120,4 +120,22 @@ check(category(r, 'rules').code == 'INTENT_UNVERIFIED', 'destination must belong
 l = clone(lookup); l.evidence = evidence('forward_lookup'); l.evidence.generation = 'old';
 r = result(path, snapshot, l);
 check(category(r, 'forward').status == 'UNKNOWN', 'old collection lookup cannot prove current forwarding');
+p = clone(path); p.routing.tables = ['main', '9911']; p.routing.native_priorities = [105, 110];
+s = clone(snapshot); s.rules.records = [
+    { priority: 105, src: 'all', table: 'main', suppress_prefixlength: 0 },
+    { priority: 110, src: 'all', fwmark: '0x1bd00', not: true, table: '9911' },
+    { priority: 32766, src: 'all', table: 'main' }
+];
+r = result(p, s, lookup);
+check(category(r, 'rules').status == 'PASS' && category(r, 'routes').status == 'PASS',
+    'suppressed main default cannot shadow the selected mesh route');
+delete s.rules.records[0].suppress_prefixlength;
+r = result(p, s, lookup);
+check(category(r, 'rules').code == 'RULE_SHADOWED' && category(r, 'routes').code == 'ROUTE_SHADOWED',
+    'unsuppressed earlier main default still fails the effective path');
+s.rules.records[0].suppress_prefixlength = 0;
+push(s.routes.records, { dst: '198.51.100.5/32', dev: 'wan', table: 'main' });
+r = result(p, s, lookup);
+check(category(r, 'rules').code == 'RULE_SHADOWED' && category(r, 'routes').code == 'ROUTE_SHADOWED',
+    'main specific route is not hidden by default-route suppression');
 printf('PASS: %d evaluator assertions\n', count);

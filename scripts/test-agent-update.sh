@@ -79,10 +79,16 @@ function sample() {
     if (!access(base + '/running', 'f')) return { ok: false };
     let v = version('/usr/bin/netbird');
     let p = json(readfile(base + '/profile/default.json'));
-    let connected = !(mode == 'connection' && v == '0.80.0') && mode != 'old-unreachable';
+    let trial = v == '0.80.0' && engine.status().phase == 'trial';
+    let starting = trial && index(mode, 'startup') == 0 &&
+        (mode == 'startup-timeout' || clock < 1020);
+    let connected = !starting && !(mode == 'connection' && v == '0.80.0') && mode != 'old-unreachable';
     return { ok: true, version: v, pid: trim(readfile(base + '/pid') || '101'),
         public_key: p.PublicKey, mesh_ip: p.MeshIP, management_url: 'https://management.fixture.invalid',
-        dns_fingerprint: sprintf('%J', { disable_dns: p.DisableDNS }),
+        dns_fingerprint: sprintf('%J', {
+            disable_dns: trial && mode == 'startup-dns' ? !p.DisableDNS : p.DisableDNS,
+            resolver_sha256: trial && mode == 'startup-resolver' ? 'resolver-changed' : 'resolver-original',
+            servers: starting ? [] : trial && mode == 'connected-dns' ? ['changed.fixture.invalid'] : ['dns.fixture.invalid'] }),
         management_connected: connected, signal_connected: connected };
 }
 function probe(url) { return !(mode == 'probe' && version('/usr/bin/netbird') == '0.80.0'); }
@@ -150,7 +156,11 @@ let result = install();
 check(result.ok && version('/usr/bin/netbird') == '0.80.0' && engine.status().phase == 'committed', sprintf('commit failed: %J', result));
 check(clock >= 1300 && !access(state + '/old-binary', 'f') && !access(state + '/profile.tar', 'f'), 'commit skipped observation or leaked private snapshots');
 print('PASS: atomic install, five-minute health observation, private snapshot cleanup\n');
-for (let failure in ['connection', 'identity', 'dns', 'probe', 'restart', 'cancel', 'deadline', 'start-fail']) {
+reset('startup'); result = install();
+check(result.ok && engine.status().phase == 'committed' && clock >= 1320,
+    'transient pre-connection DNS status aborted startup or shortened the five-minute observation');
+print('PASS: startup DNS discovery waits for connection and then observes five minutes\n');
+for (let failure in ['connection', 'identity', 'dns', 'startup-dns', 'startup-resolver', 'connected-dns', 'startup-timeout', 'probe', 'restart', 'cancel', 'deadline', 'start-fail']) {
     reset(failure);
     let before = readfile(base + '/profile/default.json');
     result = install();
@@ -158,6 +168,9 @@ for (let failure in ['connection', 'identity', 'dns', 'probe', 'restart', 'cance
     check(engine.status().phase == 'rolled_back' && !engine.status().paused, sprintf('%s rollback not verified: %J', failure, engine.status()));
     check(readfile(base + '/profile/default.json') == before && !access(base + '/profile/new-format.state', 'f'), failure + ' lost the identity snapshot');
     check(index(engine.status().blocked_versions, '0.80.0') >= 0, failure + ' was not version-blocked');
+    if (failure == 'startup-timeout') check(clock >= 1120, 'startup timeout did not allow the connection budget');
+    if (failure == 'startup-dns' || failure == 'startup-resolver')
+        check(clock < 1120, 'persistent DNS drift was ignored until the connection timeout');
     print('PASS: ' + failure + ' activates rollback and verifies old connectivity\n');
 }
 reset('space'); result = install();

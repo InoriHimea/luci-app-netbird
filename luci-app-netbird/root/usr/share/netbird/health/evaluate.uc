@@ -168,6 +168,9 @@ function evaluate_path(path, snapshot, lookup, now, exceptions) {
                 if (table_id(route.table) == table_id(table) && p && p.bits == expected.bits && p.address == expected.address
                     && index(path.allowed_egress, route.dev) >= 0 && (!route.type || route.type == 'unicast')) installed = true;
             }
+            // Supporting tables may have a suppressed default or be reached
+            // only after the selected lookup. They cannot shadow this path.
+            if (trace.rule && table_id(table) != table_id(trace.rule.table)) continue;
             let best = best_route(snapshot.routes.records, table, path.destination);
             if (best.ambiguous) ambiguous = true;
             if (!best.route) continue;

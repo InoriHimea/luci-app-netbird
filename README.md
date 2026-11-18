@@ -96,7 +96,7 @@ NB_AGENT_WORKER=1 ucode /usr/share/netbird/agent-update-worker.uc integrate-watc
 
 This keeps a private original-script backup and atomically prepends a maintenance guard; it does not rewrite the watchdog's business logic or the NetBird daemon init. On an unresolved recovery, use a local console/independent SSH path, fix the underlying issue, then run `recover-retry` followed by `reset` with the same command prefix. Never delete `/etc/netbird-update` or its snapshots to clear an error. Early recovery can withhold NetBird's boot registration if restoring old files fails; a verified repair plus explicit reset restores it.
 
-For the existing fleet, the deployment plan remains: node56 03:00, node55 03:30, Shanghai 04:00, Wuhan 04:30, all Beijing time; DC excluded until its SSH identity is independently verified. Enable only node56 first and observe a maintenance window. This implementation does not apply that plan to any router.
+Fleet schedule: node56 03:00, node55 03:30, Shanghai 04:00, Wuhan 04:30, all Beijing time. Only node56 is enabled; the others remain disabled. **Wait for node56's first real scheduled upgrade and functional acceptance to pass before rolling out one node at a time.** A skipped check does not pass the canary gate. DC (`10.10.10.190`) passed strict SSH verification using the existing default `known_hosts`, but its plugin/update readiness is still unchecked and subject to the same canary gate. See [TODO.md](TODO.md) for pending work and acceptance evidence; schedule enablement or SSH verification is not proof of a successful live upgrade.
 
 ## Setup / Quick start
 

@@ -51,4 +51,11 @@ check(!parse_ip('rules', '[{"priority":1,"src":"all"}]', 'json').ok, 'missing lo
 check(!parse_ip('rules', '[{"priority":1,"table":9911,"not":"true"}]', 'json').ok, 'nonboolean inversion rejected');
 check(!parse_ip('rules', '[{"priority":1,"table":9911,"fwmark":4294967296}]', 'json').ok, 'overflow mark rejected');
 check(!parse_ip('rules', '42: not not from all lookup 9911', 'text').ok, 'duplicate inversion rejected');
+p = parse_ip('rules', '[{"priority":105,"src":"all","table":"main","suppress_prefixlen":0}]', 'json');
+check(p.ok && p.records[0].suppress_prefixlength === 0, '24.10 JSON spelling preserves default-route suppression');
+check(!parse_ip('rules', '[{"priority":105,"table":"main","suppress_prefixlen":0,"suppress_prefixlength":8}]', 'json').ok,
+    'ambiguous suppression spellings cannot silently replace a selector');
+p = parse_ip('rules', '[{"priority":110,"not":null,"src":"all","fwmark":"0x1bd00","table":"netbird"}]', 'json');
+check(p.ok && p.records[0].not === true && p.records[0].fwmark == '0x1bd00' && p.records[0].table == 'netbird',
+    'legacy presence-only JSON inversion preserves the native marked rule');
 printf('PASS: %d parser assertions\n', n);

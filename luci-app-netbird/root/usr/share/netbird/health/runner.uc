@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { mkdtemp, open, unlink, rmdir, access, glob, lstat, popen } from 'fs';
+import { mkdir, open, unlink, rmdir, access, glob, lstat, popen } from 'fs';
 import { private_dir } from './storage.uc';
 
 const LIMIT = 65536;
@@ -32,6 +32,16 @@ function bounded_read(path, size) {
     let s = f.read(size) || '';
     f.close();
     return s;
+}
+function command_dir() {
+    // 24.10 fs has no mkdtemp(). Kernel UUIDs supply unpredictable names;
+    // mkdir is the exclusive claim, so never adopt a pre-existing directory.
+    let source = open('/proc/sys/kernel/random/uuid', 'r');
+    if (!source) return null;
+    let id = source.read(36); source.close();
+    if (type(id) != 'string' || !match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)) return null;
+    let dir = '/tmp/netbird-health-cmd.' + id;
+    return mkdir(dir, 0700) ? dir : null;
 }
 // Internal primitive: fixed system tools and caller-validated operands only.
 // Collection callers are read-only; the notification worker owns the explicit
@@ -66,7 +76,7 @@ function execute_command(argv, timeout_ms, absolute_deadline, action_id) {
         lease.close();
         return result;
     }
-    let dir = mkdtemp('/tmp/netbird-health-cmd.XXXXXX');
+    let dir = command_dir();
     if (!dir) { lease.close(); return result; }
     let rc = null, pid = '', drained = false;
     try {

@@ -21,6 +21,8 @@ function runner(argv, timeout) {
     else if (index(command, 'nft') >= 0) {
         out = sprintf('{"nftables":[{"table":{"family":"inet","name":"fw4","handle":%d}}]}', mode == 'firewall-churn' ? ++nft_calls : 1);
         if (mode == 'mixed-firewall') out = '{"nftables":[{"metainfo":true,"table":null}]}';
+        if (mode == 'ipv6-table') out = '{"nftables":[{"table":{"family":"ip6","name":"filter","handle":8}}]}';
+        if (mode == 'unknown-family') out = '{"nftables":[{"table":{"family":"unknown","name":"filter","handle":8}}]}';
     }
     if (mode == 'command-error' && index(command, 'rule') >= 0) {
         if (index(argv, '-j') >= 0) return { ok: false, reason: 'COMMAND_FAILED', stdout: '', exit_code: 2 };
@@ -57,6 +59,11 @@ mode = 'firewall-churn'; r = collect(runner);
 check(!r.complete && r.reason == 'GENERATION_CHANGED', 'firewall recreation invalidates snapshot');
 mode = 'mixed-firewall'; r = collect(runner);
 check(!r.complete && !r.firewall.ok, 'mixed metadata cannot skip malformed firewall data');
+mode = 'ipv6-table'; r = collect(runner);
+check(r.complete && r.firewall.tables[0].family == 'ip6' && r.firewall.tables[0].handle == 8,
+    'IPv6 table identity does not invalidate an IPv4 collection generation');
+mode = 'unknown-family'; r = collect(runner);
+check(!r.complete && !r.firewall.ok, 'unrecognized firewall family remains a parse failure');
 mode = 'budget'; r = collect(runner);
 check(!r.complete, 'aggregate budget includes stderr bytes');
 mode = 'old-json'; r = collect(runner);

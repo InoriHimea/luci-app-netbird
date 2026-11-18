@@ -14,11 +14,24 @@ let result = probe_endpoint(endpoint, 1000);
 check(result.state == 'PASS' && result.source_ip == '127.0.0.1' &&
     result.destination_ip == '127.0.0.1' && result.vantage == 'router_probe', 'actual socket source');
 check(run_probe(endpoint, 1000).state == 'PASS', 'bounded TCP worker actual connection');
+for (let i = 0; i < 2; i++) {
+    let peer = server.accept(null, socket.SOCK_CLOEXEC);
+    check(peer != null, 'completed TCP probe reached the listener');
+    peer.close();
+}
 endpoint.protocol = 'RDP';
 let start = clock(true), stalled = run_probe(endpoint, 300), end = clock(true);
 let elapsed = (end[0] - start[0]) * 1000 + (end[1] - start[1]) / 1000000;
 check(stalled.state == 'UNKNOWN' && stalled.reason == 'TIMEOUT' && elapsed < 700,
     'silent RDP listener cannot block worker');
+let rdp_peer = server.accept(null, socket.SOCK_CLOEXEC);
+check(rdp_peer != null, 'bounded RDP probe reached the listener');
+let request = rdp_peer.recv(256) || '';
+rdp_peer.close();
+check(length(request) == 19 && ord(request, 0) == 3 &&
+    ord(request, 2) * 256 + ord(request, 3) == length(request) && ord(request, 5) == 224 &&
+    ord(request, 11) == 1 && ord(request, 15) == 3,
+    'actual RDP request has a binary X224 opcode and matching TPKT length');
 endpoint.protocol = 'TCP';
 server.close();
 let unavailable = probe_endpoint(endpoint, 1000);
@@ -41,7 +54,7 @@ endpoint.host = '127.0.0.1'; endpoint.http_path = '/\r\nAuthorization: secret';
 check(probe_endpoint(endpoint, 1000).reason == 'ENDPOINT_INVALID', 'header injection rejected');
 endpoint.http_path = '/'; endpoint.enabled = false;
 check(probe_endpoint(endpoint, 1000).reason == 'ENDPOINT_INVALID', 'disabled endpoint never connected');
-check(rdp_confirm('\x03\x00\x00\x0b\x06\xd0\x00\x00\x00\x00\x00'), 'X224 confirm');
-check(!rdp_confirm('\x03\x00\x00\x0b\x06\xe0\x00\x00\x00\x00\x00'), 'request echo is not confirmation');
-check(!rdp_confirm('\x03\x00\x00\x13\x06\xd0\x00\x00\x00\x00\x00'), 'truncated TPKT rejected');
+check(rdp_confirm('\x03\x00\x00\x0b\x06' + chr(208) + '\x00\x00\x00\x00\x00'), 'X224 confirm');
+check(!rdp_confirm('\x03\x00\x00\x0b\x06' + chr(224) + '\x00\x00\x00\x00\x00'), 'request echo is not confirmation');
+check(!rdp_confirm('\x03\x00\x00\x13\x06' + chr(208) + '\x00\x00\x00\x00\x00'), 'truncated TPKT rejected');
 print('probe: ', count, ' assertions passed\n');

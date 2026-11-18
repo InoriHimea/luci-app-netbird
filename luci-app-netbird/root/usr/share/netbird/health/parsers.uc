@@ -59,6 +59,15 @@ function normalize(kind, rows) {
     for (let row in rows) {
         if (type(row) != 'object') return failure();
         if (kind == 'rules') {
+            // iproute2 JSON uses both spellings across supported releases.
+            // Preserve the selector under one canonical key, never drop it.
+            if ('suppress_prefixlen' in row) {
+                if ('suppress_prefixlength' in row) return failure();
+                row.suppress_prefixlength = row.suppress_prefixlen;
+                delete row.suppress_prefixlen;
+            }
+            // Older iproute2 emits "not":null as a presence-only true flag.
+            if ('not' in row && row.not === null) row.not = true;
             if (type(row.priority) != 'int' || row.priority < 0) return failure();
             let terminal = index(['blackhole', 'unreachable', 'prohibit'], row.action) >= 0;
             if (!terminal && row.table == null) return failure();
