@@ -1,6 +1,6 @@
 # NetBird agent 夜间自动更新实施待办
 
-状态：武汉r17只诊断ON（60秒/rev8/基线1），自动恢复OFF、owner none、agent更新OFF。最小P1及timer完成后60秒修正已通过短窗口验收；修正后独立24小时观察已于北京时间11-19 19:47完成并于11-24审阅：取证完整、健康为有限定通过（非全绿）。最近核对NBH项目24项中17完成、7处理中，剩余现场验收、56窗口/独立恢复入口及推广门槛未解除。
+状态：武汉r17只诊断ON（60秒/rev8/基线1），自动恢复OFF、owner none、agent更新OFF。最小P1及timer完成后60秒修正已通过短窗口验收；修正后独立24小时观察已于北京时间11-19 19:47完成并于11-24审阅：取证完整、健康为有限定通过（非全绿）；代际周期修正已热部署武汉待15:35–15:45撞期确认，LAN探针诊断字段待部署。最近核对NBH项目24项中17完成、7处理中，剩余现场验收、56窗口/独立恢复入口及推广门槛未解除。
 
 ## [进行中] NBH-19最小P1上线后的剩余现场验收（2026-11-16）
 
@@ -31,19 +31,10 @@
 - 原生行为通过：切换后poll1794994769→1794994833→1794994897，间隔64/64秒，武汉与两LAN每轮fresh/PASS、无重复旧poll/服务失败。首次启动重显的切换前poll1794994687已排除并留纠正记录，不能用3条日志冒充3个切换后有效周期。
 - 最终保护通过：武汉11SHA/PID9497保持，中央保护仅timer按批准SHA改变，其他文件不变；新旧timer均active、P1 enabled，自动恢复OFF、owner none/accepted0。未手动once、未取密、未重开24小时、未改56/路由/ACL/阈值/目标；此为短窗口修正验收，不是新的24小时健康结论。
 - 生产修正已归档并同步：NBH-19附件11322（11421字节，下载SHA256 f03657d1cd00ca72647d1b240e6690b9cc171ccc12e48d2f60415d634b38c3db一致），NBH-19评论11259、NBH-1评论11260均GET确认，保持处理中。后续若安排修正后完整观察须新建独立窗口，不覆盖原采样；本轮按明确范围只验3个自然有效周期。
-- 本人2026-11-18要求有任务则按推荐顺序继续：第一项新独立24小时只读观察已启动；旧窗口/attempt/报告不覆盖，未重做timer切换或凭据交付。预检中央10文件与修正后基线一致、武汉11保护SHA/PID9497一致，现役新旧timer active且owner none/automatic OFF。
-- 新窗口范围：每60秒只读中央read和武汉已发布缓存/进程，24小时截止及64MiB证据上限；额外仅保留同一缓存的snapshot原因/前后边界变化字段名与run绑定，不导出原始配置或触发检查。完整分母、唯一有效run、过期/SSH异常、配置与进程变化分别统计，不把取证完整等同健康通过。
-- 当前窗口：UTC2026-11-18T11:47:06.218417至11-19T11:47:06.218417（北京时间11-18 19:47至11-19 19:47）；本机持久service nbh-p1-postfix-24h-20261118，Python PID28232。新目录C:/Users/25321/AppData/Local/netbird-observer-observations/p1-postfix-20261118T114322Z/，父级postfix-20261118-launch.json与窗口attempt独占防重；64MiB/24小时预算保持。
-- 启动验证：实际smoke两端ok/15项检查；新边界摘要与缓存run绑定，原生ucode内存夹具正确识别routes前后变化；不回传边界原始值。节点unique计数排除null身份，保留跨读run不一致/证据不可用计数。首份样本两LAN PASS、node fresh，静态6项UNKNOWN不抹除；仅启动通过，不是24小时验收。
-- 修正后窗口审阅（2026-11-24，本人要求按顺序继续）：collection_complete，1441/1441样本、无解析错误，间隔59.985–60.016秒；原JSONL13438436字节SHA256 dab88102a1f694f06760df0f3a9f8a3b3db2041f9424ee7263f8b173ecb110f0不变。取证完整。
-- 中央：1344个独立poll，间隔63–69秒为主（约64.3秒均值，与完成后60秒timer一致，无跳轮）；唯一130秒间隔对应UTC11-19T06:46:06一次采样端SSH_READ_TIMEOUT，未见生产缺poll。10保护SHA全窗无不一致，service全success，两timer active，owner none/provider_accepted0。原“约1350/少6个”为估算偏高，已勘误。
-- node：1336个独立run；9次COMMAND_TIMEOUT非fresh（last_source最大135秒，最长连续2样本）均恢复；119–121秒run间隔是60秒node周期与约64秒中央读取相位错开，不是节点跳轮。
-- LAN（按独立run）：rdp55共1324全PASS；rdp56共1328，仅1次FAIL:CONNECT_FAILED（run9a4e8a77，UTC11-19T09:48:33），前后run均PASS且同期武汉endpoint仍PASS，原因未定，不推断目标宕机。38个无run_id的UNKNOWN（36 COMMAND_TIMEOUT/2 NODE_UNREACHABLE）是读取来源超时，不是探测失败。
-- 武汉：0读取错误/0失败run；health PID6072/start98350425、agent PID9497/start63787988全程不变，automatic OFF，rev8/1。13次GENERATION_CHANGED与13次snapshot不完整一一对应（processes/maintenance），约每2小时20分出现、常连续2分钟；已只读归因为watchdog（30秒sleep+约0.1秒step，实测20个间隔均值30.1035秒）占binop锁/短暂netbird status与严格60秒健康采样前后边界拍频重叠，预测约145分钟、实测139–145分钟，良性单轮UNKNOWN，证据generation-changed-attribution.json；随后代码修正（未部署）：采集进程只认`netbird service run`常驻daemon、短命CLI客户端/中途退出PID不计，维护代际身份排除瞬时binop租约（flags.maintenance与原始边界证据不变，损坏日志仍unknown），跨轮boundary同口径；58.34隔离openwrt/rootfs(b4fa1310…)容器全量run.sh：collector23/maintenance11/boundary11等25文件PASS，probe(缺socket模块)/settings(需UCI)在HEAD同样失败属镜像缺件，未改设备；2026-11-24 13:33已获准热替换到武汉（仅collect/maintenance/boundary三文件，前SHA与57d8ef8一致、备份/root/nbh-genfix-20261124/*.before、设备端编译检查OK、未重启服务、agent PID9497不变），部署后连续4轮node:collection PASS、跨轮boundary无变化；包版本仍r17，重装/升级会回到旧文件；下一次watchdog撞期预计约15:35–15:45待确认，回执genfix-deploy-receipt.json；3次孤立endpoint TIMEOUT。
-- 集中时段UTC11-19T06:25–06:50：中央读取最长9.6秒，伴LAN读取超时、node非fresh3次及1次中央SSH超时，原因未核实。读取耗时中央p50 918ms/p99 3.6s，武汉p50 244ms/p99 352ms。
-- 事后保护（UTC2026-11-24T02:22，只读，不冒充截止时刻同步校验）：武汉两份同一基线sha256sum -c 11项OK、agent PID9497/start63787988、automatic OFF；中央10文件SHA与protection-before一致（timer d9a98428…），P1 timer active/enabled、旧ha timer active/waiting、owner none/accepted0；当前node fresh、两LAN PASS/fresh，boot5f5aa365保持。未once、未取密、未改配置/路由/ACL/56、未重启服务。
-- 审阅结论：取证完整；健康为有限定通过、非全绿，原三项未定原因中约2小时20分代际周期已只读归因（watchdog与健康采样拍频），余两项离线复析后仍未归因：06:25–06:50读取拥塞是白天（北京10–16时等）延迟高峰的峰值而非孤立事件，中央CPU恒定约207ms、增加的是等待时间，疑白天链路延迟/丢包（路由器端点约1.03秒连接25/14次，符合SYN重传），未采RTT/负载不能定链路；rdp56单次CONNECT_FAILED前后run及21秒后武汉端点均PASS，属孤立瞬态，探针未记录错误码/耗时无法区分拒绝/不可达/丢包（已补代码：LAN探针结果增加可选elapsed_ms与FAIL时的errno名failure，中央按白名单/范围校验后导出、畸形值丢弃、旧结果兼容；Windows本地41+12、58.34 Linux Python3.13全部通过；未部署到51.160探针及中央）。证据open-causes-analysis.json。不关闭NBH-19其它方向/失联恢复/ACL负向/真实通知/56及推广门槛。证据：同目录review_postfix.py、review-20261124.json、protection-after-review.json。Jira审阅评论NBH-19 11400、NBH-1 11401已回读确认，附件已由本人上传NBH-19为11402，文件名/17203字节与本地一致（另存下载后SHA256与本地逐字节一致，已核验）。
-- 启动后首4样本核验：中央4个独立poll、最大间隔60.00046秒，边界摘要可用且run一致、保护引用无变化；UTC11:50:06的rdp56为UNKNOWN/COMMAND_TIMEOUT，保留原样本和startup-checkpoint，不重发探测覆盖。Jira NBH-19评论11261、NBH-1评论11262均POST201/GET确认，未转Done；当前等待真实窗口到期。
+- 修正后24小时窗口（11-18 19:47至11-19 19:47）已于11-24审阅并归档至TODO-m.md同日完成节：取证完整，健康为有限定通过、非全绿；Jira审阅评论NBH-19 11400、NBH-1 11401，附件11402（17203字节，另存下载SHA256与本地逐字节一致）。
+- 未定原因处理：约2小时20分GENERATION_CHANGED已归因为watchdog（实测30.1035秒周期）与60秒健康采样拍频，代码修正7692606已于11-24 13:33获准热替换到武汉（三文件，备份/root/nbh-genfix-20261124/*.before，未重启，agent PID9497不变），部署后连续轮次PASS；06:25–06:50读取拥塞与rdp56单次CONNECT_FAILED离线复析仍未归因。
+- 待确认（下一步）：武汉下一次watchdog撞期预计北京时间11-24 15:35–15:45，需只读确认该轮node:collection仍PASS后更新genfix-deploy-receipt.json；若出现GENERATION_CHANGED则检查是否为真实变化，必要时按回执回滚。包仍为r17，重装/升级会恢复旧文件，正式发包前须纳入新版本。
+- 待部署（需批准与访问）：LAN探针诊断字段b84ebfe（elapsed_ms与FAIL时errno名failure，中央白名单校验、旧结果兼容）。只读核对：gateway3 /opt/netbird-observer/observer/lan_probe.py SHA前缀da100c3a与改前版本一致、其余4文件与仓库一致、P1 timer active/waiting；51.160现有本机key均被拒绝（publickey），需本人提供或执行登录后才能核对/部署。中央与探针须同步更新保护基准并记录批准。
 
 
 ## [阻塞] 武汉诊断功能例外、P1与后续推广验收（2026-11-14）
