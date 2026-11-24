@@ -934,7 +934,7 @@ msgid "Post-Quantum"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/settings.js:226
-msgid "Post-quantum secure the connection via Rosenpass (experimental)."
+msgid "Post-quantum secure the connection via Rosenpass (experimental). NetBird has deprecated Rosenpass and may remove it in a future release."
 msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/logs.js:184
@@ -1213,7 +1213,7 @@ msgstr ""
 msgid ""
 "The severity filter is a minimum threshold: choosing a level also shows all "
 "more severe levels. To capture DEBUG or TRACE lines, raise the log level on "
-"the Settings page and reconnect."
+"the Settings page."
 msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/versions.js:306
@@ -1264,7 +1264,10 @@ msgid "Userspace"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/settings.js:240
-msgid "Verbosity of the NetBird log."
+msgid ""
+"Verbosity of the NetBird service log. Applied to the running service "
+"without reconnecting, and again whenever the service restarts. Requires "
+"netbird 0.27.4 or newer; older versions always log at info."
 msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/versions.js:148
@@ -1638,6 +1641,9 @@ msgstr ""
 msgid "The NetBird service is not running or not responding. Start it, then try again."
 msgstr ""
 
+msgid "Could not pass the setup key to NetBird: writing a temporary file under /var/run failed. Free up memory, then try again."
+msgstr ""
+
 msgid "The %s package lists are not loaded (they are cleared on reboot), so netbird cannot be looked up. Run \"%s update\", then reload this page."
 msgstr ""
 
@@ -1789,4 +1795,21 @@ msgid "Observing agent health…"
 msgstr ""
 
 msgid "Restoring previous agent…"
+
+msgid "The configured source is NetBird-Release, but its binary is not on this device (it is not kept across firmware upgrades, or the automatic download did not finish), so another build is running. Select NetBird-Release below, click \"Check for updates\", then \"Update now\". On a slow connection, you can use a mirror URL under \"Custom download\"."
+msgstr ""
+
+msgid "Saved settings are not active yet. They will be applied the next time NetBird connects."
+msgstr ""
+
+msgid "The official checksum list has no entry for this download, so it was not installed. Try again later; the release may still be publishing its files."
+msgstr ""
+
+msgid "Could not download the official checksum list, so the download was not installed. Check that the router can reach github.com, then try again."
+msgstr ""
+
+msgid "The download tool built into this router cannot read the responses from GitHub, so the official release cannot be downloaded. Install curl with \"opkg update && opkg install curl\", then try again."
+msgstr ""
+
+msgid "The download tool built into this router cannot read the responses from GitHub, so the official release cannot be downloaded. Install curl with \"apk update && apk add curl\", then try again."
 msgstr ""

@@ -27,8 +27,9 @@ if [ ! -f "$INITD" ] && [ -f "$ROOT/luci-app-netbird/root/etc/init.d/netbird-set
 fi
 
 # ── 已知跳过清单(非设置项 / 有意不暴露)—— 改变决策时更新这里 ────────────────────
-# 操作/认证类 flag(不属于「设置」页范畴):
-SKIP_OPERATIONAL="--admin-url --anonymize --anonymize-level --config --daemon-addr --foreground-mode --help --log-file --no-browser --profile --qr --service --setup-key --setup-key-file"
+# 操作/认证类 flag(不属于「设置」页范畴)。--log-level 只作用于 up 这个 CLI 进程自身,
+# 设置页的日志级别经 `netbird debug log level` 下发到守护进程(见 nb-log-level.sh):
+SKIP_OPERATIONAL="--admin-url --anonymize --anonymize-level --config --daemon-addr --foreground-mode --help --log-file --log-level --no-browser --profile --qr --service --setup-key --setup-key-file"
 # 有意不暴露的设置 flag(评审后决定暂不做;若改主意,从此处移除并去 UI/init.d/i18n 添加):
 #   --mtu                                              错配致服务假死(脚枪),不暴露
 #   --external-ip-map --extra-dns-labels
@@ -43,6 +44,9 @@ SKIP_OPERATIONAL="--admin-url --anonymize --anonymize-level --config --daemon-ad
 #   --enable-local-metrics --local-metrics-address     本机 metrics 端点,路由器场景价值低
 SKIP_OMITTED="--mtu --external-ip-map --extra-dns-labels --extra-iface-blacklist --dns-router-interval --ssh-jwt-cache-ttl --network-monitor --disable-auto-connect --enable-lazy-connection --dns-resolver-address --enable-local-metrics --local-metrics-address"
 SKIP=" $SKIP_OPERATIONAL $SKIP_OMITTED "
+# 上游标记为废弃、从 help 隐藏的 flag(netbird-settings 用 _accepts_bool_flag 实际探测)。
+# 有二进制时同样实际探测;只有 help 文本时分不清隐藏和移除,单独列出:
+HIDDEN_DEPRECATED=" --enable-rosenpass --rosenpass-permissive "
 
 # ── 取 `netbird up --help` 文本 ───────────────────────────────────────────────
 get_help() {
@@ -68,7 +72,8 @@ HELP="$(get_help "${1:-}")" || exit $?
 # 可用 flag:从 help 抽所有长 flag
 AVAIL="$(printf '%s\n' "$HELP" | grep -oE '\-\-[a-z][a-z0-9-]+' | sort -u)"
 # 已映射 flag:从 init.d 的**非注释行**抽 flag(排除注释行避免取反矩阵/示例里的 flag 名混入)。
-# 不限定 set--/_has_flag 行:因 --preshared-key 出于安全设计不走 set--、而在执行行追加(见 init.d),
+# 不限定 set--/_has_flag 行:因 --preshared-key 出于安全设计不走 set--、执行时经环境变量传入,只在
+# 日志占位行出现(见 init.d),
 # 限定 set-- 会漏掉它(会误报)。非注释行只含真实渲染/门控/执行用到的 flag,无噪音。
 MAPPED="$(grep -vE '^[[:space:]]*#' "$INITD" | grep -oE '\-\-[a-z][a-z0-9-]+' | sort -u)"
 
@@ -86,8 +91,17 @@ for f in $AVAIL; do
 done
 
 GONE=""
+UNSURE=""
+PROBE_BIN="${1:-${NETBIRD:-$(command -v netbird 2>/dev/null || true)}}"
 for f in $MAPPED; do
 	in_list "$f" "$AVAIL_SP" && continue
+	if in_list "$f" "$HIDDEN_DEPRECATED"; then
+		if [ -n "${NB_HELP_FILE:-}" ]; then
+			UNSURE="$UNSURE $f"
+			continue
+		fi
+		"$PROBE_BIN" up --help "$f=false" >/dev/null 2>&1 && continue
+	fi
 	GONE="$GONE $f"
 done
 
@@ -106,6 +120,11 @@ else
 	echo "✅ 无未映射的新 flag(上游 flag 均已映射或在已知跳过清单)。"
 fi
 echo
+if [ -n "$UNSURE" ]; then
+	echo "❓ help 里没有,可能已隐藏或已移除(离线模式无法区分,请用二进制再跑一次):"
+	for f in $UNSURE; do echo "     $f"; done
+	echo
+fi
 if [ -n "$GONE" ]; then
 	echo "⚠️ 插件映射了、但此二进制没有此 flag:"
 	echo "   (跑旧版二进制属正常 —— init.d 能力门控会静默跳过;若在最新版出现 = flag 被重命名/移除,需跟进)"
