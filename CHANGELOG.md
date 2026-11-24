@@ -5,6 +5,13 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### 0.2.0-r18 (2026-11-24)
+
+- Health generation identity counts only the long-lived `netbird service run` daemon; short-lived `netbird` CLI clients (watchdog, LuCI, collector) no longer cause `GENERATION_CHANGED`.
+- Maintenance generation identity and cross-run boundary comparison exclude the transient binary-operation lease taken by the watchdog every ~30 s; `flags.maintenance`, maintenance guards and raw boundary evidence are unchanged, and pending settings, in-flight transactions and damaged journals still count.
+- Fixes the ~2h20m `GENERATION_CHANGED` beat observed in the P1 post-fix 24-hour window. Same runtime as the r17 assets re-published on 2026-11-24 at 7692606; r18 gives it a distinct version so installed r17 nodes see an update.
+- APK signing remains UNTRUSTED.
+
 Local candidate `0.2.0-r17` (2026-11-13) adds old-ucode binary RDP request compatibility to r16 effective-rule-chain and r15 startup-DNS corrections. These are not public releases; Wuhan-only plugin/diagnostic acceptance does not authorize an agent update or other-node rollout.
 
 ### Added
