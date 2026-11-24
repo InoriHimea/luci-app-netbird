@@ -255,3 +255,7 @@ Fix (code only, not deployed):
 
 Verification: disposable container on 192.168.58.34 from `openwrt/rootfs@sha256:b4fa13109cd5e8e8075c01fa7def985de559fd3a5bfc7e59a866d509ab986b0b` (network none, all caps dropped, no-new-privileges, 128 MiB, 0.5 CPU, 64 PIDs), each `run.sh` ucode line executed individually. HEAD baseline: collector 19, maintenance 6, boundary 8. Working tree: collector 23, maintenance 11, boundary 11, all other 22 files unchanged and passing. `probe.uc` (missing `socket` module) and `settings.uc` (requires UCI config) fail identically on HEAD in this bare image and are environment gaps, not regressions. One RED was observed and fixed during the change (damaged journal masked by the lease). No device or production change.
 
+### Full unit runner (2026-11-24)
+
+`scripts/test-health-unit.sh` runs the complete `tests/health/run.sh --unit` in a disposable container (network none, all capabilities dropped, no-new-privileges, 128 MiB, 0.5 CPU, 64 PIDs), normalizes CRLF from Windows checkouts and stages the shipped `config.schema.json` at its installed path inside the container only (required by `settings.uc`). The image must provide ucode `fs`, `uci` and `socket`; the bare `openwrt/rootfs` image lacks `socket`. On 192.168.58.34 with the retained local image `nbh-health-t04-local:20261106` all 27 test files pass at commit 7692606+ (exit 0), including `probe.uc` 21 and `settings.uc` 7, which were environment gaps in the bare image.
+
