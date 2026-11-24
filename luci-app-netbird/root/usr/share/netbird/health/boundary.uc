@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
+import { maintenance_identity } from './maintenance.uc';
 function difference(previous, current) {
     let before = previous?.snapshot, after = current?.snapshot;
     let fields = ['processes', 'rules', 'routes', 'links', 'firewall', 'maintenance'];
     let changes = [];
     for (let field in fields) {
         let a = before?.boundaries?.after?.[field], b = after?.boundaries?.before?.[field];
+        // The transient binary-operation lease is evidence, not a generation change.
+        if (field == 'maintenance') { a = maintenance_identity(a); b = maintenance_identity(b); }
         push(changes, { field, state: a == null || b == null ? 'UNKNOWN' :
             sprintf('%J', a) == sprintf('%J', b) ? 'UNCHANGED' : 'CHANGED' });
     }

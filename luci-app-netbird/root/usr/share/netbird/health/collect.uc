@@ -3,7 +3,7 @@ import { access, open } from 'fs';
 import { run_command, monotonic_ms } from './runner.uc';
 import { parse_agent, parse_ip } from './parsers.uc';
 import { lookup_path } from './lookup.uc';
-import { maintenance_state } from './maintenance.uc';
+import { maintenance_state, maintenance_identity } from './maintenance.uc';
 
 function executable(candidates) {
     for (let p in candidates) if (access(p, 'x')) return p;
@@ -16,27 +16,42 @@ function boot_id() {
     f.close();
     return match(id, /^[0-9a-f-]{36}$/) ? id : null;
 }
-function process_identity(raw) {
+function process_identity(raw, procfs) {
     if (type(raw) != 'string' || length(raw) > 256 || !match(trim(raw), /^[0-9]+( +[0-9]+)*$/)) return null;
     let pids = split(trim(raw), / +/), result = [];
     if (length(pids) > 16) return null;
     for (let pid in sort(pids)) {
         if (int(pid) <= 1 || int(pid) > 4194304) return null;
-        let f = open('/proc/' + pid + '/stat', 'r');
-        if (!f) return null;
+        // Only the long-lived daemon (`netbird service run ...`) is generation
+        // identity. Short CLI clients (`netbird status`, from the watchdog,
+        // LuCI or this collector) come and go without changing the engine.
+        // A PID that vanished between pidof and /proc is such a client.
+        let c = open(procfs + '/' + pid + '/cmdline', 'r');
+        if (!c) continue;
+        let argv = split(c.read(4096) || '', '\u0000'); c.close();
+        if (argv[1] != 'service' || argv[2] != 'run') continue;
+        let f = open(procfs + '/' + pid + '/stat', 'r');
+        if (!f) continue;
         let raw_stat = f.read(4096) || ''; f.close();
         let stat = match(raw_stat, /^[0-9]+ \(.*\) (.*)$/);
         let fields = stat ? split(trim(stat[1]), / +/) : [];
         if (length(fields) < 20 || !match(fields[19], /^[0-9]+$/)) return null;
         push(result, { pid: int(pid), start_ticks: fields[19] });
     }
-    return result;
+    return length(result) ? result : null;
 }
 function unknown(reason) { return { ok: false, reason }; }
+// Fields that define a network generation. Raw maintenance (including the
+// transient binary-operation lease) stays in the boundaries as evidence.
+function generation_view(s) {
+    return { processes: s.processes, rules: s.rules, routes: s.routes, links: s.links, firewall: s.firewall,
+        maintenance: maintenance_identity(s.maintenance) };
+}
 // Internal injection seam for deterministic command/error/generation scenarios;
 // never exposed as an RPC command or UCI-configured executable.
-function collect(execute, paths) {
+function collect(execute, paths, procfs) {
     execute ??= run_command;
+    procfs ??= '/proc';
     let started = monotonic_ms(), deadline = started + 20000, remaining_bytes = 262144;
     let ip = executable(['/sbin/ip', '/usr/sbin/ip', '/bin/ip', '/usr/bin/ip']);
     let nft = executable(['/usr/sbin/nft', '/sbin/nft']);
@@ -93,7 +108,7 @@ function collect(execute, paths) {
     }
     function snapshot() {
         let pid = command(['/bin/busybox', 'pidof', 'netbird']);
-        return { processes: pid.ok ? process_identity(pid.stdout) : null,
+        return { processes: pid.ok ? process_identity(pid.stdout, procfs) : null,
             rules: ip_data('rules'), routes: ip_data('routes'), links: ip_data('links'), firewall: firewall_inventory(),
             maintenance: maintenance_state() };
     }
@@ -114,7 +129,7 @@ function collect(execute, paths) {
     let generation_available = before_boot != null && before.processes != null && after.processes != null
         && before.rules.ok && after.rules.ok && before.routes.ok && after.routes.ok && before.links.ok && after.links.ok
         && before.firewall.ok && after.firewall.ok;
-    let stable = generation_available && boot_id() == before_boot && sprintf('%J', before) == sprintf('%J', after);
+    let stable = generation_available && boot_id() == before_boot && sprintf('%J', generation_view(before)) == sprintf('%J', generation_view(after));
     let expired = monotonic_ms() >= deadline;
     let complete = stable && agent.ok && !expired && lookup_input_valid;
     if (!stable || expired || !lookup_input_valid)
@@ -136,4 +151,4 @@ function collect(execute, paths) {
         attribution: 'cause_undetermined',
         agent, rules: before.rules, routes: before.routes, links: before.links, firewall, lookups };
 }
-export { collect };
+export { collect, generation_view };

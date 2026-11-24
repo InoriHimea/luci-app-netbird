@@ -16,6 +16,19 @@ current.snapshot.boot_id = 'boot-b';
 check(difference(previous, current).boot_changed === true, 'boot boundary explicit');
 current.sampled_at = 99;
 check(difference(previous, current).wall_clock_reversed, 'wall clock reversal');
+function maint(lock, settings) { return { state: lock || settings ? 'active' : 'idle', durable_active: settings, journal_unreadable: false,
+    transaction_phase: null, markers: { binary_operation: lock, update_settings: false, settings } }; }
+let mp = json(sprintf('%J', previous)), mc = json(sprintf('%J', previous));
+mc.snapshot.boundaries.before = json(sprintf('%J', mc.snapshot.boundaries.after));
+mp.snapshot.boundaries.after.maintenance = maint(true, false);
+mc.snapshot.boundaries.before.maintenance = maint(false, false);
+check(difference(mp, mc).changes[5].field == 'maintenance' && difference(mp, mc).changes[5].state == 'UNCHANGED',
+    'transient binary-operation lease is not a cross-run maintenance change');
+mc.snapshot.boundaries.before.maintenance = maint(false, true);
+check(difference(mp, mc).changes[5].state == 'CHANGED', 'pending settings remain a cross-run maintenance change');
+let legacy = maint(true, true); delete legacy.durable_active; delete legacy.journal_unreadable;
+mp.snapshot.boundaries.after.maintenance = legacy;
+check(difference(mp, mc).changes[5].state == 'UNCHANGED', 'snapshot cached before durable fields compares by markers');
 check(!freshness(previous, 'boot-b', 101, 60).fresh, 'prior boot not fresh');
 check(!freshness(previous, 'boot-a', 99, 60).fresh, 'future sample not fresh');
 check(!freshness(previous, 'boot-a', 161, 60).fresh, 'age expires');
