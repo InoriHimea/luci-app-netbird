@@ -39,6 +39,9 @@ const _NB_SETTINGS_APPLIED = '/nonexistent';
 function err(code, message, hint) { return { ok: false, code, message, hint }; }
 function ok(data) { return { ok: true, data }; }
 function access(path, mode) { return true; }
+// fork: shared recovery arbitration admits lifecycle actions; tests run without contention.
+function _admit_action(kind, owner) { return null; }
+let uci = { cursor: function() { return { get: function(c, sec, o) { return o == 'desired_connected' ? '1' : null; } }; } };
 function _mark_settings_pending() {}
 function _resolve_mgmt_url(url) { return { ok: true, url: null }; }
 function _ensure_helper_services() {}
@@ -93,7 +96,7 @@ let cases = ${JSON.stringify(BACKEND_CASES)};
 for (let c in cases) {
 	logs = [ ...(c.before || []) ]; fresh = c.after || []; polls = 0; downs = 0; saved = ''; desired = null;
 	cli = { code: c.code, stdout: c.stdout, key_error: c.keyError }; connected = !!c.connected; status_text = null;
-	let r = _do_up({ args: { setup_key: c.key, caller: c.caller } });
+	let r = _do_up({ args: { setup_key: c.key, caller: c.caller } }, c.caller == 'watchdog');
 	printf('%J\\n', { name: c.name, ok: r.ok, message: r.message, saved, polls, downs, desired });
 }
 `;
@@ -262,6 +265,8 @@ function runSettingsCases() {
 	try {
 		const file = path.join(dir, 'settings.sh');
 		fs.writeFileSync(file, init + `
+# fork: the action lease is held by the caller; test the apply body directly.
+NB_SETTINGS_ACTION_HELD=1
 NB_SERVICE=/nonexistent-netbird-test-service
 NB_SETTINGS_PENDING="$TEST_PENDING"
 NB_SETTINGS_APPLIED="$TEST_APPLIED"
@@ -393,6 +398,7 @@ function runAuthCmdCases() {
 			const file = path.join(dir, 'auth' + i + '.uc');
 			fs.writeFileSync(file, `
 let fs = require('fs');
+let uci = { cursor: function() { return { get: function(c, sec, o) { return o == 'desired_connected' ? '1' : null; } }; } };
 let popen = fs.popen, open = fs.open, unlink = fs.unlink, mkdir = fs.mkdir, stat = fs.stat;
 let shell_quote = loadfile(${JSON.stringify(path.join(PKG, 'root/usr/share/rpcd/ucode/lib/shell.uc'))})().shell_quote;
 function _cli_has_flag(bin, verb, flag) { return true; }

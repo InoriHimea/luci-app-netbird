@@ -38,6 +38,19 @@ const CODE = { INVALID_INPUT: 'invalid_input', ARCH_MISMATCH: 'arch_mismatch', I
 	INSTALL_FAILED: 'install_failed' };
 const _NB_REL_DIR = '/nb-test-rel';
 const _NB_REL_BIN = '/nb-test-rel/netbird-release';
+const _NB_OPKG_BIN = '/usr/bin/netbird';
+// fork: transaction/arbitration boundaries; enough memory, daemon stopped, no contention.
+function _admit_action(kind, owner) { return null; }
+function _agent_memory_available_kb() { return 1048576; }
+function _daemon_running() { return false; }
+function _agent_sample() { return null; }
+function _agent_profile_dir() { return '/nb-test-profile'; }
+// ucode does not hoist: _update_binary_locked needs this before ENSURE_STUBS.
+function _uci_binary(key, def) { return def; }
+let _schedule = { config: function() { return {}; }, window_open: function() { return true; } };
+// fork: the persistent install transaction replaces upstream's in-place mv.
+let _agent = { canceled: function() { return false; }, clear_cancel: function() {},
+	install: function(o) { push(cmds, 'INSTALL ' + o.candidate + ' -> ' + o.target); return { ok: true, data: { to: o.version, path: o.target } }; } };
 function err(code, message) { return { ok: false, code, message }; }
 function ok(data) { return { ok: true, data }; }
 function shell_quote(s) { return "'" + s + "'"; }
@@ -95,6 +108,7 @@ function stat(p) { return null; }
 function open(p, mode) { if (p == _NB_AUTODL_FAILED && mode == 'w') marker_writes++; return { close: function() {} }; }
 function _do_set_binary_source(req) { switched++; return ok({}); }
 function _do_update_binary(req) { return _update_binary_locked({ args: req }); }
+function _release_binary_path() { return _NB_REL_BIN; }
 `;
 
 const OFFICIAL = { url: '' };
