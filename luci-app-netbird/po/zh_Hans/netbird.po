@@ -425,8 +425,8 @@ msgstr "对等节点"
 msgid "Post-Quantum"
 msgstr "后量子"
 
-msgid "Post-quantum secure the connection via Rosenpass (experimental)."
-msgstr "通过 Rosenpass 进行后量子安全加固（实验性）。"
+msgid "Post-quantum secure the connection via Rosenpass (experimental). NetBird has deprecated Rosenpass and may remove it in a future release."
+msgstr "通过 Rosenpass 进行后量子安全加固（实验性）。NetBird 已废弃 Rosenpass，未来版本可能移除。"
 
 msgid "Process"
 msgstr "进程"
@@ -557,8 +557,8 @@ msgstr "更新"
 msgid "Userspace"
 msgstr "用户空间"
 
-msgid "Verbosity of the NetBird log."
-msgstr "NetBird 日志的详细程度。"
+msgid "Verbosity of the NetBird service log. Applied to the running service without reconnecting, and again whenever the service restarts. Requires netbird 0.27.4 or newer; older versions always log at info."
+msgstr "NetBird 服务日志的详细程度。无需重新连接即对运行中的服务生效，服务重启后会自动重新应用。需要 netbird 0.27.4 或更新版本；旧版本始终按 info 记录。"
 
 msgid "Caution:"
 msgstr "警告："
@@ -769,8 +769,8 @@ msgstr "当前来源已切换为 %s(运行 v%s)。"
 msgid "Switch failed."
 msgstr "切换失败。"
 
-msgid "The severity filter is a minimum threshold: choosing a level also shows all more severe levels. To capture DEBUG or TRACE lines, raise the log level on the Settings page and reconnect."
-msgstr "严重性过滤是「最低级别」阈值：选某级也会显示所有更严重的级别。要看到 DEBUG / TRACE 行，请在设置页提高日志级别并重新连接。"
+msgid "The severity filter is a minimum threshold: choosing a level also shows all more severe levels. To capture DEBUG or TRACE lines, raise the log level on the Settings page."
+msgstr "严重性过滤是「最低级别」阈值：选某级也会显示所有更严重的级别。要看到 DEBUG / TRACE 行，请在设置页提高日志级别。"
 
 # 版本管理相关串
 
@@ -1185,6 +1185,9 @@ msgstr "NetBird 客户端拒绝了该命令，可能版本太旧，不支持此�
 msgid "The NetBird service is not running or not responding. Start it, then try again."
 msgstr "NetBird 服务未运行或无响应，请先启动后再试。"
 
+msgid "Could not pass the setup key to NetBird: writing a temporary file under /var/run failed. Free up memory, then try again."
+msgstr "无法把安装密钥交给 NetBird：在 /var/run 下写临时文件失败。请释放内存后重试。"
+
 msgid "The %s package lists are not loaded (they are cleared on reboot), so netbird cannot be looked up. Run \"%s update\", then reload this page."
 msgstr "%s 的软件包列表尚未加载（重启后会被清空），因此查不到 netbird。请先运行“%s update”，再刷新本页。"
 
@@ -1337,3 +1340,21 @@ msgstr "正在观察 Agent 健康状态…"
 
 msgid "Restoring previous agent…"
 msgstr "正在恢复旧版 Agent…"
+
+msgid "The configured source is NetBird-Release, but its binary is not on this device (it is not kept across firmware upgrades, or the automatic download did not finish), so another build is running. Select NetBird-Release below, click \"Check for updates\", then \"Update now\". On a slow connection, you can use a mirror URL under \"Custom download\"."
+msgstr "配置的来源是 NetBird-Release，但本机没有它的二进制（刷机升级不保留，或首次连接时的自动下载没有完成），当前运行的是其他版本。请在下方选择 NetBird-Release，点击「检测更新」，再点「立即更新」；网络较慢时可以在「自定义下载」里使用镜像地址。"
+
+msgid "Saved settings are not active yet. They will be applied the next time NetBird connects."
+msgstr "已保存的设置尚未生效，将在 NetBird 下次连接成功后应用。"
+
+msgid "The official checksum list has no entry for this download, so it was not installed. Try again later; the release may still be publishing its files."
+msgstr "官方校验和列表里没有这个下载文件的条目，无法核对，未安装。请稍后重试，该版本的发布文件可能还在上传中。"
+
+msgid "Could not download the official checksum list, so the download was not installed. Check that the router can reach github.com, then try again."
+msgstr "无法下载官方校验和列表，下载的文件未经核对，未安装。请检查路由器能否访问 github.com，然后重试。"
+
+msgid "The download tool built into this router cannot read the responses from GitHub, so the official release cannot be downloaded. Install curl with \"opkg update && opkg install curl\", then try again."
+msgstr "这台路由器自带的下载工具读不了 GitHub 的响应，无法下载官方版本。请先安装 curl（运行 \"opkg update && opkg install curl\"），然后重试。"
+
+msgid "The download tool built into this router cannot read the responses from GitHub, so the official release cannot be downloaded. Install curl with \"apk update && apk add curl\", then try again."
+msgstr "这台路由器自带的下载工具读不了 GitHub 的响应，无法下载官方版本。请先安装 curl（运行 \"apk update && apk add curl\"），然后重试。"

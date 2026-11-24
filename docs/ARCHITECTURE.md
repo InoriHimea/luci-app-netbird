@@ -48,8 +48,10 @@ is a verified, stopped-daemon identity archive and restoration of that archive d
   `list device` *before* netbird re-establishes (firewall reload must precede `netbird up`, or
   forwarding breaks). Only the firewall is reloaded — **never the network** — so even a rename
   never flushes the live device.
-- **Pre-shared key is never logged**: it is not placed in `$@`; it is appended only at exec time,
-  and logs/dry-run show a static `--preshared-key ***`.
+- **Pre-shared key is never logged or put on a command line**: it is not placed in `$@`; it
+  reaches `netbird up` only through the `NB_PRESHARED_KEY` environment variable, exported in a
+  subshell for that single call (and not exported at all when no key is configured, so the daemon
+  keeps its current value). Logs/dry-run show a static `--preshared-key ***`.
 
 ## Versions tab
 
@@ -82,7 +84,18 @@ never adopts, copies or moves a NetBird binary, and does not replace its daemon 
 The retired distro-binary source is not offered. `opkg`/`apk` still manage this LuCI package and
 its runtime dependencies, but are never used to reinstall the separate NetBird daemon package.
 
-Downloads use `_dl_cmd` (curl → uclient-fetch → BusyBox wget), so minimal images need no curl.
+Downloads use `_dl_cmd` (curl → uclient-fetch → BusyBox wget), so minimal images need no curl. The official release path additionally needs a downloader that can send request headers (curl, or uclient-fetch from 24.10 on): the binary and its checksum list are then fetched through api.github.com asset URLs. Other downloaders fall back to github.com release links. github.com pages and release redirects carry a single Content-Security-Policy header line over 4 KB, which uclient-fetch cannot read — it stalls until its timeout (BusyBox wget reads past such lines). So when the downloader is a uclient-fetch without header support (22.03/23.05 without curl), an official download (manual or the first-connect automatic one) fails before any GitHub request with a message asking the user to install curl, and the first connect does not fall back to a distro binary. `get_binary_info.official_needs_curl` lets the Versions page show the same hint in advance, and `feed/install.sh` / `install-zh.sh` install curl under the same condition (no curl, uclient-fetch without `--header`); a failed curl install only prints a warning. Custom URLs are not affected.
+
+**Download durability and cleanup.** Binary downloads that create a new persistent file first run a
+best-effort overlay free-space preflight; low space fails early with `insufficient_space` instead of
+starting a doomed write. ENOSPC is still handled at write time, and failed first-time writes remove
+the half-written target instead of leaving a `netbird-v*` ghost version. Download artifacts must pass
+size sanity checks, archive integrity checks (`tar -tzf` for tarballs), checksum checks, ELF
+e_machine validation, and `netbird version` before they enter the version list. Official release
+downloads must match the published sha256 list; if the list cannot be fetched or has no entry for
+the asset, the download is rejected before the binary is ever run. Custom URLs check the list only
+when it is available. Each binary operation sweeps old `/tmp/nb-update*` workdirs and stale
+non-working custom binaries; custom versions are listed only when the file is executable and can report a version.
 
 **Download durability and cleanup.** Official unattended downloads must match a pinned stable
 release, its declared size and official SHA-256, a complete archive, native ELF identity and
@@ -195,6 +208,10 @@ The Authentication tab drives upstream NetBird directly through `do_up` / `do_lo
 
 - Setup keys are write-only RPC parameters. A successful login stores only a masked
   `setup_key_hint`; the raw key is never written to UCI or returned to LuCI.
+- The setup key never appears on a process command line (`/proc/<pid>/cmdline` is readable by
+  every local user). The backend writes it to a root-only file under `/var/run/luci-netbird/`;
+  the shell reads it, deletes the file and hands it to `netbird up/login` as `NB_SETUP_KEY`.
+  The backend deletes the file again when the command returns, including on timeout.
 - `do_up` and `do_login` execute `netbird up/login --no-browser` with a bounded
   wall-clock wrapper (25s for the CLI attempt, then a short connected-state poll). This is
   necessary because current NetBird clients can keep retrying when the management server
@@ -299,6 +316,14 @@ self-heal, so a router managed over the mesh could hard-lock. Instead:
   runs as `( exec cmd )` in the background with its output in a temp file, and a timer subshell `kill -9`s it
   when time is up (exit 124). The watchdog and `netbird-settings` source the same logic from
   `/usr/share/netbird/nb-run-bounded.sh`. Durations are plain seconds (no `s` suffix).
+- **The log level reaches the daemon over RPC, not through `up`.** The netbird package's init script starts
+  the daemon as plain `netbird service run` (level info, log file `/var/log/netbird/client.log`), and
+  `netbird up --log-level` only affects the `up` CLI process itself. `netbird-settings` and the watchdog
+  source `/usr/share/netbird/nb-log-level.sh`, which runs `netbird debug log level <level>` (netbird 0.27.4+,
+  detected from its `--help`; older versions are skipped with one log line). The level resets to info when
+  the daemon restarts, so the helper records the daemon PID (from procd) and level it last applied in
+  `/var/run/netbird-loglevel.applied` and re-applies whenever either changes; the watchdog checks this every
+  poll while the daemon responds. Changing only the level therefore does not reconnect.
 - **Settings apply never blocks procd.** procd runs config-change triggers one at a time, so a hung
   `netbird-settings` reload stalls every other config apply on the router. When the daemon reports
   `NeedsLogin`, the reload only writes `/etc/netbird-settings.pending` (no `netbird up`, which would wait for an

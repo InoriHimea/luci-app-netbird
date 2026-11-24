@@ -1,0 +1,523 @@
+#!/usr/bin/env node
+// SPDX-License-Identifier: Apache-2.0
+// 登录失败归因与失败后状态刷新的回归测试。
+// 从产品源码提取真实函数,只替换 CLI、日志读取、持久化和 RPC/DOM 边界,不连接设备。
+// 依赖本机的 ucode 与 node。用法: node scripts/test-login-errors.cjs
+'use strict';
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
+
+const PKG = path.join(__dirname, '..', 'luci-app-netbird');
+const BACKEND = fs.readFileSync(path.join(PKG, 'root/usr/share/rpcd/ucode/netbird.uc'), 'utf8');
+const VIEW_DIR = path.join(PKG, 'htdocs/luci-static/resources/view/netbird');
+
+const NEW_KEY_ERROR = '2026-10-21T03:43:15.755Z ERRO client/server/server.go:495: failed login: rpc error: code = InvalidArgument desc = invalid setup-key or no sso information provided, err: invalid UUID format';
+const OLD_KEY_ERROR = 'setup key is invalid';
+const LOCAL_CLOSE = '2026-10-21T03:46:04.245Z INFO ./caller_not_available:0: WARNING: [core] [Server #1] grpc: Server.processUnaryRPC failed to write status: connection error: desc = "transport is closing"';
+const REMOTE_REFUSED = 'management connection refused';
+const LOCAL_DIAL = 'rpc error: code = Unavailable desc = connection error: desc = "transport: Error while dialing: dial unix /var/run/netbird.sock"';
+const KEY_REJECTED = 'Authentication failed: the setup key was rejected';
+const UNREACHABLE = 'The management server is temporarily unreachable.';
+const NEUTRAL = 'NetBird did not become connected before the timeout.';
+
+function extract(name) {
+	const m = BACKEND.match(new RegExp('^function ' + name + '\\([^\\n]*\\) \\{[\\s\\S]*?^\\}', 'm'));
+	return m ? m[0] : '';
+}
+
+const FUNCTIONS = ['_line_mentions_auth_problem', '_classify_auth_failure',
+	'_lines_added_since', '_strip_local_ipc_lines', '_auth_failure_from_attempt', '_recent_log_text',
+	'_classify_transient_connect_failure', '_cli_immediate_error', '_do_up'];
+
+const PRELUDE = `
+let logs = [], fresh = [], saved = '', desired = null, polls = 0, downs = 0, cli = {}, connected = false, status_text = null;
+const CODE = { INVALID_INPUT: 'invalid_input', NOT_INSTALLED: 'not_installed', CONNECT_FAILED: 'connect_failed' };
+const _NB_SETTINGS_APPLIED = '/nonexistent';
+function err(code, message, hint) { return { ok: false, code, message, hint }; }
+function ok(data) { return { ok: true, data }; }
+function access(path, mode) { return true; }
+// fork: shared recovery arbitration admits lifecycle actions; tests run without contention.
+function _admit_action(kind, owner) { return null; }
+let uci = { cursor: function() { return { get: function(c, sec, o) { return o == 'desired_connected' ? '1' : null; } }; } };
+function _mark_settings_pending() {}
+function _resolve_mgmt_url(url) { return { ok: true, url: null }; }
+function _ensure_helper_services() {}
+function _persist_mgmt_url(url) {}
+function _ensure_configured_binary() {}
+function resolve_netbird_bin() { return '/fake/netbird'; }
+function _daemon_mgmt_url(bin) { return null; }
+function _norm_mgmt_url(url) { return url; }
+function classify_status_text(txt) { return status_text; }
+function _exec_short_verb(bin, verb) { if (verb == 'down') downs++; return { stdout: '' }; }
+function _persist_runtime_error(text) { saved = text; }
+function _clear_runtime_error() { saved = ''; }
+function _set_desired_connected(value) { desired = value; }
+function _run_auth_cmd(bin, verb, url, key, max_bytes, secs) {
+	if (cli.key_error) return { code: 1, stdout: '', key_error: true };
+	for (let line in fresh) push(logs, line);
+	return { code: cli.code != null ? cli.code : 124, stdout: cli.stdout != null ? cli.stdout : 'netbird command timed out after 25 seconds' };
+}
+function _poll_connected(bin, rounds) { polls++; return { connected, json: null }; }
+function _persist_setup_key_hint(key) {}
+function _flush_reconnect_conntrack() {}
+function _apply_pending_settings() {}
+function _read_daemon_logs(limit) { return { lines: logs }; }
+`;
+
+// key: 带 key 的首次登录;空 key 走已有身份的重连路径。
+const BACKEND_CASES = [
+	{ name: '旧格式 key 错误', key: 'k', after: [OLD_KEY_ERROR], want: KEY_REJECTED, polls: 0 },
+	{ name: '新格式 key 错误', key: 'k', after: [NEW_KEY_ERROR], want: KEY_REJECTED, polls: 0 },
+	{ name: '旧的本地关闭日志不影响新 key 错误', key: 'k', before: [LOCAL_CLOSE], after: [NEW_KEY_ERROR], want: KEY_REJECTED },
+	{ name: '旧 key 错误不污染本次失败', key: 'k', before: [NEW_KEY_ERROR], after: [], want: NEUTRAL },
+	{ name: '本次新增的本地关闭不算管理端不可达', key: 'k', after: [LOCAL_CLOSE], want: NEUTRAL },
+	{ name: '旧的连接拒绝不算本次失败', key: 'k', before: [REMOTE_REFUSED], after: [], want: NEUTRAL },
+	{ name: '本次连接拒绝归为管理端不可达', key: 'k', after: [REMOTE_REFUSED], want: UNREACHABLE },
+	{ name: 'CLI 连本地服务的报错不算管理端不可达', key: 'k', after: [], stdout: LOCAL_DIAL, code: 1, want: NEUTRAL },
+	{ name: '有效 key 的早期失败日志不影响成功', key: 'k', after: [NEW_KEY_ERROR], stdout: '', code: 0, connected: true, success: true },
+	{ name: '已有身份重连:本次连接拒绝', key: '', after: [REMOTE_REFUSED], want: UNREACHABLE, keepsDesired: true },
+	{ name: '已有身份重连:旧连接拒绝给中性结果', key: '', before: [REMOTE_REFUSED], after: [], want: NEUTRAL, keepsDesired: true },
+	{ name: 'watchdog 无新证据时不覆盖上次原因', key: '', caller: 'watchdog', after: [], want: NEUTRAL, keepsDesired: true, keepsSaved: true },
+	{ name: 'CLI 读本地服务断开不算管理端不可达', key: 'k', after: [], stdout: 'rpc error: code = Unavailable desc = error reading from server: EOF', code: 1, want: NEUTRAL },
+	{ name: 'CLI 等本地服务超时不算管理端不可达', key: 'k', after: [], stdout: 'rpc error: code = DeadlineExceeded desc = context deadline exceeded', code: 1, want: NEUTRAL },
+	{ name: '已有身份重连:成功', key: '', after: [], stdout: '', code: 0, connected: true, success: true },
+	{ name: 'setup key 临时文件写不出时直接报原因', key: 'k', after: [], keyError: true,
+		want: 'Could not pass the setup key to NetBird', polls: 0 },
+];
+
+function runBackendCases() {
+	const body = FUNCTIONS.map(extract).filter(Boolean).join('\n');
+	assert(body.includes('function _do_up('), '未提取到 _do_up');
+	const code = PRELUDE + body + `
+let cases = ${JSON.stringify(BACKEND_CASES)};
+for (let c in cases) {
+	logs = [ ...(c.before || []) ]; fresh = c.after || []; polls = 0; downs = 0; saved = ''; desired = null;
+	cli = { code: c.code, stdout: c.stdout, key_error: c.keyError }; connected = !!c.connected; status_text = null;
+	let r = _do_up({ args: { setup_key: c.key, caller: c.caller } }, c.caller == 'watchdog');
+	printf('%J\\n', { name: c.name, ok: r.ok, message: r.message, saved, polls, downs, desired });
+}
+`;
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nb-login-test-'));
+	const file = path.join(dir, 'replay.uc');
+	fs.writeFileSync(file, code);
+	let out;
+	try {
+		out = execFileSync('ucode', [file], { encoding: 'utf8' });
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+	return out.trim().split('\n').map(JSON.parse);
+}
+
+function checkBackendCases(results) {
+	let failed = 0;
+	BACKEND_CASES.forEach((c, i) => {
+		const r = results[i];
+		let problem = '';
+		if (c.success) {
+			if (!r.ok) problem = '应成功,实际: ' + r.message;
+		} else if (r.ok || !String(r.message).startsWith(c.want)) {
+			problem = '期望「' + c.want + '」,实际「' + r.message + '」';
+		} else if (c.keepsSaved ? r.saved !== '' : r.saved !== r.message) {
+			problem = '持久化的错误和返回不一致';
+		} else if (c.polls != null && r.polls !== c.polls) {
+			problem = '轮询次数 ' + r.polls;
+		} else if (c.keepsDesired && r.desired === false) {
+			problem = '已有身份重连不应清除保持连接';
+		}
+		console.log((problem ? 'FAIL ' : 'ok   ') + c.name + (problem ? ': ' + problem : ''));
+		if (problem) failed++;
+	});
+	return failed;
+}
+
+const translate = (s) => s;
+const E = (tag, attrs, children) => ({ tag, attrs, children });
+
+function loadPage(sample, env) {
+	const source = fs.readFileSync(path.join(VIEW_DIR, 'overview.js'), 'utf8');
+	const helpers = fs.readFileSync(path.join(VIEW_DIR, 'dom-helpers.js'), 'utf8');
+	const L = { Class: { extend: (x) => x }, env: {}, resolveDefault: (p, d) => p.catch(() => d) };
+	const nb = new Function('L', '_', 'E', helpers)(L, translate, E);
+	const rpc = { declare: (spec) => async () => {
+		switch (spec.method) {
+		case 'get_status':
+			env.statusReads++;
+			if (env.statusReads > 1 && sample.refreshFails) throw new Error('XHR request aborted by browser');
+			return { ok: true, data: { status: env.state } };
+		case 'get_auth_info':
+			if (env.statusReads > 1 && sample.refreshFails) throw new Error('XHR request aborted by browser');
+			return { ok: true, data: { last_error: env.lastError, management_url: 'https://stale.invalid' } };
+		case 'get_binary_info': return { ok: true, data: {} };
+		case 'get_connection_info': return { ok: true, data: { management: { connected: false } } };
+		case 'do_reconnect':
+		case 'do_up':
+			env.state = 'needs_login';
+			env.lastError = (sample.response && sample.response.message) || '';
+			if (sample.exception) throw new Error(sample.exception);
+			return sample.response;
+		default: throw new Error('意外 RPC: ' + spec.method);
+		}
+	} };
+	const document = { getElementById: (id) => env.fields[id] };
+	const page = new Function('rpc', 'view', 'ui', 'nb', 'L', '_', 'E', 'window', 'location', 'document', source)(
+		rpc, { extend: (x) => x }, { addNotification: (...x) => env.notices.push(x), createHandlerFn: () => () => {} },
+		nb, L, translate, E, { setTimeout: (fn) => env.timers.push(fn) }, { reload: () => { env.reloads++; } }, document);
+	return page;
+}
+
+async function runFrontendCase(sample, action) {
+	const env = { statusReads: 0, notices: [], timers: [], reloads: 0, state: 'service_disabled', lastError: '', replaced: 0,
+		fields: {} };
+	const root = { parentNode: { replaceChild: () => { env.replaced++; } } };
+	env.fields = { 'nb-mgmt-url': { value: 'https://typed.example' }, 'nb-setup-key': { value: 'synthetic-test-key' }, 'nb-overview': root };
+	const page = loadPage(sample, env);
+	page._nbAuthState = (await page.load()).state;
+	const rendered = [];
+	const realRender = page.render;
+	page.render = function (data) {
+		rendered.push(data);
+		if (sample.renderThrows) throw new Error('render failed');
+		return realRender.call(this, data);
+	};
+	const btn = { disabled: true, classList: { add() {}, remove() {} } };
+	const pending = page[action || 'handleConnect']({ currentTarget: btn });
+	await Promise.resolve();
+	const disabledDuringRefresh = btn.disabled;
+	await pending;
+	return { env, rendered, btn, state: page._nbAuthState, disabledDuringRefresh };
+}
+
+async function runFrontendCases() {
+	let failed = 0;
+	const check = (name, fn) => {
+		try {
+			fn();
+			console.log('ok   ' + name);
+		} catch (e) {
+			failed++;
+			console.log('FAIL ' + name + ': ' + e.message);
+		}
+	};
+	const message = 'Authentication failed: the setup key was rejected by the NetBird management server.';
+	const failure = await runFrontendCase({ response: { ok: false, message } });
+	check('业务失败后重新读取状态并保留通知和输入', () => {
+		assert.equal(failure.env.statusReads, 2);
+		assert.equal(failure.env.replaced, 1);
+		assert.equal(failure.rendered[0].state, 'needs_login');
+		assert.equal(failure.rendered[0].lastAuthError, message);
+		assert(JSON.stringify(failure.env.notices).includes(message));
+		assert.equal(failure.env.reloads + failure.env.timers.length, 0);
+		assert.equal(failure.env.fields['nb-setup-key'].value, '');
+		assert.equal(failure.btn.disabled, false);
+	});
+	const aborted = await runFrontendCase({ exception: 'XHR request aborted by browser' });
+	check('请求中断后重新读取状态并保留通知', () => {
+		assert.equal(aborted.env.statusReads, 2);
+		assert.equal(aborted.rendered[0].state, 'needs_login');
+		assert(JSON.stringify(aborted.env.notices).includes('XHR request aborted by browser'));
+	});
+	const refreshFails = await runFrontendCase({ exception: 'XHR request aborted by browser', refreshFails: true });
+	check('刷新失败时显示未知,不沿用旧状态', () => {
+		assert.equal(refreshFails.rendered[0].state, 'unknown');
+		assert(JSON.stringify(refreshFails.env.notices).includes('XHR request aborted by browser'));
+	});
+	check('刷新结束前按钮保持禁用', () => assert.equal(failure.disabledDuringRefresh, true));
+	const reconnect = await runFrontendCase({ response: { ok: false, message } }, 'handleReconnect');
+	check('重连失败后同样刷新状态', () => {
+		assert.equal(reconnect.env.statusReads, 2);
+		assert.equal(reconnect.rendered[0].state, 'needs_login');
+	});
+	const renderThrows = await runFrontendCase({ response: { ok: false, message }, renderThrows: true });
+	check('刷新出错时只留原通知,按钮恢复', () => {
+		assert.equal(renderThrows.env.notices.length, 1);
+		assert.equal(renderThrows.btn.disabled, false);
+	});
+	const success = await runFrontendCase({ response: { ok: true, data: { connected: true } } });
+	check('成功时仍计划整页刷新,不额外重绘', () => {
+		assert.equal(success.env.timers.length, 1);
+		assert.equal(success.env.statusReads, 1);
+		assert.equal(success.env.replaced, 0);
+	});
+	return failed;
+}
+
+// 保存设置的入口:真实 reload_service,只替换 netbird、uci 和系统服务边界。
+const SETTINGS_CASES = [
+	{ name: '未登录', status: 'Daemon status: NeedsLogin', desired: '1', apply: false, pending: true },
+	{ name: '登录失败后(意图已清除,Disconnected)', status: 'Management: Disconnected', desired: '0', apply: false, pending: true },
+	{ name: '登录失败后(意图已清除,LoginFailed)', status: 'Daemon status: LoginFailed', desired: '0', apply: false, pending: true },
+	{ name: '守护进程不可用', status: 'failed to connect to daemon', desired: '1', apply: false, pending: true },
+	{ name: '有身份断线(保持连接)', status: 'Management: Disconnected', desired: '1', apply: true, pending: false },
+	{ name: '有身份且管理端故障(保持连接)', status: 'Daemon status: LoginFailed', desired: '1', apply: true, pending: false },
+	{ name: '已连接(含命令行手动连接)', status: 'Management: Connected', desired: '0', apply: true, pending: false },
+	{ name: '没有记录过连接意图', status: 'Management: Disconnected', desired: '', apply: true, pending: false },
+];
+
+function runSettingsCases() {
+	const init = fs.readFileSync(path.join(PKG, 'root/etc/init.d/netbird-settings'), 'utf8')
+		.replace(/^\s*\. \/usr\/share\/netbird\/.*$/gm, ':');
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nb-settings-test-'));
+	let failed = 0;
+	try {
+		const file = path.join(dir, 'settings.sh');
+		fs.writeFileSync(file, init + `
+# fork: the action lease is held by the caller; test the apply body directly.
+NB_SETTINGS_ACTION_HELD=1
+NB_SERVICE=/nonexistent-netbird-test-service
+NB_SETTINGS_PENDING="$TEST_PENDING"
+NB_SETTINGS_APPLIED="$TEST_APPLIED"
+_resolve_bin() { printf '/fake/netbird'; }
+_bool() { return 0; }
+_get() { printf 'wt0'; }
+uci() { [ "$*" = '-q get netbird.runtime.desired_connected' ] && printf '%s' "$TEST_DESIRED"; }
+logger() { :; }
+sleep() { :; }
+nb_run_bounded() { printf '%s\\n' "$TEST_STATUS"; }
+nb_sync_log_level() { :; }
+_sync_openwrt_zone_device() { :; }
+_render_and_apply() { printf 'REACHED_APPLY\\n'; }
+reload_service
+`);
+		SETTINGS_CASES.forEach((c, i) => {
+			const pending = path.join(dir, 'pending' + i);
+			const out = execFileSync('/bin/sh', [file], { encoding: 'utf8', env: Object.assign({}, process.env,
+				{ TEST_STATUS: c.status, TEST_DESIRED: c.desired, TEST_PENDING: pending, TEST_APPLIED: path.join(dir, 'applied' + i) }) });
+			const applied = out.includes('REACHED_APPLY');
+			const left = fs.existsSync(pending);
+			const good = applied === c.apply && left === c.pending;
+			console.log((good ? 'ok   ' : 'FAIL ') + '保存设置:' + c.name + (good ? '' : ': apply=' + applied + ' pending=' + left));
+			if (!good) failed++;
+		});
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+	return failed;
+}
+
+// 上游废弃后 flag 从 help 隐藏但仍可用:真实 _render_and_apply 的 dry-run,只替换 netbird 和 uci。
+const ROSENPASS_CASES = [
+	{ name: '隐藏但可用(0.82)', help: '  --other=false', known: true, expect: ['--enable-rosenpass=true', '--rosenpass-permissive=true'] },
+	{ name: 'help 里有(旧版)', help: '      --enable-rosenpass\n      --rosenpass-permissive', known: true, expect: ['--enable-rosenpass=true', '--rosenpass-permissive=true'] },
+	{ name: '不支持(更旧或上游移除)', help: '  --other=false', known: false, expect: [] },
+];
+
+function runRosenpassCases() {
+	const init = fs.readFileSync(path.join(PKG, 'root/etc/init.d/netbird-settings'), 'utf8')
+		.replace(/^\s*\. \/usr\/share\/netbird\/.*$/gm, ':');
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nb-rosenpass-test-'));
+	let failed = 0;
+	try {
+		const bin = path.join(dir, 'netbird');
+		fs.writeFileSync(bin, `#!/bin/sh
+case "$*" in
+	'up --help') printf '%s\\n' "$TEST_HELP"; exit 0 ;;
+	'up --help --enable-rosenpass=false'|'up --help --rosenpass-permissive=false') [ "$TEST_KNOWN" = 1 ]; exit $? ;;
+esac
+exit 0
+`, { mode: 0o755 });
+		const file = path.join(dir, 'settings.sh');
+		fs.writeFileSync(file, init + `
+NB_RUN_TEST=1
+uci() { case "$*" in *rosenpass_enabled|*rosenpass_permissive) printf 1 ;; esac; }
+logger() { :; }
+nb_run_bounded() { shift; "$@"; }
+NB_DRY_RUN=1
+_render_and_apply "$TEST_BIN"
+`);
+		ROSENPASS_CASES.forEach((c) => {
+			const out = execFileSync('/bin/sh', [file], { encoding: 'utf8', env: Object.assign({}, process.env,
+				{ TEST_BIN: bin, TEST_HELP: c.help, TEST_KNOWN: c.known ? '1' : '0' }) });
+			const got = out.match(/--(enable-rosenpass|rosenpass-permissive)=[a-z]+/g) || [];
+			const good = JSON.stringify(got) === JSON.stringify(c.expect);
+			console.log((good ? 'ok   ' : 'FAIL ') + 'Rosenpass:' + c.name + (good ? '' : ': 实际 ' + JSON.stringify(got)));
+			if (!good) failed++;
+		});
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+	return failed;
+}
+
+// 密钥不进命令行:/proc/<pid>/cmdline 对所有本地用户可读。用真实的命令组装、有界执行和 shell,
+// 只把 netbird 换成记录参数、环境变量和父进程命令行的脚本。
+const SECRET = "a'b \"c\" $(id) `id` \\ *;|& 中文 ";
+
+function writeFakeNetbird(file) {
+	fs.writeFileSync(file, `#!/bin/sh
+case "$*" in
+	*--help*) printf '  --no-browser\\n'; exit 0 ;;
+	down) exit 0 ;;
+esac
+{
+	printf 'ARGV=%s\\n' "$*"
+	printf 'SETUP_KEY=[%s]\\n' "\${NB_SETUP_KEY-<unset>}"
+	printf 'PSK=[%s]\\n' "\${NB_PRESHARED_KEY-<unset>}"
+	[ -e "$TEST_KEY_FILE" ] && echo 'KEY_FILE=present' || echo 'KEY_FILE=gone'
+	printf 'PARENT=%s\\n' "$(ps -o args= -p $PPID)"
+} >> "$TEST_LOG"
+echo $$ > "$TEST_PID_FILE"
+[ "$TEST_HANG" = 1 ] && exec sleep 30
+exit 0
+`, { mode: 0o755 });
+}
+
+function readLog(file) {
+	const out = {};
+	if (!fs.existsSync(file)) return out;
+	for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+		const i = line.indexOf('=');
+		if (i > 0) out[line.slice(0, i)] = line.slice(i + 1);
+	}
+	return out;
+}
+
+const AUTH_CASES = [
+	{ name: '带 key 登录', key: SECRET },
+	{ name: '空 key 不建文件也不设变量', key: '' },
+	{ name: '超时被杀时同样删除临时文件', key: SECRET, hang: true },
+	{ name: '临时文件写不出时不执行', key: SECRET, badDir: true },
+];
+
+function runAuthCmdCases() {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nb-auth-cmd-test-'));
+	let failed = 0;
+	try {
+		const bin = path.join(dir, 'netbird');
+		writeFakeNetbird(bin);
+		fs.writeFileSync(path.join(dir, 'not-a-dir'), '');
+		const body = ['_build_auth_cmd', '_cli_immediate_error', '_exec_long', '_exec_auth_cmd', '_run_auth_cmd']
+			.map(extract).filter(Boolean).join('\n');
+		AUTH_CASES.forEach((c, i) => {
+			const keyDir = c.badDir ? path.join(dir, 'not-a-dir', 'sub') : path.join(dir, 'keys' + i);
+			const log = path.join(dir, 'log' + i);
+			const pidFile = path.join(dir, 'pid' + i);
+			const file = path.join(dir, 'auth' + i + '.uc');
+			fs.writeFileSync(file, `
+let fs = require('fs');
+let uci = { cursor: function() { return { get: function(c, sec, o) { return o == 'desired_connected' ? '1' : null; } }; } };
+let popen = fs.popen, open = fs.open, unlink = fs.unlink, mkdir = fs.mkdir, stat = fs.stat;
+let shell_quote = loadfile(${JSON.stringify(path.join(PKG, 'root/usr/share/rpcd/ucode/lib/shell.uc'))})().shell_quote;
+function _cli_has_flag(bin, verb, flag) { return true; }
+const _NB_AUTH_KEY_DIR = ${JSON.stringify(keyDir)};
+const _NB_AUTH_KEY_FILE = _NB_AUTH_KEY_DIR + '/setup-key';
+${body}
+let key = ${JSON.stringify(c.key)};
+let cmd = _build_auth_cmd(${JSON.stringify(bin)}, 'up', 'https://mgmt.example', length(key) > 0 ? _NB_AUTH_KEY_FILE : null);
+let r = _run_auth_cmd(${JSON.stringify(bin)}, 'up', 'https://mgmt.example', key, 4096, ${c.hang ? 2 : 25});
+let st = stat(_NB_AUTH_KEY_DIR);
+printf('%J\\n', { cmd, r, immediate: _cli_immediate_error(r), file_left: stat(_NB_AUTH_KEY_FILE) != null,
+	dir_perm: st ? st.mode & 0777 : null });
+`);
+			const env = Object.assign({}, process.env, { TEST_LOG: log, TEST_PID_FILE: pidFile,
+				TEST_KEY_FILE: path.join(keyDir, 'setup-key'), TEST_HANG: c.hang ? '1' : '0' });
+			delete env.NB_SETUP_KEY;
+			const res = JSON.parse(execFileSync('ucode', [file], { encoding: 'utf8', env }).trim());
+			const got = readLog(log);
+			const problems = [];
+			if (c.key && res.cmd.includes(c.key)) problems.push('命令串含 key 原文');
+			if (res.cmd.includes('--setup-key')) problems.push('命令串含 --setup-key');
+			if (res.file_left) problems.push('临时文件未删除');
+			if (c.badDir) {
+				if (!res.r.key_error || !res.immediate || !/setup key/.test(res.immediate.message)) problems.push('未报临时文件错误');
+				if (fs.existsSync(pidFile)) problems.push('写文件失败仍执行了 netbird');
+			} else {
+				if (c.key && res.dir_perm !== 0o700) problems.push('目录权限 ' + (res.dir_perm || 0).toString(8));
+				if (!got.ARGV || !got.ARGV.startsWith('up --no-browser --management-url https://mgmt.example')) problems.push('参数异常: ' + got.ARGV);
+				if (c.key && (got.ARGV.includes(c.key) || got.PARENT.includes(c.key))) problems.push('进程命令行含 key');
+				if (got.SETUP_KEY !== '[' + (c.key || '<unset>') + ']') problems.push('NB_SETUP_KEY 为 ' + got.SETUP_KEY);
+				if (c.key && got.KEY_FILE !== 'gone') problems.push('netbird 启动时临时文件仍在');
+				if (c.hang) {
+					if (res.r.code !== 124) problems.push('超时退出码 ' + res.r.code);
+					const pid = fs.readFileSync(pidFile, 'utf8').trim();
+					let alive = true;
+					try { process.kill(Number(pid), 0); } catch (e) { alive = false; }
+					if (alive) problems.push('超时后 netbird 仍在运行');
+				} else if (res.r.code !== 0) {
+					problems.push('退出码 ' + res.r.code);
+				}
+			}
+			console.log((problems.length ? 'FAIL ' : 'ok   ') + '认证命令:' + c.name + (problems.length ? ': ' + problems.join(';') : ''));
+			if (problems.length) failed++;
+		});
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+	return failed;
+}
+
+// 保存设置时的 PSK:真实 _render_and_apply 与 nb_run_bounded,两种有界执行路径都跑。
+const PSK_CASES = [
+	{ name: '有 PSK(无 timeout)', psk: SECRET, timeout: false },
+	{ name: '有 PSK(经 timeout)', psk: SECRET, timeout: true },
+	{ name: '未配置 PSK 不导出变量', psk: '', timeout: false },
+	{ name: '未配置 PSK 不导出变量(经 timeout)', psk: '', timeout: true },
+];
+
+function runPskCases() {
+	const init = fs.readFileSync(path.join(PKG, 'root/etc/init.d/netbird-settings'), 'utf8')
+		.replace(/^\s*\. \/usr\/share\/netbird\/nb-run-bounded\.sh$/m, '. ' + path.join(PKG, 'root/usr/share/netbird/nb-run-bounded.sh'))
+		.replace(/^\s*\. \/usr\/share\/netbird\/.*$/gm, ':');
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nb-psk-test-'));
+	let failed = 0;
+	try {
+		const bin = path.join(dir, 'netbird');
+		writeFakeNetbird(bin);
+		const tbin = path.join(dir, 'tbin');
+		fs.mkdirSync(tbin);
+		fs.writeFileSync(path.join(tbin, 'timeout'), `#!/bin/sh
+printf 'TIMEOUT=%s\\n' "$*" >> "$TEST_LOG"
+shift
+exec "$@"
+`, { mode: 0o755 });
+		const file = path.join(dir, 'settings.sh');
+		fs.writeFileSync(file, init + `
+NB_SETTINGS_APPLIED="$TEST_APPLIED"
+uci() { case "$*" in *preshared_key) printf '%s' "$TEST_PSK" ;; esac; }
+logger() { :; }
+_NB_HAS_TIMEOUT=$TEST_HAS_TIMEOUT
+_render_and_apply "$TEST_BIN"
+printf 'AFTER=[%s]\\n' "\${NB_PRESHARED_KEY-<unset>}" >> "$TEST_LOG"
+`);
+		PSK_CASES.forEach((c, i) => {
+			const log = path.join(dir, 'log' + i);
+			const env = Object.assign({}, process.env, { TEST_BIN: bin, TEST_PSK: c.psk, TEST_LOG: log,
+				TEST_HAS_TIMEOUT: c.timeout ? '1' : '0', TEST_APPLIED: path.join(dir, 'applied' + i),
+				TEST_PID_FILE: path.join(dir, 'pid' + i), TEST_KEY_FILE: path.join(dir, 'none'),
+				PATH: (c.timeout ? tbin + ':' : '') + process.env.PATH });
+			delete env.NB_PRESHARED_KEY;
+			execFileSync('/bin/sh', [file], { encoding: 'utf8', env });
+			const text = fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '';
+			const got = readLog(log);
+			const problems = [];
+			if (!got.ARGV || !got.ARGV.startsWith('up ')) problems.push('没有执行 netbird up');
+			if (text.includes('--preshared-key')) problems.push('命令行含 --preshared-key');
+			if (c.psk && text.replace(/^PSK=.*$/m, '').includes(c.psk)) problems.push('PSK 出现在命令行');
+			if (got.PSK !== '[' + (c.psk || '<unset>') + ']') problems.push('NB_PRESHARED_KEY 为 ' + got.PSK);
+			if (c.timeout && !got.TIMEOUT) problems.push('没有经过 timeout');
+			if (got.AFTER !== '[<unset>]') problems.push('PSK 留在了脚本环境里');
+			console.log((problems.length ? 'FAIL ' : 'ok   ') + 'PSK:' + c.name + (problems.length ? ': ' + problems.join(';') : ''));
+			if (problems.length) failed++;
+		});
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+	return failed;
+}
+
+(async () => {
+	let failed = checkBackendCases(runBackendCases());
+	failed += runRosenpassCases();
+	failed += runAuthCmdCases();
+	failed += runPskCases();
+	failed += await runFrontendCases();
+	failed += runSettingsCases();
+	if (failed) {
+		console.error(failed + ' 项失败');
+		process.exit(1);
+	}
+	console.log('全部通过');
+})().catch((e) => { console.error(e); process.exit(1); });

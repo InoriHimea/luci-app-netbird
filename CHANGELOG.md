@@ -113,6 +113,59 @@ Local candidate `0.2.0-r17` (2026-11-13) adds old-ucode binary RDP request compa
 - Restore the upstream binary-source RPC wrapper and app-version/custom-URL metadata, which had been lost when removing the package-feed binary source.
 - Preserve upstream's unlink-before-write replacement so a concurrent CLI process holding the old executable does not cause `Text file busy`; custom CDN downloads are still not overridden by GitHub API asset URLs.
 
+## 0.2.2 — 2026-11-17
+
+Starting with this release, the app and its GitHub Releases show the version as `x.y.z`. The package files and the package feed keep the `-r1` suffix (`0.2.2-r1`), so routers running earlier versions still find this update.
+
+### Security
+
+- Updates from official NetBird releases now stop before the downloaded program is run if the release's checksum list cannot be downloaded or has no entry for the file. The page says which of the two happened. Updates from a custom download URL are unchanged ([#18](https://github.com/looong-cat/luci-app-netbird/issues/18), reported by [@imkebe](https://github.com/imkebe)).
+- The setup key and the WireGuard preshared key are now passed to NetBird through environment variables, so other processes on the router can no longer read them from the process list during login or while settings are applied ([#20](https://github.com/looong-cat/luci-app-netbird/issues/20), reported by [@imkebe](https://github.com/imkebe)).
+
+### Fixed
+
+- The Status page no longer shows "Forwarding rules: 0" on NetBird 0.81 and later, which removed this feature. The line now appears only when there are forwarding rules.
+- When no management URL is saved in the app, the Authentication page again pre-fills it from NetBird's own configuration on NetBird 0.74 and later, including apk-based systems.
+- On OpenWrt 22.03, settings the app writes itself are saved again. Its `ucode` version rejects committing a single named config, so switching the NetBird binary source, setting up or removing the firewall zone and forwarding, the saved exit node, the "stay connected" state and the management URL were silently lost. For example, switching to the package-feed binary was undone on the next connect.
+- On routers without `curl` whose built-in downloader cannot send request headers (OpenWrt 22.03 and 23.05), downloading the official NetBird binary now stops at once and asks you to install `curl`. That downloader cannot read GitHub's long response headers, so the download used to wait until it timed out. The Versions page shows the same note in advance, and the one-click install scripts now install `curl` on these releases.
+- "Remove local identity only" now also clears NetBird's default state directory when the `netbird` service does not set its own. On OpenWrt 22.03 and 23.05 with the official NetBird release (0.74 or later), it used to report success while the router stayed logged in.
+
+## 0.2.1-r1 — 2026-11-07
+
+### Fixed
+
+- On OpenWrt 22.03 and 23.05, updating this app from its own page no longer reports a failure after the update has already succeeded.
+- Rosenpass settings apply again on NetBird 0.82, which deprecated these options and hid them from its help output. The app had stopped applying them without saying so. If a later NetBird version removes the options, the app skips them. The Settings page now notes the deprecation.
+
+## 0.2.0-r1 — 2026-11-06
+
+This release starts the `0.2` series after the features added across `0.1.0-r2` to `r27`. Upgrades from `0.1.0` work normally.
+
+### Fixed
+
+- Login failures now report the real cause. A setup key rejected in the newer `setup-key` log format is shown as rejected, and earlier log lines or a closed connection between the command line and the local NetBird service no longer appear as "The management server is temporarily unreachable."
+- After a failed connect or reconnect, the Authentication page updates its status and last error in place. The notification and the management URL you entered stay on the page. If the status cannot be read, the page shows Unknown instead of the old state.
+- Saving settings after a failed login no longer starts an SSO wait that could hold up other configuration reloads on the router for up to 45 seconds.
+
+### Changed
+
+- If you saved settings after disconnecting or after a failed login, they now apply on the next successful connection instead of reconnecting right away. The Settings page shows a notice while settings are waiting. Connections made outside LuCI, such as `netbird up`, pick up waiting settings after about two minutes.
+
+
+
+### Fixed
+
+- Settings now take effect on the first connection. After a fresh install or a logout, the first login with a setup key applies the saved settings once, so options such as disabling DNS no longer wait until the Settings page is saved again. Thanks to @gw826943555 ([#15](https://github.com/looong-cat/luci-app-netbird/pull/15)).
+- The **Log level** setting now reaches the running NetBird service without reconnecting, and is restored automatically after the service restarts. This needs NetBird 0.27.4 or newer; older versions stay at info. The Logs tab also recognizes the short level names used by newer clients.
+- On apk systems, the package feed's signing key is kept across firmware upgrades that keep settings, so `apk update` no longer fails signature checks afterwards. The uninstall script removes this entry.
+- Manual binary downloads tolerate slow connections better: a longer connection timeout and retries, detection of stalled transfers, and the actual `curl` error in the failure message.
+- Package upgrades restart the auto-reconnect service, so apk systems no longer keep running the old script until the next reboot.
+
+### Changed
+
+- The Versions tab warns when the configured NetBird-Release binary is missing, for example after a firmware upgrade, and explains how to download it again.
+- `/etc/netbird.env` is no longer created. The NetBird service never read it; an existing file is harmless and is left in place.
+
 ## 0.1.0-r26 — 2026-10-12
 
 ### Added
