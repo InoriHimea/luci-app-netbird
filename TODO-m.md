@@ -6,7 +6,7 @@
 - 结论：取证完整（1441/1441、最大间隔60.016秒、原JSONL SHA256 dab88102a1f694f06760df0f3a9f8a3b3db2041f9424ee7263f8b173ecb110f0不变）；健康有限定通过、非全绿。rdp55独立run全PASS，rdp56仅1次孤立CONNECT_FAILED；其余为读取超时类UNKNOWN且均恢复。详细计数见TODO.md NBH-19节。
 - 事后保护UTC11-24T02:22：武汉11SHA OK/PID9497、中央10SHA一致、两timer active、automatic OFF、owner none/accepted0；不冒充截止时刻同步校验。
 - 证据：p1-postfix-20261118T114322Z/review_postfix.py（SHA256 1f640a40…）、review-20261124.json（17203字节，SHA256 0ba692dfb937d7ef036639ae6e3481ae320d0858a0149411b9576779f7f91ed6）、protection-after-review.json（1769字节，SHA256 3e94d31420f2bf23b1c4d5379467db2da0dd119931af92894a2d0065e0b9f3ed）。
-- Jira：经Orca已保存连接（admin，orca jira 1.4.263）发审阅评论，标记NBH-P1-POSTFIX-REVIEW-20261124-01；NBH-19评论11400、NBH-1评论11401均回读正文一致，状态保持处理中。Orca CLI无附件命令，附件p1-postfix-24h-review-20261124.json（与review-20261124.json同SHA）待本人手动上传NBH-19后核对；未读取浏览器凭据。
+- Jira：经Orca已保存连接（admin，orca jira 1.4.263）发审阅评论，标记NBH-P1-POSTFIX-REVIEW-20261124-01；NBH-19评论11400、NBH-1评论11401均回读正文一致，状态保持处理中。Orca CLI无附件命令，附件p1-postfix-24h-review-20261124.json由本人手动上传NBH-19，附件11402（2026-11-24 10:37:07 +0800，admin，application/json，17203字节与本地一致）；依据本人粘贴的REST附件元数据核对，附件未下载、远端SHA未核验，回执jira-review-attachment-receipt.json。未读取浏览器凭据。
 
 ## [完成] timer修正后独立24小时只读取证启动（2026-11-18）
 
