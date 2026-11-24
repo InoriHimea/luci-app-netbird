@@ -34,6 +34,7 @@
 - 修正后24小时窗口（11-18 19:47至11-19 19:47）已于11-24审阅并归档至TODO-m.md同日完成节：取证完整，健康为有限定通过、非全绿；Jira审阅评论NBH-19 11400、NBH-1 11401，附件11402（17203字节，另存下载SHA256与本地逐字节一致）。
 - 未定原因处理：约2小时20分GENERATION_CHANGED已归因为watchdog（实测30.1035秒周期）与60秒健康采样拍频，代码修正7692606已于11-24 13:33获准热替换到武汉（三文件，备份/root/nbh-genfix-20261124/*.before，未重启，agent PID9497不变），部署后连续轮次PASS；06:25–06:50读取拥塞与rdp56单次CONNECT_FAILED离线复析仍未归因。
 - 撞期确认（11-24 15:57只读）：部署后保留的100轮全部node:collection PASS、跨轮无变化，武汉11保护文件OK（健康.uc不在保护集）；按相位反推15:28–15:31应有重叠，但保留记录中无一轮快照抓到binop租约，不能证明该重叠被采样到，结论为“与修正一致、未确证”。下次重叠约17:45–17:55，可做定向观察（同时记录锁/pidof时间与健康轮次）。包仍为r17，重装/升级会恢复旧文件，正式发包前须纳入新版本。
+- r18已发布（11-24 17:12）：fork Action run 45361492158双SDK构建与发布success，Release v0.2.0-r18指向3350121；IPK内collect/maintenance/boundary三文件与HEAD及武汉热部署SHA一致（773e15ae/c44d91eb/2b27d68a），APK为v3格式本地未拆验；签名仍UNTRUSTED。注意：7692606推送时Action曾以同一标签覆盖v0.2.0-r17资产（13:31），现r17资产已非原记录SHA。武汉当前文件等同r18，包元数据仍r17，未在设备上安装r18。
 - LAN探针诊断字段b84ebfe已于11-24 13:47获准部署：51.160与gateway3的lan_probe.py由da100c3a…替换为80df5386…（备份/root/nbh-lanprobe-diag-20261124/，导入检查OK，未重启），13:48:31首轮rdp55/56 PASS并带elapsed_ms 30/31；中央保护基准中该文件改为批准值80df5386…，其余9文件不变；回执lanprobe-diag-deploy-receipt.json。下次CONNECT_FAILED将带errno名failure。
 
 
