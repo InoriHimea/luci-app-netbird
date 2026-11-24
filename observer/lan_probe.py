@@ -88,7 +88,20 @@ def validate_result(result, expected, *, now, max_age, previous=None):
                 last_source={k: result[k] for k in ('boot_id', 'run_id', 'sampled_at')}, reason=result.get('reason') if
                 isinstance(result.get('reason'), str) and re.fullmatch(r'[A-Z_]{1,64}', result['reason']) else None,
                 **{k: result[k] for k in ('probe_id', 'target_id', 'source', 'interface', 'gateway', 'address',
-                                         'port', 'protocol', 'timeout_ms', 'baseline_revision', 'boot_id', 'run_id', 'sampled_at')})
+                                         'port', 'protocol', 'timeout_ms', 'baseline_revision', 'boot_id', 'run_id', 'sampled_at')},
+                **_diagnostics(result))
+
+
+def _diagnostics(result):
+    # Optional, additive and bounded; absent or malformed values are dropped, never trusted.
+    out = {}
+    elapsed = result.get('elapsed_ms')
+    if type(elapsed) is int and 0 <= elapsed <= 600000:
+        out['elapsed_ms'] = elapsed
+    failure = result.get('failure')
+    if result.get('status') == 'FAIL' and isinstance(failure, str) and _FAILURE_DETAIL.fullmatch(failure):
+        out['failure'] = failure
+    return out
 
 
 def _remaining(deadline):
@@ -148,6 +161,23 @@ def _exchange(c, target, deadline):
                 stream.close()
 
 
+_FAILURE_DETAIL = re.compile(r'(?:E[A-Z0-9]{1,30}|TIMEOUT|TLS|HTTP_STATUS|RDP_NEGOTIATION)')
+
+
+def _failure_detail(error):
+    # Bounded diagnostic only: an errno name, never a message or remote payload.
+    import errno
+    if isinstance(error, ssl.SSLError):
+        return 'TLS'
+    if isinstance(error, ObserverError):
+        return {'HTTP_STATUS_FAILED': 'HTTP_STATUS', 'RDP_NEGOTIATION_FAILED': 'RDP_NEGOTIATION'}.get(error.code)
+    if isinstance(error, OSError) and error.errno in errno.errorcode:
+        return errno.errorcode[error.errno]
+    if isinstance(error, TimeoutError):
+        return 'TIMEOUT'
+    return None
+
+
 def probe(c, target_id, attestations):
     validate_config(c); identifier(target_id)
     if target_id not in c['targets']:
@@ -165,7 +195,8 @@ def probe(c, target_id, attestations):
     receipt = attestations.get(target_id) if type(attestations) is dict else None
     if not attestation_valid(receipt, binding, result['sampled_at']):
         result['reason'] = 'PATH_NOT_ATTESTED'; return result
-    deadline = time.monotonic() + target['timeout_ms'] / 1000
+    started = time.monotonic()
+    deadline = started + target['timeout_ms'] / 1000
     try:
         route = bounded(['/usr/sbin/ip', '-j', '-4', 'route', 'get', target['address'], 'from', c['source']],
                         min(.5, _remaining(deadline)), 8192)
@@ -174,15 +205,20 @@ def probe(c, target_id, attestations):
             result['reason'] = 'LAN_ROUTE_MISMATCH'; return result
         result['route'] = {k: routes[0][k] for k in ('dev', 'gateway', 'from', 'prefsrc', 'src') if k in routes[0]}
         result['path_verified'] = True
-        _exchange(c, target, deadline)
+        try:
+            _exchange(c, target, deadline)
+        finally:
+            result['elapsed_ms'] = max(0, round((time.monotonic() - started) * 1000))
         result.update(status='PASS', reason=None)
-    except ssl.SSLError:
-        result.update(status='FAIL', reason='TLS_FAILED')
-    except (TimeoutError, ConnectionError):
-        result.update(status='FAIL', reason='CONNECT_FAILED')
+    except ssl.SSLError as error:
+        result.update(status='FAIL', reason='TLS_FAILED', failure=_failure_detail(error))
+    except (TimeoutError, ConnectionError) as error:
+        result.update(status='FAIL', reason='CONNECT_FAILED', failure=_failure_detail(error))
     except ObserverError as error:
-        result.update(status='FAIL' if error.code in {'HTTP_STATUS_FAILED', 'RDP_NEGOTIATION_FAILED'} else 'UNKNOWN', reason=error.code)
+        result.update(status='FAIL' if error.code in {'HTTP_STATUS_FAILED', 'RDP_NEGOTIATION_FAILED'} else 'UNKNOWN', reason=error.code,
+                      failure=_failure_detail(error))
     except OSError as error:
+        result['failure'] = _failure_detail(error)
         # A local privilege/configuration failure is not proof of a broken business path.
         import errno
         result.update(status='FAIL' if error.errno in {errno.ECONNREFUSED, errno.ETIMEDOUT, errno.EHOSTUNREACH, errno.ENETUNREACH}

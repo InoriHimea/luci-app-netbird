@@ -122,5 +122,44 @@ class HttpResponseBoundaryTests(unittest.TestCase):
                     thread.join(timeout=2)
 
 
+class DiagnosticsTests(unittest.TestCase):
+    def result(self, **extra):
+        b = binding()
+        r = dict(schema_version=1, **b, run_id='r1', sampled_at=100, status='FAIL', reason='CONNECT_FAILED',
+                 path_verified=True, route=dict(dev='lan0', gateway='192.0.2.1', **{'from': '192.0.2.2'}))
+        r.update(extra)
+        expected = dict(b); expected.pop('boot_id')
+        return validate_result(r, expected, now=101, max_age=30)
+
+    def test_failure_errno_and_elapsed_are_exported_when_bounded(self):
+        v = self.result(failure='ECONNREFUSED', elapsed_ms=3)
+        self.assertEqual((v['status'], v['failure'], v['elapsed_ms']), ('FAIL', 'ECONNREFUSED', 3))
+
+    def test_malformed_or_injected_diagnostics_are_dropped(self):
+        for extra in [dict(failure='connection refused by host'), dict(failure='E' * 40), dict(failure=['ETIMEDOUT']),
+                      dict(elapsed_ms=-1), dict(elapsed_ms=10**9), dict(elapsed_ms=1.5), dict(elapsed_ms=True)]:
+            v = self.result(**extra)
+            self.assertEqual(v['status'], 'FAIL')
+            self.assertNotIn('failure', v); self.assertNotIn('elapsed_ms', v)
+
+    def test_pass_never_carries_failure_detail(self):
+        v = self.result(status='PASS', reason=None, failure='ETIMEDOUT', elapsed_ms=40)
+        self.assertEqual(v['status'], 'PASS'); self.assertNotIn('failure', v); self.assertEqual(v['elapsed_ms'], 40)
+
+    def test_legacy_result_without_diagnostics_still_validates(self):
+        v = self.result()
+        self.assertEqual(v['status'], 'FAIL'); self.assertNotIn('failure', v)
+
+    def test_failure_detail_names_errno_not_message(self):
+        import errno, ssl
+        from observer.lan_probe import _failure_detail
+        # Linux names; on Windows the same numbers map to WSAE* names via errno.errorcode.
+        self.assertEqual(_failure_detail(ConnectionRefusedError(errno.ECONNREFUSED, 'secret text')), errno.errorcode[errno.ECONNREFUSED])
+        self.assertEqual(_failure_detail(OSError(errno.EHOSTUNREACH, 'x')), errno.errorcode[errno.EHOSTUNREACH])
+        self.assertEqual(_failure_detail(socket.timeout('timed out')), 'TIMEOUT')
+        self.assertEqual(_failure_detail(ssl.SSLError(1, 'bad')), 'TLS')
+        self.assertEqual(_failure_detail(ObserverError('RDP_NEGOTIATION_FAILED')), 'RDP_NEGOTIATION')
+
+
 if __name__ == '__main__':
     unittest.main()
