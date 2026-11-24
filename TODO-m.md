@@ -1,5 +1,25 @@
 # 已完成任务（2026-11）
 
+## [完成] timer修正后独立24小时窗口完整审阅与事后保护（2026-11-24）
+
+- 原始目标：本人要求按推荐顺序继续：全量审阅修正后窗口、只读核对事后保护，再同步账本/文档/Jira并本地提交。只读，不重新采样、不once、不取密、不改远端。
+- 结论：取证完整（1441/1441、最大间隔60.016秒、原JSONL SHA256 dab88102a1f694f06760df0f3a9f8a3b3db2041f9424ee7263f8b173ecb110f0不变）；健康有限定通过、非全绿。rdp55独立run全PASS，rdp56仅1次孤立CONNECT_FAILED；其余为读取超时类UNKNOWN且均恢复。详细计数见TODO.md NBH-19节。
+- 事后保护UTC11-24T02:22：武汉11SHA OK/PID9497、中央10SHA一致、两timer active、automatic OFF、owner none/accepted0；不冒充截止时刻同步校验。
+- 证据：p1-postfix-20261118T114322Z/review_postfix.py（SHA256 1f640a40…）、review-20261124.json（17203字节，SHA256 0ba692dfb937d7ef036639ae6e3481ae320d0858a0149411b9576779f7f91ed6）、protection-after-review.json（1769字节，SHA256 3e94d31420f2bf23b1c4d5379467db2da0dd119931af92894a2d0065e0b9f3ed）。
+- Jira：本会话无浏览器/获准Jira身份，NBH-19/NBH-1审阅评论与附件未写入，待有获准会话时补发；不读取浏览器凭据兜底。
+
+## [完成] timer修正后独立24小时只读取证启动（2026-11-18）
+
+- 原始目标：本人要求有任务则按推荐顺序继续；先进行修正后独立24小时观察，再按完整证据推进剩余验收。此节只归档准备和启动，完整窗口审阅仍在TODO.md进行中。
+- 预检：原窗口collection_complete且未覆盖；中央10文件SHA匹配修正后基线，武汉11保护SHA/PID9497一致，两个timer active、P1 enabled，automatic OFF、owner none/provider_accepted0，两LAN起始fresh/PASS且boot不变；窗口结束早于最早身份期限12-15T04:07:52Z。
+- 独立窗口UTC2026-11-18T11:47:06.218417至11-19T11:47:06.218417（北京时间11-18 19:47至11-19 19:47），持久service nbh-p1-postfix-24h-20261118，wrapperPID62816/PythonPID28232。目录C:/Users/25321/AppData/Local/netbird-observer-observations/p1-postfix-20261118T114322Z/，父级postfix-20261118-launch.json和自身attempt独占防重。
+- 采样：每60秒只读中央read及武汉已发布缓存/进程，24小时截止/64MiB上限；不调用once/凭据helper/新目标探测，不改远端配置。新增同一缓存的snapshot原因、前后变化字段名、可用性与run绑定，不外传边界原始值；节点有效unique排除null，跨读代次不一致保留计数。
+- 验证：实际新入口smoke两端ok/15检查；原生ucode纯内存fixture正确识别routes变化，脚本编译检查通过。首4样本/4中央独立poll、最大间隔60.00046秒，边界可用且run一致、中央保护匹配；其中UTC11:50:06的rdp56 UNKNOWN/COMMAND_TIMEOUT如实保留，不把启动证明当全绿或24小时通过。
+- 新入口SHA256 87a21858436a1270d406478f2c81d52c1a178743287806d1142a83f906a9995b；samples/status/reference/preflight/smoke/protection-before/startup-checkpoint留新目录，原窗口及报告不变。父级claim只是防重预约，实际运行以本窗口attempt/status和服务ready/persist证据为准。
+- Jira启动检查点：NBH-19评论11261、NBH-1评论11262均POST201/GET验证，保持处理中，页面已释放。必须保持本机开机联网不睡眠；空窗不补造，不能自动重开同一轮。
+- 剩余：到期检查全部分母/唯一run/重复/新鲜度/异常原因/边界摘要及前后保护，分别判断取证完整和健康。其余方向/失联/ACL/通知、56恢复入口/窗口、推广、签名与物理故障门槛未改变；不续签或延期证明。
+
+
 ## [完成] 本地修改提交及Jira与待办核对（2026-11-18）
 
 - 原始目标：本人要求先提交本地修改，再查看剩余Jira任务及待办；本轮不推送、不改Jira状态或执行生产操作。

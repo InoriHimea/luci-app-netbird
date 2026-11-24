@@ -50,3 +50,7 @@ id_ed25519*
 *.log
 *.tar
 /build/
+
+# Python bytecode
+__pycache__/
+*.pyc

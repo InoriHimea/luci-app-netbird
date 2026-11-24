@@ -1,6 +1,6 @@
 # NetBird agent 夜间自动更新实施待办
 
-状态：武汉r17只诊断ON（60秒/rev8/基线1），自动恢复OFF、owner none、agent更新OFF。最小P1已上线，gateway3 timer已修正为采集结束后60秒，3个自然有效周期通过；修正后新的完整24小时观察尚未启动。NBH项目实时24项中17完成、7处理中，剩余现场验收、56窗口/独立恢复入口及推广门槛未解除。
+状态：武汉r17只诊断ON（60秒/rev8/基线1），自动恢复OFF、owner none、agent更新OFF。最小P1及timer完成后60秒修正已通过短窗口验收；修正后独立24小时观察已于北京时间11-19 19:47完成并于11-24审阅：取证完整、健康为有限定通过（非全绿）。最近核对NBH项目24项中17完成、7处理中，剩余现场验收、56窗口/独立恢复入口及推广门槛未解除。
 
 ## [进行中] NBH-19最小P1上线后的剩余现场验收（2026-11-16）
 
@@ -31,6 +31,19 @@
 - 原生行为通过：切换后poll1794994769→1794994833→1794994897，间隔64/64秒，武汉与两LAN每轮fresh/PASS、无重复旧poll/服务失败。首次启动重显的切换前poll1794994687已排除并留纠正记录，不能用3条日志冒充3个切换后有效周期。
 - 最终保护通过：武汉11SHA/PID9497保持，中央保护仅timer按批准SHA改变，其他文件不变；新旧timer均active、P1 enabled，自动恢复OFF、owner none/accepted0。未手动once、未取密、未重开24小时、未改56/路由/ACL/阈值/目标；此为短窗口修正验收，不是新的24小时健康结论。
 - 生产修正已归档并同步：NBH-19附件11322（11421字节，下载SHA256 f03657d1cd00ca72647d1b240e6690b9cc171ccc12e48d2f60415d634b38c3db一致），NBH-19评论11259、NBH-1评论11260均GET确认，保持处理中。后续若安排修正后完整观察须新建独立窗口，不覆盖原采样；本轮按明确范围只验3个自然有效周期。
+- 本人2026-11-18要求有任务则按推荐顺序继续：第一项新独立24小时只读观察已启动；旧窗口/attempt/报告不覆盖，未重做timer切换或凭据交付。预检中央10文件与修正后基线一致、武汉11保护SHA/PID9497一致，现役新旧timer active且owner none/automatic OFF。
+- 新窗口范围：每60秒只读中央read和武汉已发布缓存/进程，24小时截止及64MiB证据上限；额外仅保留同一缓存的snapshot原因/前后边界变化字段名与run绑定，不导出原始配置或触发检查。完整分母、唯一有效run、过期/SSH异常、配置与进程变化分别统计，不把取证完整等同健康通过。
+- 当前窗口：UTC2026-11-18T11:47:06.218417至11-19T11:47:06.218417（北京时间11-18 19:47至11-19 19:47）；本机持久service nbh-p1-postfix-24h-20261118，Python PID28232。新目录C:/Users/25321/AppData/Local/netbird-observer-observations/p1-postfix-20261118T114322Z/，父级postfix-20261118-launch.json与窗口attempt独占防重；64MiB/24小时预算保持。
+- 启动验证：实际smoke两端ok/15项检查；新边界摘要与缓存run绑定，原生ucode内存夹具正确识别routes前后变化；不回传边界原始值。节点unique计数排除null身份，保留跨读run不一致/证据不可用计数。首份样本两LAN PASS、node fresh，静态6项UNKNOWN不抹除；仅启动通过，不是24小时验收。
+- 修正后窗口审阅（2026-11-24，本人要求按顺序继续）：collection_complete，1441/1441样本、无解析错误，间隔59.985–60.016秒；原JSONL13438436字节SHA256 dab88102a1f694f06760df0f3a9f8a3b3db2041f9424ee7263f8b173ecb110f0不变。取证完整。
+- 中央：1344个独立poll，间隔63–69秒为主（约64.3秒均值，与完成后60秒timer一致，无跳轮）；唯一130秒间隔对应UTC11-19T06:46:06一次采样端SSH_READ_TIMEOUT，未见生产缺poll。10保护SHA全窗无不一致，service全success，两timer active，owner none/provider_accepted0。原“约1350/少6个”为估算偏高，已勘误。
+- node：1336个独立run；9次COMMAND_TIMEOUT非fresh（last_source最大135秒，最长连续2样本）均恢复；119–121秒run间隔是60秒node周期与约64秒中央读取相位错开，不是节点跳轮。
+- LAN（按独立run）：rdp55共1324全PASS；rdp56共1328，仅1次FAIL:CONNECT_FAILED（run9a4e8a77，UTC11-19T09:48:33），前后run均PASS且同期武汉endpoint仍PASS，原因未定，不推断目标宕机。38个无run_id的UNKNOWN（36 COMMAND_TIMEOUT/2 NODE_UNREACHABLE）是读取来源超时，不是探测失败。
+- 武汉：0读取错误/0失败run；health PID6072/start98350425、agent PID9497/start63787988全程不变，automatic OFF，rev8/1。13次GENERATION_CHANGED与13次snapshot不完整一一对应（processes/maintenance），约每2小时20分出现、常连续2分钟，周期来源未核实；3次孤立endpoint TIMEOUT。
+- 集中时段UTC11-19T06:25–06:50：中央读取最长9.6秒，伴LAN读取超时、node非fresh3次及1次中央SSH超时，原因未核实。读取耗时中央p50 918ms/p99 3.6s，武汉p50 244ms/p99 352ms。
+- 事后保护（UTC2026-11-24T02:22，只读，不冒充截止时刻同步校验）：武汉两份同一基线sha256sum -c 11项OK、agent PID9497/start63787988、automatic OFF；中央10文件SHA与protection-before一致（timer d9a98428…），P1 timer active/enabled、旧ha timer active/waiting、owner none/accepted0；当前node fresh、两LAN PASS/fresh，boot5f5aa365保持。未once、未取密、未改配置/路由/ACL/56、未重启服务。
+- 审阅结论：取证完整；健康为有限定通过、非全绿，三项原因未定（约2小时20分代际周期、06:25–06:50读取拥塞、rdp56单次CONNECT_FAILED）。不关闭NBH-19其它方向/失联恢复/ACL负向/真实通知/56及推广门槛。证据：同目录review_postfix.py、review-20261124.json、protection-after-review.json。
+- 启动后首4样本核验：中央4个独立poll、最大间隔60.00046秒，边界摘要可用且run一致、保护引用无变化；UTC11:50:06的rdp56为UNKNOWN/COMMAND_TIMEOUT，保留原样本和startup-checkpoint，不重发探测覆盖。Jira NBH-19评论11261、NBH-1评论11262均POST201/GET确认，未转Done；当前等待真实窗口到期。
 
 
 ## [阻塞] 武汉诊断功能例外、P1与后续推广验收（2026-11-14）
