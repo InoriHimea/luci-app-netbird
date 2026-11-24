@@ -42,7 +42,7 @@
 - 武汉：0读取错误/0失败run；health PID6072/start98350425、agent PID9497/start63787988全程不变，automatic OFF，rev8/1。13次GENERATION_CHANGED与13次snapshot不完整一一对应（processes/maintenance），约每2小时20分出现、常连续2分钟，周期来源未核实；3次孤立endpoint TIMEOUT。
 - 集中时段UTC11-19T06:25–06:50：中央读取最长9.6秒，伴LAN读取超时、node非fresh3次及1次中央SSH超时，原因未核实。读取耗时中央p50 918ms/p99 3.6s，武汉p50 244ms/p99 352ms。
 - 事后保护（UTC2026-11-24T02:22，只读，不冒充截止时刻同步校验）：武汉两份同一基线sha256sum -c 11项OK、agent PID9497/start63787988、automatic OFF；中央10文件SHA与protection-before一致（timer d9a98428…），P1 timer active/enabled、旧ha timer active/waiting、owner none/accepted0；当前node fresh、两LAN PASS/fresh，boot5f5aa365保持。未once、未取密、未改配置/路由/ACL/56、未重启服务。
-- 审阅结论：取证完整；健康为有限定通过、非全绿，三项原因未定（约2小时20分代际周期、06:25–06:50读取拥塞、rdp56单次CONNECT_FAILED）。不关闭NBH-19其它方向/失联恢复/ACL负向/真实通知/56及推广门槛。证据：同目录review_postfix.py、review-20261124.json、protection-after-review.json。
+- 审阅结论：取证完整；健康为有限定通过、非全绿，三项原因未定（约2小时20分代际周期、06:25–06:50读取拥塞、rdp56单次CONNECT_FAILED）。不关闭NBH-19其它方向/失联恢复/ACL负向/真实通知/56及推广门槛。证据：同目录review_postfix.py、review-20261124.json、protection-after-review.json。Jira审阅评论NBH-19 11400、NBH-1 11401已回读确认，附件待手动上传NBH-19后核对。
 - 启动后首4样本核验：中央4个独立poll、最大间隔60.00046秒，边界摘要可用且run一致、保护引用无变化；UTC11:50:06的rdp56为UNKNOWN/COMMAND_TIMEOUT，保留原样本和startup-checkpoint，不重发探测覆盖。Jira NBH-19评论11261、NBH-1评论11262均POST201/GET确认，未转Done；当前等待真实窗口到期。
 
 
