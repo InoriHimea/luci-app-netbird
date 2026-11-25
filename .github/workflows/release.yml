@@ -120,11 +120,11 @@ jobs:
             echo "::error::Package version mismatch: ipk=$VER apk=$APK_VER"
             exit 1
           fi
-          # The package keeps a fixed -r1 suffix (feed index.json and file names), because
-          # installed versions only accept x.y.z-rN when checking for updates. Public
-          # surfaces (manifest.json version, Release tag and title) show x.y.z. Only an
-          # exact -r1 is dropped, so any other -rN stays visible instead of colliding.
-          PUBLIC_VER="${VER%-r1}"
+          # Fork: installed versions read releases/latest and only accept a tag of the form
+          # vX.Y.Z-rN when checking for updates (_PKGVER_RE in rpcd netbird.uc). Keep the
+          # full package version on every public surface (manifest.json, Release tag and
+          # title); never strip -r1, or the update check on devices breaks.
+          PUBLIC_VER="$VER"
           echo "version=$VER" >> "$GITHUB_OUTPUT"
           echo "public_version=$PUBLIC_VER" >> "$GITHUB_OUTPUT"
           UPDATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
