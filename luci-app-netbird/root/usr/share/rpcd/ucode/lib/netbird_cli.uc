@@ -17,16 +17,19 @@
 //     `ubus call service list '{"name":"netbird"}'` 解析 instances[*].running。
 //   - 严禁反向引用 state 模块（防循环依赖）。
 //
-// module-compat：作为 ucode 模块经 loadfile()() 加载，返回
+// module-compat：作为 ucode 模块经 loadfile()() 加载，返回 { create }；
+// create({ shell }) 返回
 // { classify_status_text, fetch_status_json, get_opkg_versions, probe_running_via_ubus }。
-// shell.uc 也用 loadfile 加载，路径走 NBLIB env override（默认 /usr/share/rpcd/ucode/lib）。
+// shell 由调用方传入已加载的 shell.uc 实例（netbird.uc / state.uc），不再各自 loadfile：
+// 24.10/25.12 的 ucode 给每个已编译源文件常驻一个 fd，rpcd 每次 HUP 重载整代继承。
+// 仅独立使用（测试）且未传 shell 时才自行加载，路径走 NBLIB env override。
 
 import { popen, access } from 'fs';
 
 const _LIB = getenv('NBLIB') || '/usr/share/rpcd/ucode/lib';
-let _shell = loadfile(_LIB + '/shell.uc')();
-let shell_quote = _shell.shell_quote;
-let _with_timeout = _shell.with_timeout;
+// create() 赋值；下面的函数经闭包引用。
+let shell_quote = null;
+let _with_timeout = null;
 
 // _popen_read(cmd, max_bytes?) → { stdout, exit_code, ok_pipe }
 // 注意 ucode popen 单管道返码语义：close() 返回 exit code（已 >>8 处理）
@@ -174,4 +177,11 @@ function probe_running_via_ubus() {
     }
 }
 
-return { classify_status_text, fetch_status_json, get_opkg_versions, probe_running_via_ubus };
+function create(deps) {
+    let shell = (deps && deps.shell) || loadfile(_LIB + '/shell.uc')();
+    shell_quote = shell.shell_quote;
+    _with_timeout = shell.with_timeout;
+    return { classify_status_text, fetch_status_json, get_opkg_versions, probe_running_via_ubus };
+}
+
+return { create };

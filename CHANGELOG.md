@@ -41,6 +41,23 @@ Local candidate `0.2.0-r17` (2026-11-13) adds old-ucode binary RDP request compa
 - OpenWrt24.10 ucode compatibility: the bounded command runner no longer imports unavailable `fs.mkdtemp`. It exclusively creates kernel-UUID-named directories with mode0700 and never adopts an existing path; independently armed deadlines, process-group draining and orphan cleanup remain unchanged. Native runner regressions pass on the actual Wuhan runtime and25.12. Local candidate0.2.0-r14 includes reproducible SDK input staging with explicit modes and LF text, preventing Windows CRLF and private-workspace umask from corrupting scripts or shared system directories. Failedr10/r11 and earlier frozen assets are not replaced.
 - Native24.10 rule JSON retains `suppress_prefixlen` and presence-only `"not":null` semantics under canonical selectors; conflicting suppression spellings and malformed values still fail closed. Firewall inventory accepts the defined nft families including `ip6` without weakening table identity checks. RED/GREEN regressions, old-runtime real-wire parsing, both SDK builds, actual packaged procd/RPC publication and the Wuhan LAN-onlyr14 trial pass; absent approved paths/LAN probes remain unverified and automatic recovery remainsOFF.
 
+## 0.2.2-r3 — 2026-11-25
+
+Fork release on top of upstream `0.2.2`.
+
+### Fixed
+
+- Updating the app no longer leaks rpcd file descriptors. The package `postinst` used to send SIGHUP to rpcd; rpcd then re-executes itself and keeps every inherited descriptor, and the ucode shipped with OpenWrt 24.10 and 25.12 keeps one descriptor open per compiled source file (fixed upstream in ucode 1dd1f88c81, not yet in those releases). Each update added a full generation (~61 descriptors on a 24.10 router; two per update on firmware whose own `default_postinst` also reloads rpcd), until rpcd ran out of descriptors. `postinst` now runs `/etc/init.d/rpcd restart` about 5 seconds after the install, in its own session (`setsid`, or `start-stop-daemon -b` on 22.03), so `update_luci_app` still returns its result to the page first. The NetBird daemon is not restarted.
+- `netbird.uc` loads each backend library once and passes the loaded `shell`, `paths` and `netbird_cli` modules to `netbird_cli.uc` and `state.uc` (new `create(deps)` factory) instead of each module loading its own copy. Before, every rpcd generation compiled `shell.uc` four times and `paths.uc` / `netbird_cli.uc` twice; now each library file is compiled once.
+
+### Changed
+
+- Because the restart ends the LuCI session, the Versions page now says the management service restarts and asks you to log in again after an app update (Chinese translation included).
+
+### Tests
+
+- `scripts/test-package-upgrade.sh` checks that the upgrade schedules exactly one delayed rpcd restart outside the installer's session (no SIGHUP), that `netbird.uc` opens every library file at most once, and now exits non-zero on failure.
+
 ## 0.2.2-r2 — 2026-11-25
 
 Fork release on top of upstream `0.2.2`. From this release, the fork keeps the upstream version in `x.y.z` and counts its own releases in `-rN`; the Release tag, `manifest.json` and this changelog show the full version (`v0.2.2-r2`).

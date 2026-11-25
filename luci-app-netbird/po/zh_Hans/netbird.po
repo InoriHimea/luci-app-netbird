@@ -1089,8 +1089,10 @@ msgstr "正在更新 luci-app-netbird"
 msgid "Downloading and installing luci-app-netbird packages…"
 msgstr "正在下载并安装 luci-app-netbird 软件包……"
 
-msgid "luci-app-netbird updated to v%s. Reload this page to use the new UI."
-msgstr "luci-app-netbird 已更新到 v%s。请重新加载此页面以使用新版界面。"
+msgid ""
+"luci-app-netbird updated to v%s. The management service restarts in a few "
+"seconds; log in again to use the new UI."
+msgstr "luci-app-netbird 已更新到 v%s。管理服务将在几秒后重启，请重新登录以使用新版界面。"
 
 msgid "luci-app-netbird update failed: %s"
 msgstr "luci-app-netbird 更新失败：%s"

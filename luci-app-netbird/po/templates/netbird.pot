@@ -1545,7 +1545,9 @@ msgstr ""
 msgid "Downloading and installing luci-app-netbird packages…"
 msgstr ""
 
-msgid "luci-app-netbird updated to v%s. Reload this page to use the new UI."
+msgid ""
+"luci-app-netbird updated to v%s. The management service restarts in a few "
+"seconds; log in again to use the new UI."
 msgstr ""
 
 msgid "luci-app-netbird update failed: %s"

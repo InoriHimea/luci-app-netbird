@@ -32,7 +32,7 @@ LUCI_MAINTAINER:=looong-cat <foxhis11@gmail.com>
 
 PKG_NAME:=luci-app-netbird
 PKG_VERSION:=0.2.2
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 PKG_MAINTAINER:=looong-cat <foxhis11@gmail.com>
 PKG_LICENSE:=Apache-2.0
 PKG_LICENSE_FILES:=LICENSE
@@ -53,14 +53,30 @@ define Package/luci-app-netbird/conffiles
 /etc/config/netbird_health
 endef
 
-# 替换 luci.mk 默认的安装脚本,只改一处:rpcd 重载放到后台稍后执行。
-# 22.03、23.05 的 rpcd 收到 HUP 后不再回复进行中的调用,从页面更新本插件时,
-# 安装已成功,页面却等到超时并报更新失败。其余两行和默认脚本相同。
+# 替换 luci.mk 默认的安装脚本,只改一处:不发 HUP,改为约 5 秒后在脱离当前会话的
+# 后台执行 /etc/init.d/rpcd restart。
+# - 延迟:22.03、23.05 的 rpcd 重载时不再回复进行中的调用;从页面更新本插件时
+#   update_luci_app 必须先把结果返回给页面,否则安装成功页面却超时报失败。
+# - restart 而非 HUP:rpcd 收 HUP 后 execv 自身,ucode(24.10/25.12 未含上游
+#   1dd1f88c81)给每个已编译源文件常驻一个无 O_CLOEXEC 的 fd,每次重载整代继承,
+#   多次升级后 rpcd 描述符累积。restart 起新进程,描述符回到基线;代价是 LuCI
+#   会话丢失,页面提示重新登录。
+# - setsid:脱离安装者(rpcd → opkg/apk)的会话和进程组,rpcd 停止时不连带。
+#   22.03 的 busybox 没有 setsid,改用 start-stop-daemon -b(同样新建会话);
+#   -p 指向不存在的 pid 文件,避免按 /bin/sh 匹配到已有进程而拒绝启动。
+# 其余两行和默认脚本相同。
 define Package/$(PKG_NAME)/postinst
 [ -n "$${IPKG_INSTROOT}" ] || { \
 	rm -f /tmp/luci-indexcache.*
 	rm -rf /tmp/luci-modulecache/
-	( sleep 5; killall -HUP rpcd ) </dev/null >/dev/null 2>&1 &
+	if command -v setsid >/dev/null 2>&1; then
+		setsid sh -c 'sleep 5; /etc/init.d/rpcd restart' </dev/null >/dev/null 2>&1 &
+	elif command -v start-stop-daemon >/dev/null 2>&1; then
+		start-stop-daemon -S -b -p /var/run/luci-netbird-rpcd-restart.pid -x /bin/sh -- \
+			-c 'sleep 5; /etc/init.d/rpcd restart' </dev/null >/dev/null 2>&1
+	else
+		( sleep 5; /etc/init.d/rpcd restart ) </dev/null >/dev/null 2>&1 &
+	fi
 	exit 0
 }
 endef

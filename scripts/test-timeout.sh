@@ -68,7 +68,7 @@ if (system(shell.with_timeout('/tmp/nb-exit-nine')) != 9)
 print('版本、落盘文件校验、服务状态通过\n');
 EOF
 cat > /tmp/nb-hang-check.uc <<'EOF'
-let cli = loadfile(getenv('NBLIB') + '/netbird_cli.uc')();
+let cli = loadfile(getenv('NBLIB') + '/netbird_cli.uc')().create();
 let t0 = time();
 let r = cli.fetch_status_json('/usr/bin/netbird');
 let secs = time() - t0;

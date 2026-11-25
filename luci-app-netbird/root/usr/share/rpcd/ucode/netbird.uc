@@ -38,8 +38,10 @@ let _shell    = loadfile(_LIB + '/shell.uc')();
 let _paths    = loadfile(_LIB + '/paths.uc')();
 let _envelope = loadfile(_LIB + '/envelope.uc')();
 let _sanitize = loadfile(_LIB + '/sanitize.uc')();
-let _state    = loadfile(_LIB + '/state.uc')();
-let _cli      = loadfile(_LIB + '/netbird_cli.uc')();
+// netbird_cli/state 复用上面已加载的实例，不各自再 loadfile（每个已编译源文件在
+// rpcd 存活期间占一个 fd）。
+let _cli      = loadfile(_LIB + '/netbird_cli.uc')().create({ shell: _shell });
+let _state    = loadfile(_LIB + '/state.uc')().create({ shell: _shell, paths: _paths, cli: _cli });
 let _action_lock = loadfile(_LIB + '/action_lock.uc')().create();
 let _agent = null;
 let _schedule = null;

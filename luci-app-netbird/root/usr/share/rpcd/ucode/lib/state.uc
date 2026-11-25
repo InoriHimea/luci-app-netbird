@@ -17,21 +17,20 @@
 //   iface_backend: { ready, wireguard, tun }
 //     ready=false 仅在「高置信两个后端都不可用」时；存疑时 ready=true（宁漏报不误报）
 //
-// module-compat：作为 ucode 模块经 loadfile()() 加载，返回 { probe_state }。
-// 依赖 paths/netbird_cli/shell 也走 loadfile，路径 NBLIB env override。
+// module-compat：作为 ucode 模块经 loadfile()() 加载，返回 { create }；
+// create({ shell, paths, cli }) 返回 { probe_state, probe_iface_backend }。
+// 依赖由 netbird.uc 传入已加载实例，不再各自 loadfile（每个已编译源文件在 rpcd
+// 存活期间占一个 fd）。仅缺省的依赖才按 NBLIB env override 自行加载（独立使用/测试）。
 
 import { popen, access, open, lsdir } from 'fs';
 
 const _LIB = getenv('NBLIB') || '/usr/share/rpcd/ucode/lib';
-let _paths = loadfile(_LIB + '/paths.uc')();
-let _cli = loadfile(_LIB + '/netbird_cli.uc')();
-let _shell = loadfile(_LIB + '/shell.uc')();
-let resolve_netbird_bin = _paths.resolve_netbird_bin;
-let classify_status_text = _cli.classify_status_text;
-let probe_running_via_ubus = _cli.probe_running_via_ubus;
-let shell_quote = _shell.shell_quote;
-
-let _t = _shell.with_timeout;
+// create() 赋值；下面的函数经闭包引用。
+let resolve_netbird_bin = null;
+let classify_status_text = null;
+let probe_running_via_ubus = null;
+let shell_quote = null;
+let _t = null;
 
 // OpenWrt 把 .ko 平铺在 /lib/modules/<ver>/；一棵树通常几十个条目。
 // lsdir 上限防止异常目录把 get_status 热路径拖垮。
@@ -285,4 +284,17 @@ function probe_state() {
     return st;
 }
 
-return { probe_state, probe_iface_backend };
+function create(deps) {
+    deps = deps || {};
+    let shell = deps.shell || loadfile(_LIB + '/shell.uc')();
+    let paths = deps.paths || loadfile(_LIB + '/paths.uc')();
+    let cli = deps.cli || loadfile(_LIB + '/netbird_cli.uc')().create({ shell });
+    resolve_netbird_bin = paths.resolve_netbird_bin;
+    classify_status_text = cli.classify_status_text;
+    probe_running_via_ubus = cli.probe_running_via_ubus;
+    shell_quote = shell.shell_quote;
+    _t = shell.with_timeout;
+    return { probe_state, probe_iface_backend };
+}
+
+return { create };

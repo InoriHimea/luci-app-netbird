@@ -172,11 +172,24 @@ binary, but is not itself a periodic upgrade mechanism.
   `luci-i18n-netbird-zh-cn` only when it is already installed. UI, RPC code, settings/watchdog
   scripts and migration hooks are therefore included; the NetBird binary and identity are not
   replaced by application updates. The installed app version must match the requested one.
-- Before the native post-install RPC reload, r5 archives legacy `netbird.uc.bak*`
+- Before the post-install RPC restart, r5 archives legacy `netbird.uc.bak*`
   files into unique, root-only `/root/netbird-rpcd-backup.*` directories. rpcd scans
   every regular file in its script directory, regardless of suffix; an old backup
-  can register the same object first. Native SIGHUP reload re-executes rpcd, so no
-  extra management-service restart or NetBird daemon restart is needed.
+  can register the same object first.
+- The package `postinst` does not send SIGHUP to rpcd. About 5 seconds after the
+  install, a background job in its own session (`setsid`, or `start-stop-daemon -b` on
+  22.03, whose busybox has no `setsid`) runs
+  `/etc/init.d/rpcd restart`, so `update_luci_app` returns its result to the page first
+  (22.03/23.05 rpcd stops answering in-flight calls while it reloads). A restart, not
+  SIGHUP: on SIGHUP rpcd re-executes itself and keeps every inherited descriptor, and
+  ucode 2025-07-18 (24.10) / 2026-07-09 (25.12) keeps one descriptor open per compiled
+  source file (fixed upstream in ucode 1dd1f88c81), so each reload added a full
+  generation of descriptors (~61 on Wuhan) until rpcd hit its limit. A restart starts a
+  fresh process with a baseline descriptor count. It ends the LuCI session, so the
+  Versions page asks the user to log in again. The NetBird daemon is not restarted.
+- `netbird.uc` loads each `lib/*.uc` file once and hands the loaded `shell`, `paths`
+  and `netbird_cli` instances to `netbird_cli.uc` and `state.uc` through their
+  `create(deps)` factory, instead of each module calling `loadfile` again.
 
 | OpenWrt series | Package manager | Manifest branch | Package filename |
 |---|---|---|---|

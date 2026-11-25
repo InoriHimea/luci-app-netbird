@@ -616,7 +616,7 @@ return view.extend({
 		}), { ok: false }).then(function (res) {
 			ui.hideModal();
 			if (res && res.ok) {
-				ui.addNotification(null, E('p', {}, _('luci-app-netbird updated to v%s. Reload this page to use the new UI.').format(appVer(res.data && res.data.to) || '?')), 'info');
+				ui.addNotification(null, E('p', {}, _('luci-app-netbird updated to v%s. The management service restarts in a few seconds; log in again to use the new UI.').format(appVer(res.data && res.data.to) || '?')), 'info');
 				self._luciAppLatest = null;
 				return self.refresh();
 			}
