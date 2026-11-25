@@ -3215,12 +3215,25 @@ function _do_up(req, from_watchdog) {
 }
 
 // Root-only watchdog entry. Shell observations are never authorization to write.
+// Consecutive connected watchdog rounds that still saw /etc/netbird-settings.pending.
+// Lives in the rpcd process; an rpcd restart only delays the apply by a few rounds.
+let _watchdog_pending_rounds = 0;
+const _WATCHDOG_PENDING_ROUNDS = 4;
+
 function _do_watchdog_step(req) {
+    // Any round that does not end connected-with-marker restarts the count.
+    let pending_rounds = _watchdog_pending_rounds;
+    _watchdog_pending_rounds = 0;
     let a = req?.args || {};
     if (type(a.pid) != 'int' || type(a.recover) != 'bool' || !register_watchdog(a.pid))
         return err(CODE.INVALID_INPUT, 'The running watchdog has not negotiated action ownership.');
     let maintenance = maintenance_state();
-    if (maintenance.state == 'unknown' || maintenance.markers.settings || maintenance.markers.update_settings)
+    // /etc/netbird-settings.pending is not maintenance: it only records settings that
+    // netbird-settings could not apply yet (not logged in, daemon not responding, or
+    // disconnected on purpose). Treating it as maintenance left the watchdog idle
+    // forever when the connection came back without do_up. The agent-update deferral
+    // marker stays a maintenance gate; the update monitor retries it.
+    if (maintenance.state == 'unknown' || maintenance.markers.update_settings)
         return ok({ state: 'maintenance' });
     let c = uci.cursor(), desired = c.get('netbird', 'runtime', 'desired_connected');
     if (c.get('netbird', 'settings', 'service_enabled') == '0' || desired == '0')
@@ -3237,6 +3250,17 @@ function _do_watchdog_step(req) {
         }
         if (desired == null || desired == '') _set_desired_connected(true);
         if (c.get('netbird', 'runtime', 'last_error')) _clear_runtime_error();
+        // Connected without do_up (CLI login, daemon recovered on its own): nothing else
+        // applies the pending settings. Wait 4 rounds (90 s+) so a do_up that is still
+        // confirming its connection applies them itself first.
+        if (maintenance.markers.settings) {
+            pending_rounds++;
+            if (pending_rounds >= _WATCHDOG_PENDING_ROUNDS) {
+                _apply_pending_settings();
+                return ok({ state: 'connected', settings_applied: true });
+            }
+            _watchdog_pending_rounds = pending_rounds;
+        }
         return ok({ state: 'connected' });
     }
     if (desired != '1') return ok({ state: 'stopped' });

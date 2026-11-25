@@ -9,6 +9,9 @@
 
 TAG="luci-netbird-watchdog"
 INTERVAL="${NB_AUTORECONNECT_INTERVAL:-30}"
+# 有界执行与守护进程日志级别下发,与 netbird-settings 共用。
+. "${NB_LIBDIR:-/usr/share/netbird}/nb-run-bounded.sh"
+. "${NB_LIBDIR:-/usr/share/netbird}/nb-log-level.sh"
 # 重连连续失败时指数退避(INTERVAL→2x→…→封顶 MAX_INTERVAL),连上即复位;
 # 避免长时间 outage 每 INTERVAL 秒一次高成本 do_up + 日志刷屏。
 MAX_INTERVAL="${NB_AUTORECONNECT_MAX_INTERVAL:-300}"
@@ -49,6 +52,15 @@ _bump_backoff() {
 	[ "$backoff" -gt "$MAX_INTERVAL" ] && backoff="$MAX_INTERVAL"
 }
 
+# 守护进程重启(崩溃被 procd 拉起、手动 restart、换二进制)后日志级别回到 info。
+# 只在 watchdog_step 确认守护进程有响应(connected / authentication_required)时补下发;
+# nb_sync_log_level 记录已下发的 PID+级别,两者都没变时不调用 netbird。
+_maybe_sync_log_level() {
+	bin="$(command -v netbird 2>/dev/null)"
+	[ -n "$bin" ] || { [ -x /usr/bin/netbird ] && bin=/usr/bin/netbird; } || return 0
+	nb_sync_log_level "$bin" >/dev/null 2>&1
+}
+
 EXITNODE_FLAG="/var/run/netbird-luci-exitnode.restored"
 
 _maybe_restore_exit_node() {
@@ -86,6 +98,7 @@ while :; do
 		_reset_backoff
 		attempt_wait=0
 		last_failure=0
+		_maybe_sync_log_level
 		_maybe_restore_exit_node
 		;;
 	attempted)
@@ -93,7 +106,13 @@ while :; do
 		_bump_backoff
 		last_failure=0
 		;;
-	stopped|authentication_required|not_installed)
+	authentication_required)
+		_reset_backoff
+		attempt_wait=0
+		last_failure=0
+		_maybe_sync_log_level
+		;;
+	stopped|not_installed)
 		_reset_backoff
 		attempt_wait=0
 		last_failure=0

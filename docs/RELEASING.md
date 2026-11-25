@@ -26,22 +26,28 @@ the current run finishes.
 ## Changelog
 
 Every release must update `CHANGELOG.md` in the same change set: one entry per
-shipped version, titled with the public version and date (`## x.y.z — YYYY-MM-DD`),
-followed by notable changes. Entries before `0.2.2` keep their original `x.y.z-rN`
-titles. The automated GitHub Release notes only list build provenance and assets —
+shipped version, titled with the full package version and date
+(`## x.y.z-rN — YYYY-MM-DD`), followed by notable changes. The `0.2.2` entry keeps
+its original title; it shipped as `0.2.2-r1`. The automated GitHub Release notes only list build provenance and assets —
 they are not a substitute for the changelog.
 
 ## Versions
 
-The package version is `x.y.z-r1`: `PKG_VERSION` is `x.y.z` and `PKG_RELEASE` stays 1.
-Everything public shows only `x.y.z`.
+This is a fork of an open-source project. The package version is `x.y.z-rN`:
+
+- `PKG_VERSION` (`x.y.z`) is always the upstream release this fork is based on. It
+  changes only when an upstream release is merged, so the version shows at a glance
+  which upstream code a package contains.
+- `PKG_RELEASE` (`N`) counts this fork's own releases on top of that upstream
+  version. Fork-only fixes and features increase it; merging a new upstream release
+  resets it to 1.
 
 | Where | Shows |
 | --- | --- |
-| Package file names, the feed's `index.json`, what opkg/apk report | `0.2.2-r1` |
-| The app's Versions page, `manifest.json` `version`, GitHub Release tag and title, changelog titles, docs | `0.2.2` (tag `v0.2.2`) |
+| Package file names, the feed's `index.json`, what opkg/apk report, `manifest.json` `version`, GitHub Release tag and title, changelog titles | `0.2.2-r2` (tag `v0.2.2-r2`) |
+| The app's Versions page | `0.2.2` for `-r1`, otherwise the full version (`0.2.2-r2`) |
 
-The `-r1` suffix is kept on purpose. Installed copies of this app check for updates
+The `-rN` suffix is kept on purpose, including `-r1`. Installed copies of this app check for updates
 by reading the feed's `index.json`, and they only accept a version in the `x.y.z-rN`
 form there. Copies already on routers cannot be changed, so without the suffix their
 update check would fail and they would never be offered a new version from the app.
@@ -49,12 +55,12 @@ The app compares the full `x.y.z-rN` versions; only the display drops an exact `
 Any other suffix, such as `0.1.0-r27`, is shown unchanged so two different versions
 never look the same.
 
-Always bump `PKG_VERSION` in `luci-app-netbird/Makefile` for a code change that should
-ship:
+For a code change that should ship:
 
-- A new feature or a behavior change users will notice: increase the middle number and
-  reset the last number to 0.
-- Anything else, such as bug fixes and translations: increase the last number.
+- A fork-only change (fix, feature, translation): increase `PKG_RELEASE` in
+  `luci-app-netbird/Makefile` and keep `PKG_VERSION`.
+- Merging an upstream release: set `PKG_VERSION` to that upstream version and reset
+  `PKG_RELEASE` to 1.
 
 ## What the workflow does
 
@@ -63,17 +69,13 @@ The workflow reads the package version from the built file names, for example:
 - `luci-app-netbird_0.2.2-r1_all.ipk`
 - `luci-app-netbird-0.2.2-r1.apk`
 
-It verifies that the ipk and apk builds report the same full version, drops an exact
-`-r1` suffix to get the public version, and then:
+It verifies that the ipk and apk builds report the same full version, and then:
 
-- writes the public version to `manifest.json` (the download links there come from the
-  file list, so they keep the real `-r1` file names)
-- creates the GitHub Release `v<public version>` (for example `v0.2.2`), or updates it
-  and replaces its assets if that Release already exists
+- writes the full version to `manifest.json`
+- creates the GitHub Release `v<full version>` (for example `v0.2.2-r2`), or updates it
+  and replaces its assets if that Release already exists. Installed copies only accept
+  a `vX.Y.Z-rN` tag from `releases/latest`, so the suffix is never dropped
 - uploads the ipk/apk packages and `manifest.json` as release assets
-
-Always bump `PKG_RELEASE` in `luci-app-netbird/Makefile` for a code change that
-should ship as a new package revision.
 
 Application self-update uses this fork's versioned Release assets starting at 0.2.0-r4.
 Devices on r3 or older need one manual/bootstrap upgrade because their updater still queries
@@ -113,7 +115,7 @@ key checking. Failed canary or identity/DNS/process drift stops the rollout and 
 from the retained backup/previous r6 packages.
 
 Releases up to `v0.2.1-r1` keep their existing tags. Because an existing Release is
-updated in place, a push to `main` that ships code without bumping `PKG_VERSION`
+updated in place, a push to `main` that ships code without bumping the version
 overwrites the assets of the current Release.
 
 ## Checks before releasing

@@ -41,6 +41,19 @@ Local candidate `0.2.0-r17` (2026-11-13) adds old-ucode binary RDP request compa
 - OpenWrt24.10 ucode compatibility: the bounded command runner no longer imports unavailable `fs.mkdtemp`. It exclusively creates kernel-UUID-named directories with mode0700 and never adopts an existing path; independently armed deadlines, process-group draining and orphan cleanup remain unchanged. Native runner regressions pass on the actual Wuhan runtime and25.12. Local candidate0.2.0-r14 includes reproducible SDK input staging with explicit modes and LF text, preventing Windows CRLF and private-workspace umask from corrupting scripts or shared system directories. Failedr10/r11 and earlier frozen assets are not replaced.
 - Native24.10 rule JSON retains `suppress_prefixlen` and presence-only `"not":null` semantics under canonical selectors; conflicting suppression spellings and malformed values still fail closed. Firewall inventory accepts the defined nft families including `ip6` without weakening table identity checks. RED/GREEN regressions, old-runtime real-wire parsing, both SDK builds, actual packaged procd/RPC publication and the Wuhan LAN-onlyr14 trial pass; absent approved paths/LAN probes remain unverified and automatic recovery remainsOFF.
 
+## 0.2.2-r2 — 2026-11-25
+
+Fork release on top of upstream `0.2.2`. From this release, the fork keeps the upstream version in `x.y.z` and counts its own releases in `-rN`; the Release tag, `manifest.json` and this changelog show the full version (`v0.2.2-r2`).
+
+### Fixed
+
+- Settings that could not be applied yet (`/etc/netbird-settings.pending`: not logged in, daemon not responding, or disconnected on purpose) no longer put the watchdog into maintenance. Before, if the connection then came back without the app's connect action (CLI login, daemon recovering by itself), the watchdog stopped reconnecting after drops and the saved settings were never applied until the user connected or saved again. The watchdog now keeps reconnecting and applies the pending settings after 4 consecutive connected rounds (about 2 minutes). The agent-update deferral marker still pauses the watchdog.
+- After the NetBird daemon restarts (crash restarted by procd, manual restart, binary replaced), the watchdog re-applies the saved log level. Before, it fell back to `info` until settings were saved again. NetBird is only called when the daemon PID or the level changed.
+
+### Tests
+
+- `scripts/test-watchdog-pending-settings.sh` (disposable OpenWrt container) covers both fixes; it fails on the previous code.
+
 ## 0.2.0-r7 — 2026-10-17
 
 ### Added
