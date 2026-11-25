@@ -28,5 +28,5 @@
 
 ## 发布与验收
 
-- [ ] 提交工作流：release commit `release: 0.2.2-r3`、annotated tag `v0.2.2-r3`、推送 origin、GitHub Actions 成功、Release/manifest 为 0.2.2-r3
-- [ ] 武汉 192.168.3.1 升级验收：rpcd PID 变化、`/proc/<rpcd>/fd` 回到约 70、NetBird PID 不变、check_luci_app_update 无更新
+- [x] 提交工作流：release commit dce5207 `release: 0.2.2-r3`、annotated tag `v0.2.2-r3`、推送 origin/main 与 tag；GitHub Actions run 45637936155 三个 job 成功；Release v0.2.2-r3 为 Latest，4 个包 + manifest.json（version=0.2.2-r3）
+- [x] 武汉 192.168.3.1 升级验收（11-25 22:59）：update_luci_app 18s rc=0 并返回结果；rpcd PID 17378→28513，fd 193→66（deleted 53→0）；NetBird PID 5101 不变；三份配置与升级前备份一致；netbird.uc/state.uc 与 dce5207 一致；check_luci_app_update 无更新；get_status running
