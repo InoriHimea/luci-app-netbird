@@ -8,6 +8,9 @@
 - 已知：`/etc/init.d/rpcd restart`可恢复且不影响NetBird PID；详见TODO-m.md节「v0.2.2-r1～r3发布与rpcd fd泄漏处置（2026-11-24～11-25）」。
 - 授权边界：武汉只读SSH调查（logread、/proc、ubus list）；不重启rpcd/netbird、不改固件文件，需动现网时另批。
 - 下一步：脱开再现时先保留现场（rpcd fd/状态、ubusd日志、内存），再对比固件定制的`/usr/libexec/emmc-health-install-mmc`等rpcd reload来源。
+- 观察基线（11-26 10:17，r3升级后约11h）：0.2.2-r3；rpcd PID28513 fd66/deleted0；ubus 48对象，session/uci/luci/luci.netbird齐全；NetBird PID5101，Management/Signal Connected，peers 25/34；watchdog PID28002、agent-update-monitor PID28082在跑；日志无watchdog/rpcd报错。按方案1继续观察数日，期间不主动排查。
+- 巡检判据：`ubus list | wc -l`明显少于48或缺`session`/`luci.netbird`即视为再现；rpcd fd持续上涨（无升级时）另记。
+- 再现时现场采集顺序（只读，采完再申请restart）：`date`；`ubus list`；`pidof rpcd ubusd`；`cat /proc/<rpcd>/status`、`/proc/<rpcd>/wchan`、`/proc/<rpcd>/stack`（如有）；`ls -l /proc/<rpcd>/fd`计数与`readlink`分类（含socket数）；`cat /proc/<rpcd>/net/unix | wc -l`；同样采ubusd的status/fd；`free`、`cat /proc/meminfo | head`；`logread | grep -v miniupnpd | tail -200`与`dmesg | tail -50`；`ls -la --full-time /usr/libexec/emmc-health-install-mmc`及其调用方近期执行痕迹。
 
 ## [进行中] NBH-19最小P1上线后的剩余现场验收（2026-11-16）
 
